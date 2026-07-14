@@ -124,6 +124,13 @@ type Session struct {
 	// defaultAllowedHostSuffixes; unexported so only this package's own
 	// tests can override it.
 	allowedHostSuffixes []string
+
+	// moleWorldBaseURL overrides the base URL FetchXSRFToken (auth.go) uses
+	// for its GET to /mole/world. Empty means production
+	// (defaultMoleWorldBaseURL, mirroring GC_BASE_URL, client.py:31).
+	// Unexported so only this package's own tests can point it at an
+	// httptest server, same pattern as allowedHostSuffixes above.
+	moleWorldBaseURL string
 }
 
 // NewSession builds a Session preloaded with the given cookies (keys are
