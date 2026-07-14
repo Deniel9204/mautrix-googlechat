@@ -105,6 +105,11 @@ type Client struct {
 	xsrfRefreshInterval time.Duration
 	lastTokenRefresh    time.Time
 	refreshMu           sync.Mutex
+
+	// sleepFn, when non-nil, replaces sleepOrDone for the supervision loop's
+	// backoff waits. Tests inject it to observe pacing deterministically
+	// without real sleeps; nil in production. Set before Connect.
+	sleepFn func(ctx context.Context, d time.Duration) error
 }
 
 // XSRFToken returns the token currently sent as x-framework-xsrf-token on

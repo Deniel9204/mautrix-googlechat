@@ -408,6 +408,75 @@ func TestSupervisionCleanCancel(t *testing.T) {
 	}
 }
 
+// TestSIDInvalidResyncPaced verifies that consecutive SID-invalid resyncs are
+// paced with a growing backoff (not fired back-to-back in milliseconds), so a
+// brief transient "Unknown SID" storm backs off before the fatal cap instead of
+// killing a recoverable connection. It injects sleepFn to observe the backoff
+// durations deterministically without real sleeps.
+func TestSIDInvalidResyncPaced(t *testing.T) {
+	fake := newScriptedChannel(
+		ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid),
+	)
+	rec := &stateRecorder{}
+	c := ladderClient(t, fake, rec)
+	// Spread min/max so growth is observable (ladderClient pins both to 1ms).
+	c.reconnectBackoffMin = 10 * time.Millisecond
+	c.reconnectBackoffMax = 100 * time.Millisecond
+
+	var mu sync.Mutex
+	var slept []time.Duration
+	c.sleepFn = func(_ context.Context, d time.Duration) error {
+		mu.Lock()
+		slept = append(slept, d)
+		mu.Unlock()
+		return nil // don't actually sleep
+	}
+
+	err := c.Connect(context.Background())
+
+	if !errors.Is(err, ErrSIDInvalid) {
+		t.Errorf("Connect returned %v, want errors.Is(ErrSIDInvalid) after the cap", err)
+	}
+	if got := rec.snapshot(); !statesEqual(got, []ConnState{ConnStateFatal}) {
+		t.Errorf("states = %v, want [FATAL]", got)
+	}
+	// resyncCount 1,2,3 each pace before reconnecting; the 4th exceeds the cap
+	// and goes Fatal WITHOUT sleeping -> exactly maxSIDInvalidResyncs sleeps.
+	mu.Lock()
+	defer mu.Unlock()
+	if len(slept) != maxSIDInvalidResyncs {
+		t.Fatalf("paced %d times (%v), want %d", len(slept), slept, maxSIDInvalidResyncs)
+	}
+	for i := 1; i < len(slept); i++ {
+		if slept[i] <= slept[i-1] {
+			t.Errorf("backoff did not grow: slept[%d]=%v <= slept[%d]=%v (%v)",
+				i, slept[i], i-1, slept[i-1], slept)
+		}
+	}
+}
+
+// TestSIDInvalidResyncCancelDuringBackoff verifies that cancelling the context
+// while a resync backoff is pending returns cleanly (nil), with no Fatal state.
+func TestSIDInvalidResyncCancelDuringBackoff(t *testing.T) {
+	fake := newScriptedChannel(ret(ErrSIDInvalid), ret(ErrSIDInvalid))
+	rec := &stateRecorder{}
+	c := ladderClient(t, fake, rec)
+	// sleepFn reports ctx-done on the first resync backoff, as sleepOrDone would
+	// when Disconnect cancels mid-wait.
+	c.sleepFn = func(_ context.Context, _ time.Duration) error {
+		return context.Canceled
+	}
+
+	if err := c.Connect(context.Background()); err != nil {
+		t.Errorf("Connect returned %v, want nil when cancelled during resync backoff", err)
+	}
+	for _, s := range rec.snapshot() {
+		if s == ConnStateFatal {
+			t.Errorf("unexpected FATAL state on clean cancel: %v", rec.snapshot())
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // XSRF refresh on 401 (client.py:499-539 fetch + brief's 401-retry mandate)
 // ---------------------------------------------------------------------------

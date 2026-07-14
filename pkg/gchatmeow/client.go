@@ -203,7 +203,7 @@ func (c *Client) Connect(ctx context.Context) error {
 				return err
 			}
 			c.emitState(ConnStateTransient, err)
-			if sleepOrDone(ctx, backoff) != nil {
+			if c.sleep(ctx, backoff) != nil {
 				return nil
 			}
 			backoff = c.nextBackoff(backoff)
@@ -242,7 +242,16 @@ func (c *Client) Connect(ctx context.Context) error {
 				c.emitState(ConnStateFatal, err)
 				return err
 			}
-			backoff = c.reconnectBackoffMin
+			// Pace each resync with a growing backoff (do NOT reset to min) so a
+			// brief transient "Unknown SID" storm on freshly-registered SIDs backs
+			// off before hitting the fatal cap instead of burning all retries in
+			// milliseconds. Python paces every retry and never fatals here; the
+			// brief pairs "immediately" only with ErrSIDExpiring, so pacing the
+			// resync is within spec and strictly safer.
+			if c.sleep(ctx, backoff) != nil {
+				return nil
+			}
+			backoff = c.nextBackoff(backoff)
 			continue
 		case IsAuthError(err):
 			// 401 / invalid_grant / not-logged-in -> dead session
@@ -254,7 +263,7 @@ func (c *Client) Connect(ctx context.Context) error {
 			// (user.py:352-382).
 			resyncCount = 0
 			c.emitState(ConnStateTransient, err)
-			if sleepOrDone(ctx, backoff) != nil {
+			if c.sleep(ctx, backoff) != nil {
 				return nil
 			}
 			backoff = c.nextBackoff(backoff)
@@ -265,7 +274,7 @@ func (c *Client) Connect(ctx context.Context) error {
 			// (user.py:319-321).
 			resyncCount = 0
 			c.emitState(ConnStateTransient, nil)
-			if sleepOrDone(ctx, backoff) != nil {
+			if c.sleep(ctx, backoff) != nil {
 				return nil
 			}
 			backoff = c.nextBackoff(backoff)
@@ -276,7 +285,7 @@ func (c *Client) Connect(ctx context.Context) error {
 			// (user.py:352-365, the generic Exception branch).
 			resyncCount = 0
 			c.emitState(ConnStateTransient, err)
-			if sleepOrDone(ctx, backoff) != nil {
+			if c.sleep(ctx, backoff) != nil {
 				return nil
 			}
 			backoff = c.nextBackoff(backoff)
@@ -464,6 +473,16 @@ func (c *Client) xsrfRefreshLoop(ctx context.Context) {
 }
 
 // nextBackoff doubles the current transient backoff up to reconnectBackoffMax.
+// sleep waits for d or until ctx is done, returning non-nil when ctx ended.
+// It routes through c.sleepFn when set (tests observe pacing deterministically),
+// falling back to the real sleepOrDone in production.
+func (c *Client) sleep(ctx context.Context, d time.Duration) error {
+	if c.sleepFn != nil {
+		return c.sleepFn(ctx, d)
+	}
+	return sleepOrDone(ctx, d)
+}
+
 func (c *Client) nextBackoff(cur time.Duration) time.Duration {
 	next := cur * 2
 	if c.reconnectBackoffMax > 0 && next > c.reconnectBackoffMax {
