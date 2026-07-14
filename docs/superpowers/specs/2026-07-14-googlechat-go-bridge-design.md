@@ -81,7 +81,7 @@ build.sh, Dockerfile, example-config.yaml, CI   copied from meta conventions
 
 Fixed choices: mautrix-go pinned to the commit mautrix/meta currently pins; **goolm**
 build tag (pure-Go crypto, no CGO) as default build; binary/config name
-`mautrix-googlechat`; module path `github.com/akumul/mautrix-googlechat` (changeable
+`mautrix-googlechat`; module path `github.com/Deniel9204/mautrix-googlechat` (changeable
 until first push).
 
 ## 4. Identifiers & persistence (permanent — frozen at M0)
