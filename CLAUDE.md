@@ -15,6 +15,11 @@ IMPLEMENTING; do not re-derive protocol facts from memory.
 - Never remove the `-tags goolm` build tag path.
 - pblite/stream decode errors must log-and-skip, never kill the channel.
 
+## Commits
+
+Plain conventional-commit messages only (`feat:`/`fix:`/`build:`/`docs:`/`test:`).
+Never add Co-Authored-By, AI attribution, or session-link trailers.
+
 ## Commands
 
 - Build: `./build.sh` · Test: `go test -tags goolm ./...` · Vet: `go vet -tags goolm ./...`
