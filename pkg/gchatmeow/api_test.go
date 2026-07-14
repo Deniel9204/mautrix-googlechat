@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -56,8 +57,15 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 		gotQuery = r.URL.Query()
 		gotHeaders = r.Header.Clone()
 
-		body := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(body)
+		// io.ReadAll, not a single r.Body.Read(buf) call: net/http.Request.Body
+		// makes no guarantee that one Read fills the whole buffer, so a
+		// single-Read version would be a latent flaky-test risk. t.Errorf
+		// (not Fatalf) because this runs on the server's own goroutine, not
+		// the test goroutine -- FailNow/Fatalf is unsafe there.
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading request body: %v", err)
+		}
 		gotBody = body
 
 		resp := &pb.GetSelfUserStatusResponse{

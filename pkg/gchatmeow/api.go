@@ -164,6 +164,17 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, requestPB, resp
 // means the server MAY base64-encode the body instead -- so if the raw
 // bytes don't parse as valid protobuf, this retries the same bytes after a
 // base64 decode before giving up.
+//
+// Residual risk (flagged by the gchat-port-auditor review, carried forward
+// to Task 13's live spike rather than fixed here): protobuf's wire format
+// is permissive enough that a genuinely base64-encoded body could in
+// principle parse "successfully" as a differently-structured, wrong
+// message on the FIRST attempt, before ever reaching the base64 fallback
+// -- silently returning a wrong-but-non-nil response instead of an error.
+// There's no header or other positive signal to disambiguate the two
+// encodings up front; this is inherent to the "try raw, then try base64"
+// strategy the task brief mandates. Low probability for realistically-sized
+// responses, but worth an explicit live-server check.
 func unmarshalAPIResponse(body []byte, responsePB proto.Message) error {
 	if err := proto.Unmarshal(body, responsePB); err == nil {
 		return nil
