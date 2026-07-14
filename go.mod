@@ -5,6 +5,7 @@ go 1.25.0
 tool go.mau.fi/util/cmd/maubuild
 
 require (
+	github.com/rs/zerolog v1.35.1
 	go.mau.fi/util v0.9.11-0.20260625130032-7f1066352431
 	google.golang.org/protobuf v1.36.11
 	maunium.net/go/mautrix v0.28.2-0.20260708122614-d9c352f407dd
@@ -20,7 +21,6 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.45 // indirect
 	github.com/petermattis/goid v0.0.0-20260330135022-df67b199bc81 // indirect
 	github.com/rs/xid v1.6.0 // indirect
-	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
