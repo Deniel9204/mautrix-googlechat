@@ -254,7 +254,15 @@ func TestHandleConnStatePersistsCookiesOnConnected(t *testing.T) {
 		saveFn:    func(context.Context) error { saveCount++; return nil },
 	}
 
-	gc.handleConnState(context.Background(), gchatmeow.ConnStateConnected, nil)
+	// Pre-cancelled: handleConnState's Connected branch (Task 12) also spawns
+	// syncChats in its own goroutine, which would otherwise attempt a real
+	// paginated_world network round trip through this test-only, never-
+	// actually-connected gchatmeow.Client -- same rationale and pattern as
+	// TestConnectBuildsAndInstallsClient's pre-cancelled context.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil)
 
 	if saveCount != 1 {
 		t.Fatalf("save called %d times, want 1", saveCount)
@@ -272,6 +280,7 @@ func TestHandleConnStatePersistsCookiesOnConnected(t *testing.T) {
 	if !gc.IsLoggedIn() {
 		t.Error("IsLoggedIn() = false after a Connected transition, want true")
 	}
+	time.Sleep(20 * time.Millisecond) // let the spawned syncChats goroutine return
 }
 
 func TestHandleConnStateDoesNotPersistOnTransient(t *testing.T) {

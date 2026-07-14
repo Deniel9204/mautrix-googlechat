@@ -30,6 +30,15 @@ import (
 )
 
 type GChatClient struct {
+	// Main is this login's owning connector, giving access to Config
+	// (e.g. Config.InitialChatSync in sync.go, Config.FormatDisplayname in
+	// userinfo.go) without reaching through UserLogin.Bridge.Network's
+	// interface type on every call. Populated by GChatConnector.LoadUserLogin
+	// (connector.go); left nil in tests that construct a bare *GChatClient
+	// directly (matching UserLogin's own "often nil in tests" pattern in this
+	// file -- only the methods that need it (sync.go, userinfo.go) require a
+	// real one).
+	Main      *GChatConnector
 	UserLogin *bridgev2.UserLogin
 
 	// mu guards conn and lastState, which the OnConnectionState callback
@@ -262,11 +271,20 @@ func (c *GChatClient) reportState(state gchatmeow.ConnState, err error) {
 // (possibly rotated) cookies into UserLoginMetadata so a later restart resumes
 // with the freshest session (Task 10 review carry-over (c); see also
 // login.go's SubmitCookies, which persists the initial post-validation
-// snapshot once at login).
+// snapshot once at login). Also kicks off the chat-list sync (sync.go's
+// syncChats, Task 12) once Connected -- matching Python's on_connect_later,
+// which calls self.sync() right before pushing BridgeStateEvent.CONNECTED
+// (user.py:555-560). syncChats runs in its own goroutine rather than inline:
+// handleConnState is conn's OnConnectionState callback and runs on conn's
+// own supervision goroutine (see wireAndStart's doc comment), so blocking it
+// here on a full paginated_world RPC round trip would stall that client's
+// ability to notice a subsequent reconnect/disconnect for as long as the
+// sync takes.
 func (c *GChatClient) handleConnState(ctx context.Context, state gchatmeow.ConnState, err error) {
 	c.reportState(state, err)
 	if state == gchatmeow.ConnStateConnected {
 		c.persistCookies(ctx)
+		go c.syncChats(ctx)
 	}
 }
 
@@ -349,13 +367,8 @@ func (c *GChatClient) IsThisUser(_ context.Context, userID networkid.UserID) boo
 	return userID == gcid.MakeUserID(string(c.UserLogin.ID))
 }
 
-func (c *GChatClient) GetChatInfo(_ context.Context, _ *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (c *GChatClient) GetUserInfo(_ context.Context, _ *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
+// GetChatInfo and GetUserInfo are implemented in chatinfo.go and userinfo.go
+// (Task 12) respectively.
 
 func (c *GChatClient) GetCapabilities(_ context.Context, _ *bridgev2.Portal) *event.RoomFeatures {
 	return &event.RoomFeatures{MaxTextLength: 4096}

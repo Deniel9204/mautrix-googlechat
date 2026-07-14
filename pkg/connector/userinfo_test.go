@@ -1,0 +1,215 @@
+package connector
+
+import (
+	"context"
+	"testing"
+
+	"google.golang.org/protobuf/proto"
+	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
+
+	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
+)
+
+const testDisplaynameTemplate = `{{ or .Name .Email "Unknown user" }} (Google Chat)`
+
+func newTestConfig(t *testing.T) *Config {
+	t.Helper()
+	cfg := &Config{DisplaynameTemplate: testDisplaynameTemplate, InitialChatSync: 20}
+	if err := cfg.PostProcess(); err != nil {
+		t.Fatalf("PostProcess: %v", err)
+	}
+	return cfg
+}
+
+// --- displaynameParams fallback chain ------------------------------------
+
+func TestDisplaynameParamsFallbackChain(t *testing.T) {
+	cases := []struct {
+		name  string
+		user  *pb.User
+		want  string // the .Name field FormatDisplayname's template sees
+		first string
+	}{
+		{
+			name:  "full name used as-is",
+			user:  &pb.User{Name: proto.String("Ada Lovelace"), FirstName: proto.String("Ada"), Email: proto.String("ada@example.com")},
+			want:  "Ada Lovelace",
+			first: "Ada",
+		},
+		{
+			name: "first+last joined when no full name",
+			user: &pb.User{FirstName: proto.String("Grace"), LastName: proto.String("Hopper"), Email: proto.String("grace@example.com")},
+			want: "Grace Hopper",
+		},
+		{
+			name: "first only, no last",
+			user: &pb.User{FirstName: proto.String("Cher"), Email: proto.String("cher@example.com")},
+			want: "Cher",
+		},
+		{
+			name: "no names at all leaves Name blank (template falls back to email)",
+			user: &pb.User{Email: proto.String("noname@example.com")},
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := displaynameParams(tc.user)
+			if got.Name != tc.want {
+				t.Errorf("Name = %q, want %q", got.Name, tc.want)
+			}
+			if got.Email != tc.user.GetEmail() {
+				t.Errorf("Email = %q, want %q", got.Email, tc.user.GetEmail())
+			}
+		})
+	}
+}
+
+// TestDisplaynameParamsThroughFormatDisplayname exercises the FULL chain
+// (name -> first+last -> email -> "Unknown user") through the real
+// Config.FormatDisplayname template, matching the task's stated test:
+// "displayname fallback chain test (name -> first+last -> email -> default
+// via FormatDisplayname)".
+func TestDisplaynameParamsThroughFormatDisplayname(t *testing.T) {
+	cfg := newTestConfig(t)
+
+	cases := []struct {
+		name string
+		user *pb.User
+		want string
+	}{
+		{
+			name: "full name wins",
+			user: &pb.User{Name: proto.String("Ada Lovelace"), Email: proto.String("ada@example.com")},
+			want: "Ada Lovelace (Google Chat)",
+		},
+		{
+			name: "first+last fallback",
+			user: &pb.User{FirstName: proto.String("Grace"), LastName: proto.String("Hopper"), Email: proto.String("grace@example.com")},
+			want: "Grace Hopper (Google Chat)",
+		},
+		{
+			name: "email fallback when no names",
+			user: &pb.User{Email: proto.String("noname@example.com")},
+			want: "noname@example.com (Google Chat)",
+		},
+		{
+			name: "default fallback when nothing at all",
+			user: &pb.User{},
+			want: `Unknown user (Google Chat)`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := cfg.FormatDisplayname(displaynameParams(tc.user))
+			if got != tc.want {
+				t.Errorf("FormatDisplayname = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// --- wrapAvatar -----------------------------------------------------------
+
+func TestWrapAvatarEmptyURLMeansRemove(t *testing.T) {
+	a := wrapAvatar("")
+	if !a.Remove {
+		t.Error("Remove = false, want true for an empty avatar url")
+	}
+}
+
+func TestWrapAvatarNonEmptyURLSetsIDAndGet(t *testing.T) {
+	a := wrapAvatar("http://lh3.googleusercontent.com/a/foo")
+	if a.Remove {
+		t.Error("Remove = true, want false for a non-empty avatar url")
+	}
+	if string(a.ID) != "http://lh3.googleusercontent.com/a/foo" {
+		t.Errorf("ID = %q, want the raw (pre-https-forcing) url", a.ID)
+	}
+	if a.Get == nil {
+		t.Error("Get = nil, want a download function")
+	}
+}
+
+// --- userInfoFromUser ------------------------------------------------------
+
+func TestUserInfoFromUserIsBot(t *testing.T) {
+	gc := &GChatClient{Main: &GChatConnector{Config: *newTestConfig(t)}}
+
+	human := &pb.User{
+		UserId: &pb.UserId{Id: proto.String("200"), Type: pb.UserType_HUMAN.Enum()},
+		Name:   proto.String("A Human"),
+		Email:  proto.String("human@example.com"),
+	}
+	bot := &pb.User{
+		UserId: &pb.UserId{Id: proto.String("999"), Type: pb.UserType_BOT.Enum()},
+		Name:   proto.String("A Bot"),
+		Email:  proto.String("bot@example.com"),
+	}
+
+	humanInfo := gc.userInfoFromUser(human)
+	if humanInfo.IsBot == nil || *humanInfo.IsBot {
+		t.Errorf("human IsBot = %v, want false", humanInfo.IsBot)
+	}
+	botInfo := gc.userInfoFromUser(bot)
+	if botInfo.IsBot == nil || !*botInfo.IsBot {
+		t.Errorf("bot IsBot = %v, want true", botInfo.IsBot)
+	}
+}
+
+func TestUserInfoFromUserIdentifiersAndName(t *testing.T) {
+	gc := &GChatClient{Main: &GChatConnector{Config: *newTestConfig(t)}}
+	user := &pb.User{
+		UserId: &pb.UserId{Id: proto.String("200")},
+		Name:   proto.String("Ada Lovelace"),
+		Email:  proto.String("ada@example.com"),
+	}
+
+	info := gc.userInfoFromUser(user)
+
+	if len(info.Identifiers) != 1 || info.Identifiers[0] != "mailto:ada@example.com" {
+		t.Errorf("Identifiers = %v, want [\"mailto:ada@example.com\"]", info.Identifiers)
+	}
+	if info.Name == nil || *info.Name != "Ada Lovelace (Google Chat)" {
+		t.Errorf("Name = %v, want \"Ada Lovelace (Google Chat)\"", info.Name)
+	}
+}
+
+func TestUserInfoFromUserExtraUpdatesStoresEmail(t *testing.T) {
+	gc := &GChatClient{Main: &GChatConnector{Config: *newTestConfig(t)}}
+	user := &pb.User{UserId: &pb.UserId{Id: proto.String("200")}, Email: proto.String("ada@example.com")}
+
+	info := gc.userInfoFromUser(user)
+	if info.ExtraUpdates == nil {
+		t.Fatal("ExtraUpdates = nil")
+	}
+	ghost := &bridgev2.Ghost{Ghost: &database.Ghost{ID: networkid.UserID("200"), Metadata: &GhostMetadata{}}}
+
+	changed := info.ExtraUpdates(context.Background(), ghost)
+	if !changed {
+		t.Error("ExtraUpdates() = false on first call, want true (email newly set)")
+	}
+	meta := ghost.Metadata.(*GhostMetadata)
+	if meta.Email != "ada@example.com" {
+		t.Errorf("GhostMetadata.Email = %q, want \"ada@example.com\"", meta.Email)
+	}
+
+	// Second call with the same email should report no change.
+	if changed := info.ExtraUpdates(context.Background(), ghost); changed {
+		t.Error("ExtraUpdates() = true on second call with the same email, want false")
+	}
+}
+
+// --- GetUserInfo: no-conn error path (RPC itself covered at Task 13) -----
+
+func TestGetUserInfoNoConnIsError(t *testing.T) {
+	gc := &GChatClient{Main: &GChatConnector{Config: *newTestConfig(t)}}
+	ghost := &bridgev2.Ghost{Ghost: &database.Ghost{ID: networkid.UserID("200")}}
+
+	_, err := gc.GetUserInfo(context.Background(), ghost)
+	if err == nil {
+		t.Fatal("GetUserInfo with no live conn = nil error, want non-nil")
+	}
+}

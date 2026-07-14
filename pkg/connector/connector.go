@@ -76,7 +76,7 @@ func (gc *GChatConnector) LoadUserLogin(_ context.Context, login *bridgev2.UserL
 	if old, ok := login.Client.(*GChatClient); ok && old != nil {
 		old.Disconnect()
 	}
-	login.Client = &GChatClient{UserLogin: login}
+	login.Client = &GChatClient{Main: gc, UserLogin: login}
 	return nil
 }
 
