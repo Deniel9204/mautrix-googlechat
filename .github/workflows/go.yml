@@ -21,6 +21,10 @@ jobs:
           cache: true
       - name: gofmt check
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Layering check (gchatmeow must not import bridgev2)
+        run: '! grep -rn "maunium.net/go/mautrix" pkg/gchatmeow/ --include="*.go" | grep -v _test.go | grep -v "googlechat.pb.go"'
+      - name: Layering check (connector must not do HTTP)
+        run: '! grep -rn "\"net/http\"" pkg/connector/ --include="*.go" | grep -v _test.go'
       - name: Build
         run: go build -tags goolm ./...
       - name: Vet

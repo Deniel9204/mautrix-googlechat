@@ -29,3 +29,19 @@ func TestMessageMetadataJSONShape(t *testing.T) {
 		t.Fatalf("got %s want %s", data, want)
 	}
 }
+
+func TestPortalMetadataJSONShape(t *testing.T) {
+	data, _ := json.Marshal(PortalMetadata{Revision: 7, ThreadsOnly: true, ThreadsEnabled: true})
+	want := `{"revision":7,"threads_only":true,"threads_enabled":true}`
+	if string(data) != want {
+		t.Fatalf("got %s want %s", data, want)
+	}
+}
+
+func TestGhostMetadataJSONShape(t *testing.T) {
+	data, _ := json.Marshal(GhostMetadata{Email: "user@example.com"})
+	want := `{"email":"user@example.com"}`
+	if string(data) != want {
+		t.Fatalf("got %s want %s", data, want)
+	}
+}
