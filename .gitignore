@@ -1,0 +1,8 @@
+/mautrix-googlechat
+/config.yaml
+/registration.yaml
+*.db
+*.db-journal
+*.log
+/logs
+/.idea/workspace.xml
