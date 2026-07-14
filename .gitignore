@@ -7,5 +7,6 @@
 /logs
 /.idea/workspace.xml
 .env
+.env.spike
 /.superpowers/
 /.spike-fixtures/
