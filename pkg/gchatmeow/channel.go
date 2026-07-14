@@ -112,7 +112,9 @@ type Channel struct {
 	sid        string // _sid_param
 	csessionid string // _csessionid_param (currently unused downstream, but
 	// the webchannel COMPASS cookie it comes from must be present on
-	// subsequent requests; it lives in the Session jar -- channel.py:288-301)
+	// subsequent requests; it lives in the Session jar -- channel.py:288-301).
+	// Written only by the Listen goroutine (post-register) but guarded by mu
+	// so Task 8 can read it via Csessionid() without a race.
 	aid int // _aid: last acknowledged array id
 	ofs int // _ofs: sent-map counter, resets on re-register
 	rid int // _rid: request identifier
@@ -157,6 +159,21 @@ func (ch *Channel) IsConnected() bool {
 	return ch.isConnected
 }
 
+// Csessionid returns the current webchannel csessionid (mu-guarded, safe to
+// call concurrently with Listen).
+func (ch *Channel) Csessionid() string {
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	return ch.csessionid
+}
+
+// setCsessionid stores the csessionid under mu (channel.py:214, 236).
+func (ch *Channel) setCsessionid(v string) {
+	ch.mu.Lock()
+	ch.csessionid = v
+	ch.mu.Unlock()
+}
+
 // Listen registers and runs the long-poll loop until ctx is cancelled or a
 // terminal error occurs, returning that error to the caller (client.go
 // supervision). Ports channel.py:205-258 (listen).
@@ -170,7 +187,7 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 	if err != nil {
 		return fmt.Errorf("register: %w", err)
 	}
-	ch.csessionid = csid
+	ch.setCsessionid(csid)
 	start := time.Now() // channel.py:215
 
 	for retries <= maxRetries { // channel.py:217
@@ -213,7 +230,7 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 			if rerr != nil {
 				return fmt.Errorf("re-register: %w", rerr)
 			}
-			ch.csessionid = csid
+			ch.setCsessionid(csid)
 			retries++
 			skipBackoff = true
 			continue
@@ -343,9 +360,16 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK { // channel.py:402-417
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes))
 		if resp.StatusCode == http.StatusBadRequest {
-			// HTTP 400 "Unknown SID" in reason or body -> SIDInvalid
-			// (channel.py:408-411).
-			if resp.Status == "Unknown SID" || strings.Contains(string(body), "Unknown SID") {
+			// HTTP 400 "Unknown SID" in reason OR body -> SIDInvalid, matching
+			// channel.py:408-411's check-both semantics (res.reason == "Unknown
+			// SID" or "Unknown SID" in text). Go's resp.Status is the FULL
+			// status line ("400 Unknown SID"), not the bare reason phrase, so
+			// an equality check against "Unknown SID" would be dead code and
+			// collapse onto the body substring alone -- a 400 that carries
+			// "Unknown SID" only in the status line (empty/different body) would
+			// then misclassify as a terminal *UnexpectedStatusError and force a
+			// full channel restart instead of the targeted SID-invalid resync.
+			if strings.Contains(resp.Status, "Unknown SID") || strings.Contains(string(body), "Unknown SID") {
 				return ErrSIDInvalid
 			}
 		}

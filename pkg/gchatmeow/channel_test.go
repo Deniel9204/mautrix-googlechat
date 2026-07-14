@@ -745,3 +745,107 @@ func TestDebugDumpWritesFrameAndArray(t *testing.T) {
 		t.Fatalf("array .json = %q, want %q", jsonBody, `["x"]`)
 	}
 }
+
+// TestUnknownSIDInStatusLinePropagates covers the check-BOTH semantics of
+// channel.py:408-411: a 400 whose reason phrase is "Unknown SID" but whose
+// body does NOT contain it must still map to ErrSIDInvalid. Go's resp.Status
+// is the full "400 Unknown SID" line, so this exercises the status-line branch
+// (which an == "Unknown SID" equality check would silently miss).
+func TestUnknownSIDInStatusLinePropagates(t *testing.T) {
+	f := newFakeChannel(t)
+	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
+		// Hijack to control the reason phrase: httptest's WriteHeader always
+		// emits Go's canonical reason ("Bad Request"), so we must write the raw
+		// status line ourselves. Empty body -> only the status line carries it.
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Errorf("ResponseWriter is not a Hijacker")
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+			return
+		}
+		_, _ = conn.Write([]byte("HTTP/1.1 400 Unknown SID\r\nContent-Length: 0\r\n\r\n"))
+		conn.Close()
+	}
+	ch := newTestChannel(t, f)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- ch.Listen(ctx, 3, 20*time.Millisecond) }()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrSIDInvalid) {
+			t.Fatalf("Listen err = %v, want ErrSIDInvalid (status-line Unknown SID)", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Listen did not return on 400 Unknown SID status line")
+	}
+}
+
+// TestChunkedTruncationReRegisters hardens the highest-risk branch with a
+// REAL wire shape: a chunked response truncated mid-stream (no terminating
+// 0-length chunk) makes the client's body read end in io.ErrUnexpectedEOF,
+// which must map to ErrSIDExpiring -> re-register (channel.py:461-463, 233-240).
+// The Content-Length variant (TestSIDExpiringReRegisters) exercises the same
+// mapping; this proves it also holds for chunked transfer-encoding, the shape
+// Google actually uses.
+func TestChunkedTruncationReRegisters(t *testing.T) {
+	f := newFakeChannel(t)
+	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
+		if f.initReqCount() == 1 {
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Errorf("ResponseWriter is not a Hijacker")
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			frame := "11\n" + `[[1,["x"]]]` // one complete BrowserChannel frame
+			// A single chunk, then close WITHOUT the terminating "0\r\n\r\n" ->
+			// truncated chunked stream -> io.ErrUnexpectedEOF on the client.
+			raw := "HTTP/1.1 200 OK\r\n" +
+				"X-HTTP-Initial-Response: [[0,[\"c\",\"" + f.sid + "\",\"\",8,12]]]\r\n" +
+				"Transfer-Encoding: chunked\r\n" +
+				"\r\n" +
+				fmt.Sprintf("%x\r\n%s\r\n", len(frame), frame)
+			_, _ = conn.Write([]byte(raw))
+			time.Sleep(30 * time.Millisecond) // let the client read the frame
+			conn.Close()
+			return
+		}
+		writeInitialSID(w, f.sid)
+		<-r.Context().Done()
+	}
+	ch := newTestChannel(t, f)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- ch.Listen(ctx, 3, 500*time.Millisecond) }()
+
+	select {
+	case <-f.reRegistered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("chunked truncation did not trigger a re-register")
+	}
+	cancel()
+	<-done
+
+	registers := 0
+	for _, r := range f.snapshot() {
+		if r.kind == "register" {
+			registers++
+		}
+	}
+	if registers < 2 {
+		t.Fatalf("register count = %d, want >= 2 (re-register on chunked truncation)", registers)
+	}
+}
