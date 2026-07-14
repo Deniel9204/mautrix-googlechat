@@ -57,7 +57,25 @@ func (gc *GChatConnector) GetConfig() (string, any, configupgrade.Upgrader) {
 	return ExampleConfig, &gc.Config, configupgrade.SimpleUpgrader(upgradeConfig)
 }
 
+// LoadUserLogin fills login.Client with a fresh *GChatClient shell -- no
+// network I/O here (docs/research/04 §8: "LoadUserLogin runs under the global
+// cache lock -- construct the client from login.Metadata only; do network I/O
+// in Connect"); GChatClient.Connect builds the actual gchatmeow.Client from
+// login.Metadata lazily, whether this is the very first load after a restart
+// or the login command resubmitting cookies for an existing row.
+//
+// bridgev2 calls LoadUserLogin again on an ALREADY-RUNNING login in two
+// cases: User.NewLogin reusing an existing UserLogin row (a resubmitted
+// login.go SubmitCookies) and Bridge.ResetNetworkConnections's
+// recreateClient. Either way, login.Client may already hold a *GChatClient
+// whose gchatmeow.Client is mid-connection; disconnecting it before
+// overwriting login.Client is required, or its Connect goroutine (and live
+// webchannel session) leaks forever -- the exact goroutine leak an earlier
+// Task 10 review caught.
 func (gc *GChatConnector) LoadUserLogin(_ context.Context, login *bridgev2.UserLogin) error {
+	if old, ok := login.Client.(*GChatClient); ok && old != nil {
+		old.Disconnect()
+	}
 	login.Client = &GChatClient{UserLogin: login}
 	return nil
 }

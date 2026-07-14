@@ -182,18 +182,21 @@ func TestSubmitCookiesUnreachableFailsCleanly(t *testing.T) {
 
 // TestAttachAndConnectUsesWarmClient is a regression guard for exactly the
 // bug an adversarial audit caught in an earlier revision of this file: it is
-// easy to accidentally write "go gc.Connect(ctx)" (the still-stub
-// bridgev2.NetworkAPI method on *GChatClient, Task 11's territory) instead of
-// "go gc.Client.Connect(ctx)" (the real gchatmeow supervision loop) -- both
-// compile, since *GChatClient happens to have its own Connect method too.
+// easy to accidentally write "go gc.Connect(ctx)" (the *GChatClient's own
+// bridgev2.NetworkAPI method, which now -- post Task 11 -- BUILDS A NEW
+// gchatmeow.Client from persisted metadata) instead of
+// "gc.wireAndStart(ctx, client)" (which installs and starts the given warm,
+// already-validated client) -- both compile, since *GChatClient happens to
+// have its own Connect method too.
 //
-// gc.UserLogin is deliberately left nil: the WRONG wiring
-// ((*GChatClient).Connect's stub body, client.go) unconditionally
-// dereferences c.UserLogin.BridgeState.Send(...) and would nil-pointer-panic
-// this test; the CORRECT wiring (gchatmeow.Client.Connect) never touches
-// GChatClient.UserLogin at all. The context is pre-cancelled so
-// gchatmeow.Client.Connect's loop returns almost immediately (its first
-// check is ctx.Err() != nil) instead of attempting a real network call.
+// gc.UserLogin is deliberately left nil: the WRONG wiring (gc.Connect's real
+// body, client.go) unconditionally dereferences c.UserLogin.Metadata and
+// would nil-pointer-panic this test; the CORRECT wiring (wireAndStart ->
+// gchatmeow.Client.Connect) never touches GChatClient.UserLogin at all before
+// a connection-state transition actually occurs, which the pre-cancelled
+// context below prevents (gchatmeow.Client.Connect's loop returns almost
+// immediately -- its first check is ctx.Err() != nil -- instead of attempting
+// a real network call or ever invoking OnConnectionState/OnStreamEvent).
 func TestAttachAndConnectUsesWarmClient(t *testing.T) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: map[string]string{}})
 	if err != nil {
@@ -206,8 +209,8 @@ func TestAttachAndConnectUsesWarmClient(t *testing.T) {
 
 	attachAndConnect(gc, client, ctx)
 
-	if gc.Client != client {
-		t.Fatalf("gc.Client = %p, want the warm client %p", gc.Client, client)
+	if gc.conn != client {
+		t.Fatalf("gc.conn = %p, want the warm client %p", gc.conn, client)
 	}
 	// Give the background goroutine a moment to run (and, if the wiring
 	// regresses to the stub, to panic) before the test process exits.

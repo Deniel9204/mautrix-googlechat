@@ -32,7 +32,7 @@ package connector
 //     accident at best"). This port never builds a second client: LoadUserLogin
 //     (connector.go) only allocates an empty *GChatClient shell, and
 //     SubmitCookies attaches the one and only warm client to it directly
-//     before calling Connect.
+//     before starting it.
 import (
 	"context"
 	"errors"
@@ -168,17 +168,18 @@ func extractGaiaID(resp *pb.GetSelfUserStatusResponse) (string, error) {
 }
 
 // attachAndConnect hands the warm, already-validated gchatmeow.Client to gc
-// and starts ITS real supervision/long-poll loop (gchatmeow.Client.Connect,
-// Task 8) in the background. Split out of SubmitCookies as its own named
-// step because "Connect" is ambiguous here: *GChatClient also has its own
-// Connect method (the bridgev2.NetworkAPI entry point bridgev2 itself calls
-// on every later reconnect; Task 11 fleshes out its body to reuse/rebuild
-// gc.Client and translate its results into bridge states) -- calling THAT
-// stub instead of gc.Client.Connect would silently discard the freshly
-// validated warm client and connect nothing.
+// and starts ITS real supervision/long-poll loop via GChatClient.wireAndStart
+// (client.go, Task 11), which wires the bridge-state and event callbacks and
+// runs conn.Connect (Task 8) in the background. Split out of SubmitCookies as
+// its own named step because "Connect" is ambiguous here: *GChatClient also
+// has its own Connect method (the bridgev2.NetworkAPI entry point bridgev2
+// itself calls on every restart, which BUILDS A NEW gchatmeow.Client from
+// persisted metadata) -- calling gc.Connect(connectCtx) here instead of
+// wireAndStart would discard the freshly validated warm client and cold-start
+// a redundant one from (currently identical, but conceptually stale) metadata
+// instead.
 func attachAndConnect(gc *GChatClient, client *gchatmeow.Client, connectCtx context.Context) {
-	gc.Client = client
-	go gc.Client.Connect(connectCtx)
+	gc.wireAndStart(connectCtx, client)
 }
 
 // SubmitCookies validates the submitted cookies against Google Chat, resolves
