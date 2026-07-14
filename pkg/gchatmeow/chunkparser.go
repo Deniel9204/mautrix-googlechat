@@ -48,11 +48,24 @@ func (p *ChunkParser) Feed(data []byte) []string {
 		// (_best_effort_decode, channel.py:61-64).
 		decoded := decodeUTF8Prefix(p.buf)
 
-		lengthStr, rest, ok := cutFirstLine(decoded)
-		if !ok {
+		lengthStr, rest, res := cutFirstLine(decoded)
+		switch res {
+		case lineIncomplete:
 			// No newline in the decodable prefix yet -- can't know the
 			// frame length. Wait for more data.
-			break
+			return chunks
+		case linePoisoned:
+			// The byte at this exact position can never become part of a
+			// valid "<digits>\n" length token, no matter how much more data
+			// arrives (see cutFirstLine). This is unreachable with real
+			// Google traffic (TLS-delivered, always well-formed), but
+			// dropping one byte and resynchronizing guarantees the parser
+			// always makes forward progress instead of silently stalling
+			// forever with an unbounded buffer -- Python's equivalent
+			// failure mode is a decode exception that tears down and
+			// replaces the whole ChunkParser (channel.py:230).
+			p.buf = p.buf[1:]
+			continue
 		}
 
 		length, err := strconv.Atoi(lengthStr)
@@ -80,7 +93,7 @@ func (p *ChunkParser) Feed(data []byte) []string {
 		// Drop the length prefix, its newline, and the payload from the
 		// front of the buffer. Everything here was counted in bytes of the
 		// original UTF-8 buffer, so this is safe even if p.buf still has an
-		// undecoded/incomplete tail past decodedLen.
+		// undecoded/incomplete tail past what decodeUTF8Prefix decoded.
 		lengthPrefixByteLen := len(lengthStr) + 1 // + "\n"
 		drop := lengthPrefixByteLen + payloadByteLen
 		p.buf = p.buf[drop:]
@@ -120,9 +133,15 @@ func decodeUTF8Prefix(buf []byte) string {
 			// Genuinely invalid byte (not a truncation issue): Python's
 			// codecs incremental UTF-8 decoder would raise here in strict
 			// mode, but get_chunks doesn't catch that -- in practice
-			// Google's channel never sends invalid UTF-8. Skip one byte so
-			// we don't infinite-loop; this only matters for malformed
-			// input.
+			// Google's channel never sends invalid UTF-8. Advance past it so
+			// the truncation scan doesn't stop here; the byte itself is
+			// still included verbatim in the string returned below
+			// (string(buf[:i]) is a raw byte copy, not a rebuild from
+			// decoded runes). cutFirstLine and takeUTF16Units handle a
+			// literal invalid byte the same way: treat it as a single opaque
+			// unit and keep moving, rather than mistaking it for a
+			// truncated tail and waiting forever for bytes that could never
+			// fix it.
 			i++
 			continue
 		}
@@ -131,27 +150,65 @@ func decodeUTF8Prefix(buf []byte) string {
 	return string(buf[:i])
 }
 
+// lineResult classifies the outcome of scanning the decoded buffer for a
+// "<digits>\n" length token.
+type lineResult int
+
+const (
+	// lineIncomplete means the buffer so far is still a valid, growable
+	// prefix of "<digits>\n" (including empty) -- wait for more data.
+	lineIncomplete lineResult = iota
+	// lineOK means a complete "<digits>\n" token was found at position 0.
+	lineOK
+	// linePoisoned means the byte immediately after any leading digits is
+	// neither a digit nor '\n' (or there were zero leading digits and the
+	// first byte isn't '\n' either). That byte is already fixed in the
+	// buffer, so no amount of future data can turn this into a valid
+	// length token -- unlike lineIncomplete, this can never resolve on its
+	// own and the caller must resynchronize.
+	linePoisoned
+)
+
 // cutFirstLine mirrors Python's LEN_REGEX = re.compile(r"([0-9]+)\n",
 // re.MULTILINE) matched at the start of the decoded buffer: it looks for a
 // run of ASCII digits immediately followed by '\n' at position 0. Unlike a
 // plain strings.Cut on the first '\n', this does not treat a line as a
 // length unless it is anchored at the very start of the buffer, matching
 // re.match (not re.search) semantics.
-func cutFirstLine(decoded string) (lengthStr string, rest string, ok bool) {
+func cutFirstLine(decoded string) (lengthStr string, rest string, res lineResult) {
 	i := 0
 	for i < len(decoded) && decoded[i] >= '0' && decoded[i] <= '9' {
 		i++
 	}
-	if i == 0 || i >= len(decoded) || decoded[i] != '\n' {
-		return "", "", false
+	if i >= len(decoded) {
+		// Ran out of buffer while inside (or before) a digit run. Also
+		// covers the empty-buffer case (i=0, len=0).
+		return "", "", lineIncomplete
 	}
-	return decoded[:i], decoded[i+1:], true
+	if i == 0 || decoded[i] != '\n' {
+		// Either the very first byte isn't a digit at all (LEN_REGEX
+		// requires `[0-9]+`, i.e. at least one), or 1+ digits were followed
+		// by something other than '\n'. This can only happen with
+		// genuinely invalid/misdirected bytes (see decodeUTF8Prefix), which
+		// real Google traffic (delivered over TLS) never produces.
+		return "", "", linePoisoned
+	}
+	return decoded[:i], decoded[i+1:], lineOK
 }
 
 // takeUTF16Units consumes runes from s until their cumulative UTF-16 code
 // unit count reaches want (runes outside the BMP count as 2 units, via a
 // surrogate pair). It returns the payload string, the number of *bytes* of s
 // consumed to produce it, and whether want units were actually reached.
+//
+// s is always a suffix of decodeUTF8Prefix's output, which by construction
+// never ends mid-truncated-rune: any incomplete trailing UTF-8 sequence was
+// already excluded before decodeUTF8Prefix returned. So a RuneError found
+// here is never a truncation -- it can only be a genuinely invalid byte that
+// decodeUTF8Prefix already decided to include verbatim. Treat it as a single
+// opaque UTF-16 unit and consume exactly one byte, matching that decision
+// and guaranteeing forward progress instead of waiting forever for bytes
+// that could never fix it (see decodeUTF8Prefix).
 func takeUTF16Units(s string, want int) (payload string, byteLen int, complete bool) {
 	if want == 0 {
 		return "", 0, true
@@ -162,13 +219,12 @@ func takeUTF16Units(s string, want int) (payload string, byteLen int, complete b
 	for i < len(s) {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		if r == utf8.RuneError && size <= 1 {
-			// Incomplete rune at the tail of the already-decoded prefix --
-			// wait for more bytes.
-			break
+			units++
+			i++
+		} else {
+			units += utf16RuneLen(r)
+			i += size
 		}
-
-		units += utf16RuneLen(r)
-		i += size
 
 		if units >= want {
 			return s[:i], i, true

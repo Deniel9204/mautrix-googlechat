@@ -134,6 +134,43 @@ func TestChunkFollowedByPartialLength(t *testing.T) {
 	assertChunks(t, "Feed 2", got2, []string{"x"})
 }
 
+// --- Defensive hardening: genuinely invalid (non-truncated) UTF-8 bytes.
+// These can never occur with real Google traffic (delivered over TLS, always
+// well-formed) -- unlike a rune legitimately split across two Feed calls,
+// a byte that is invalid UTF-8 regardless of how much more data arrives can
+// never resolve into a valid rune. The parser must still make forward
+// progress instead of buffering forever (see chunkparser.go's
+// decodeUTF8Prefix/cutFirstLine/takeUTF16Units).
+
+func TestInvalidByteInPayloadDoesNotStallForever(t *testing.T) {
+	// 0xFF is never a valid UTF-8 leading byte. The declared length (5) is
+	// otherwise satisfiable byte-for-byte since every "unit" here -- 'a',
+	// 'b', the invalid byte, 'c', 'd' -- is treated as exactly one UTF-16
+	// unit / one consumed byte.
+	p := &ChunkParser{}
+	got := p.Feed([]byte("5\nab\xffcd"))
+	assertChunks(t, "Feed", got, []string{"ab\xffcd"})
+
+	// The parser must be usable afterwards -- no stuck state, no unbounded
+	// buffer growth.
+	got2 := p.Feed([]byte("2\nhi"))
+	assertChunks(t, "Feed 2", got2, []string{"hi"})
+}
+
+func TestInvalidByteInLengthHeaderResyncs(t *testing.T) {
+	// "5\xff" can never become a valid "<digits>\n" token (0xFF is fixed in
+	// the buffer forever) -- the parser must drop bytes and resynchronize
+	// rather than hang. Once it works through the garbage it should recover
+	// and parse subsequent well-formed frames normally.
+	p := &ChunkParser{}
+	got := p.Feed([]byte("5\xffgarbage2\nhi"))
+	assertChunks(t, "Feed", got, []string{"hi"})
+
+	// The parser must still be usable afterwards.
+	got2 := p.Feed([]byte("3\nfoo"))
+	assertChunks(t, "Feed 2", got2, []string{"foo"})
+}
+
 func TestMultipleAstralCharsAcrossFeeds(t *testing.T) {
 	// Two astral chars back to back (4 UTF-16 units total), byte stream cut
 	// at an arbitrary point inside the second rune.
