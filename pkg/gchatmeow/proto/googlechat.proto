@@ -769,8 +769,19 @@ message Message {
 	//repeated DYNProtoCommunalLabelTag communal_labels = 27;
 	//repeated DYNProtoPersonalLabelTag personal_labels = 26;
 	//optional ?? message_integration_payload = 23;
-	//optional DYNProtoMessage_MessagePermission editable_by = 24;
-	//optional DYNProtoMessage_MessagePermission deletable_by = 25;
+
+	enum MessagePermission {
+		PERMISSION_UNSPECIFIED = 0;
+		NO_ONE = 1;
+		CREATOR = 2;
+		MEMBER = 3;
+	}
+	// editable_by/deletable_by: observed live 2026-07 (docs/research/09,
+	// "Message fields 24, 25 (small enums, value 2)"); name+type sourced
+	// from purple-googlechat/googlechat.proto.
+	optional MessagePermission editable_by = 24;
+	optional MessagePermission deletable_by = 25;
+
 	optional int64 last_reply_time = 5;
 	optional int64 last_view_time = 6;
 	optional int64 last_mention_time = 7;
@@ -1427,6 +1438,10 @@ message MessageEvent {
 	optional int64 last_message_in_topic_time = 4;
 	optional int64 prev_revision_time = 5;
 	optional bool is_head_message = 6;
+	// num_recipients: observed live 2026-07 (docs/research/09, "MessageEvent
+	// field 7 (small enum, value 2)"); name+type sourced from
+	// purple-googlechat/googlechat.proto (plain int32, not an enum).
+	optional int32 num_recipients = 7;
 }
 
 message MessageReactionEvent {
@@ -1635,6 +1650,111 @@ message StreamEventsResponse {
 	optional ClockSyncResponse clock_sync_response = 3;
 }
 
+// --- Begin M2 Task 2 additions (docs/research/09 "Findings to carry into
+// M2"): message types for Event.EventBody/Event fields observed on live
+// 2026-07 traffic but missing from the 2023-era proto snapshot. Names/types
+// sourced from purple-googlechat/googlechat.proto where noted; otherwise
+// inferred from the wire shape in docs/research/09 (comment on the field).
+
+message TopicMuteChangedEvent {
+	optional TopicId topic_id = 1;
+	optional bool muted = 2;
+	optional int64 event_time = 3;
+}
+
+message GroupUnreadSubscribedTopicCountUpdatedEvent {
+	optional int64 unread_subscribed_topic_count = 1;
+	optional int64 update_timestamp = 2;
+	optional GroupId group_id = 3;
+}
+
+message TopicCreatedEvent {
+	optional Topic topic = 1;
+	optional bool has_more_replied = 2;
+}
+
+// MessageSmartRepliesEvent: observed live 2026-07 (docs/research/09,
+// EventBody field 25, accompanies MESSAGE_SMART_REPLIES) -- type inferred
+// from wire shape. purple-googlechat also lacks a real definition for this
+// field (still commented out there); fields below follow the same
+// group/topic-id + microsecond-timestamp shape seen on the other sibling
+// EventBody payloads (e.g. GroupUnreadSubscribedTopicCountUpdatedEvent).
+message MessageSmartRepliesEvent {
+	optional GroupId group_id = 1; // observed live 2026-07, type inferred from wire shape (docs/research/09)
+	optional int64 event_time_usec = 2; // observed live 2026-07, type inferred from wire shape (docs/research/09)
+}
+
+// GroupDefaultSortOrderUpdatedEvent: observed live 2026-07 (docs/research/09,
+// EventBody field 53) -- type inferred from wire shape. purple-googlechat
+// only has the EventType enum value (GROUP_DEFAULT_SORT_ORDER_UPDATED = 64)
+// for this, not a real EventBody payload definition; shape inferred as
+// above.
+message GroupDefaultSortOrderUpdatedEvent {
+	optional GroupId group_id = 1; // observed live 2026-07, type inferred from wire shape (docs/research/09)
+	optional int64 event_time_usec = 2; // observed live 2026-07, type inferred from wire shape (docs/research/09)
+}
+
+message GroupReadStateUpdatedEvent {
+	optional GroupId group_id = 1;
+	optional int64 last_head_message_create_time = 2;
+	optional int64 most_recent_read_time = 3;
+	optional int64 mark_as_unread_time = 4;
+}
+
+enum BackendMetadataDimension {
+	BACKEND_METADATA_DIMENSION_UNKNOWN = 0;
+	TYPE_UNKNOWN = 1;
+	TYPE_DM = 2;
+	TYPE_SPACE = 3;
+	TYPE_USER = 4;
+	GROUP_SIZE_UNKNOWN = 5;
+	PAYLOAD_SIZE_UNKNOWN = 9;
+	PAYLOAD_SIZE_LT_1K = 10;
+	PAYLOAD_SIZE_1K_3K = 11;
+	PAYLOAD_SIZE_3K_64K = 12;
+	PAYLOAD_SIZE_GT_64K = 13;
+	GROUP_SIZE_SMALL = 14;
+	GROUP_SIZE_MEDIUM = 15;
+	GROUP_SIZE_LARGE = 16;
+	TYPE_PRESENCE = 17;
+	TYPE_STATUS = 18;
+}
+
+message BackendMetadata {
+	optional int64 dispatch_time_millis = 1;
+	optional int32 dispatch_sub_identifier = 2;
+	optional bytes dispatch_random_filler = 3;
+	optional int64 dispatch_timestamp_micros = 4;
+	repeated BackendMetadataDimension dimensions = 5;
+	optional bool user_targeted_event_dual_dispatch = 6;
+	optional int32 payload_hash = 7;
+}
+
+message Timestamp {
+	optional int64 seconds = 1;
+	optional int32 nanos = 2;
+}
+
+message Interval {
+	optional Timestamp start = 1;
+	optional Timestamp end = 2;
+}
+
+message LatencyData {
+	enum Server {
+		UNKNOWN = 0;
+		FRONTEND = 1;
+		INTEGRATION = 2;
+		BACKEND = 3;
+		DISPATCHER = 4;
+		SESSION = 5;
+	}
+	optional Server server = 1;
+	optional Interval interval = 2;
+}
+
+// --- End M2 Task 2 additions (message types) ---
+
 message Event {
 	optional GroupId group_id = 1;
 
@@ -1690,6 +1810,11 @@ message Event {
 		SHARED_DRIVE_UPDATED = 48;
 		MESSAGE_PERSONAL_LABEL_UPDATED = 49;
 		USER_QUOTA_EXCEEDED = 50;
+		// observed live 2026-07 as raw numbers (docs/research/09, "Unknown
+		// event *types* delivered as raw numbers: type=64, type=83"); names
+		// sourced from purple-googlechat/googlechat.proto.
+		GROUP_DEFAULT_SORT_ORDER_UPDATED = 64;
+		GROUP_READ_STATE_UPDATED = 83;
 	}
 
 	message EventBody {
@@ -1698,11 +1823,15 @@ message Event {
 			//TopicViewedEvent topic_viewed = 4;
 			GroupUpdatedEvent group_updated = 5;
 			MessageEvent message_posted = 6;
-			//TopicMuteChangedEvent topic_mute_changed = 7;
+			// observed live 2026-07 (docs/research/09); name+type sourced
+			// from purple-googlechat/googlechat.proto.
+			TopicMuteChangedEvent topic_mute_changed = 7;
 			//UserSettingsChangedEvent user_settings_changed = 8;
 			//GroupStarredEvent group_starred = 9;
 			WebPushNotificationEvent web_push_notification = 10;
-			//GroupUnreadSubscribedTopicCountUpdatedEvent group_unread_subscribed_topic_count_updated_event = 11;
+			// observed live 2026-07 (docs/research/09); name+type sourced
+			// from purple-googlechat/googlechat.proto.
+			GroupUnreadSubscribedTopicCountUpdatedEvent group_unread_subscribed_topic_count_updated_event = 11;
 			//InviteCountUpdatedEvent invite_count_updated = 13;
 			MembershipChangedEvent membership_changed = 14;
 			//GroupHideChangedEvent group_hide_changed = 15;
@@ -1710,11 +1839,17 @@ message Event {
 			//GroupNotificationSettingsUpdatedEvent group_notification_settings_updated = 17;
 			MessageDeletedEvent message_deleted = 18;
 			//RetentionSettingsUpdatedEvent retention_settings_updated = 19;
-			//TopicCreatedEvent topic_created = 21;
+			// observed live 2026-07 (docs/research/09, accompanies
+			// TOPIC_CREATED); name+type sourced from
+			// purple-googlechat/googlechat.proto.
+			TopicCreatedEvent topic_created = 21;
 			MessageReactionEvent message_reaction = 22;
 			UserStatusUpdatedEvent user_status_updated = 23;
 			//WorkingHoursSettingsUpdatedEvent working_hours_settings_updated_event = 24;
-			//MessageSmartRepliesEvent message_smart_replies_event = 25;
+			// observed live 2026-07 (docs/research/09, accompanies
+			// MESSAGE_SMART_REPLIES); type inferred from wire shape --
+			// purple-googlechat also lacks a real definition for this field.
+			MessageSmartRepliesEvent message_smart_replies_event = 25;
 			TypingStateChangedEvent typing_state_changed = 26;
 			//GroupDeletedEvent group_deleted_event = 27;
 			//BlockStateChangedEvent block_state_changed_event = 28;
@@ -1732,6 +1867,14 @@ message Event {
 			//SharedDriveCreateScheduledEvent shared_drive_create_scheduled_event = 41;
 			//SharedDriveUpdatedEvent shared_drive_updated_event = 42;
 			//MessagePersonalLabelUpdatedEvent message_personal_label_updated = 43;
+			// observed live 2026-07 (docs/research/09); type inferred from
+			// wire shape -- purple-googlechat only has the EventType enum
+			// value (GROUP_DEFAULT_SORT_ORDER_UPDATED = 64) for this, not a
+			// real EventBody payload definition.
+			GroupDefaultSortOrderUpdatedEvent group_default_sort_order_updated_event = 53;
+			// observed live 2026-07 (docs/research/09); name+type sourced
+			// from purple-googlechat/googlechat.proto.
+			GroupReadStateUpdatedEvent group_read_state_updated_event = 65;
 		}
 
 		optional EventType event_type = 12;
@@ -1747,6 +1890,13 @@ message Event {
 			WriteRevision group_revision = 7;
 	}
 	repeated EventBody bodies = 8;  // This is the second and subsequent event bodies in this event
+
+	// backend_metadata/latency_data: observed live 2026-07 (docs/research/09,
+	// "Event field 9 ... looks like per-event trace/latency metadata" and
+	// "field 11 ... arrays of [sec, nsec] timing pairs"); name+type sourced
+	// from purple-googlechat/googlechat.proto.
+	optional BackendMetadata backend_metadata = 9;
+	repeated LatencyData latency_data = 11;
 }
 
 

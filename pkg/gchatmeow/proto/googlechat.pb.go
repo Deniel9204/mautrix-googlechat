@@ -663,6 +663,104 @@ func (EventOrigin) EnumDescriptor() ([]byte, []int) {
 	return file_googlechat_proto_rawDescGZIP(), []int{8}
 }
 
+type BackendMetadataDimension int32
+
+const (
+	BackendMetadataDimension_BACKEND_METADATA_DIMENSION_UNKNOWN BackendMetadataDimension = 0
+	BackendMetadataDimension_TYPE_UNKNOWN                       BackendMetadataDimension = 1
+	BackendMetadataDimension_TYPE_DM                            BackendMetadataDimension = 2
+	BackendMetadataDimension_TYPE_SPACE                         BackendMetadataDimension = 3
+	BackendMetadataDimension_TYPE_USER                          BackendMetadataDimension = 4
+	BackendMetadataDimension_GROUP_SIZE_UNKNOWN                 BackendMetadataDimension = 5
+	BackendMetadataDimension_PAYLOAD_SIZE_UNKNOWN               BackendMetadataDimension = 9
+	BackendMetadataDimension_PAYLOAD_SIZE_LT_1K                 BackendMetadataDimension = 10
+	BackendMetadataDimension_PAYLOAD_SIZE_1K_3K                 BackendMetadataDimension = 11
+	BackendMetadataDimension_PAYLOAD_SIZE_3K_64K                BackendMetadataDimension = 12
+	BackendMetadataDimension_PAYLOAD_SIZE_GT_64K                BackendMetadataDimension = 13
+	BackendMetadataDimension_GROUP_SIZE_SMALL                   BackendMetadataDimension = 14
+	BackendMetadataDimension_GROUP_SIZE_MEDIUM                  BackendMetadataDimension = 15
+	BackendMetadataDimension_GROUP_SIZE_LARGE                   BackendMetadataDimension = 16
+	BackendMetadataDimension_TYPE_PRESENCE                      BackendMetadataDimension = 17
+	BackendMetadataDimension_TYPE_STATUS                        BackendMetadataDimension = 18
+)
+
+// Enum value maps for BackendMetadataDimension.
+var (
+	BackendMetadataDimension_name = map[int32]string{
+		0:  "BACKEND_METADATA_DIMENSION_UNKNOWN",
+		1:  "TYPE_UNKNOWN",
+		2:  "TYPE_DM",
+		3:  "TYPE_SPACE",
+		4:  "TYPE_USER",
+		5:  "GROUP_SIZE_UNKNOWN",
+		9:  "PAYLOAD_SIZE_UNKNOWN",
+		10: "PAYLOAD_SIZE_LT_1K",
+		11: "PAYLOAD_SIZE_1K_3K",
+		12: "PAYLOAD_SIZE_3K_64K",
+		13: "PAYLOAD_SIZE_GT_64K",
+		14: "GROUP_SIZE_SMALL",
+		15: "GROUP_SIZE_MEDIUM",
+		16: "GROUP_SIZE_LARGE",
+		17: "TYPE_PRESENCE",
+		18: "TYPE_STATUS",
+	}
+	BackendMetadataDimension_value = map[string]int32{
+		"BACKEND_METADATA_DIMENSION_UNKNOWN": 0,
+		"TYPE_UNKNOWN":                       1,
+		"TYPE_DM":                            2,
+		"TYPE_SPACE":                         3,
+		"TYPE_USER":                          4,
+		"GROUP_SIZE_UNKNOWN":                 5,
+		"PAYLOAD_SIZE_UNKNOWN":               9,
+		"PAYLOAD_SIZE_LT_1K":                 10,
+		"PAYLOAD_SIZE_1K_3K":                 11,
+		"PAYLOAD_SIZE_3K_64K":                12,
+		"PAYLOAD_SIZE_GT_64K":                13,
+		"GROUP_SIZE_SMALL":                   14,
+		"GROUP_SIZE_MEDIUM":                  15,
+		"GROUP_SIZE_LARGE":                   16,
+		"TYPE_PRESENCE":                      17,
+		"TYPE_STATUS":                        18,
+	}
+)
+
+func (x BackendMetadataDimension) Enum() *BackendMetadataDimension {
+	p := new(BackendMetadataDimension)
+	*p = x
+	return p
+}
+
+func (x BackendMetadataDimension) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BackendMetadataDimension) Descriptor() protoreflect.EnumDescriptor {
+	return file_googlechat_proto_enumTypes[9].Descriptor()
+}
+
+func (BackendMetadataDimension) Type() protoreflect.EnumType {
+	return &file_googlechat_proto_enumTypes[9]
+}
+
+func (x BackendMetadataDimension) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Do not use.
+func (x *BackendMetadataDimension) UnmarshalJSON(b []byte) error {
+	num, err := protoimpl.X.UnmarshalJSONEnum(x.Descriptor(), b)
+	if err != nil {
+		return err
+	}
+	*x = BackendMetadataDimension(num)
+	return nil
+}
+
+// Deprecated: Use BackendMetadataDimension.Descriptor instead.
+func (BackendMetadataDimension) EnumDescriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{9}
+}
+
 type Platform int32
 
 const (
@@ -714,11 +812,11 @@ func (x Platform) String() string {
 }
 
 func (Platform) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[9].Descriptor()
+	return file_googlechat_proto_enumTypes[10].Descriptor()
 }
 
 func (Platform) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[9]
+	return &file_googlechat_proto_enumTypes[10]
 }
 
 func (x Platform) Number() protoreflect.EnumNumber {
@@ -737,7 +835,7 @@ func (x *Platform) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use Platform.Descriptor instead.
 func (Platform) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{9}
+	return file_googlechat_proto_rawDescGZIP(), []int{10}
 }
 
 type AnnotationType int32
@@ -839,11 +937,11 @@ func (x AnnotationType) String() string {
 }
 
 func (AnnotationType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[10].Descriptor()
+	return file_googlechat_proto_enumTypes[11].Descriptor()
 }
 
 func (AnnotationType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[10]
+	return &file_googlechat_proto_enumTypes[11]
 }
 
 func (x AnnotationType) Number() protoreflect.EnumNumber {
@@ -862,7 +960,7 @@ func (x *AnnotationType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use AnnotationType.Descriptor instead.
 func (AnnotationType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{10}
+	return file_googlechat_proto_rawDescGZIP(), []int{11}
 }
 
 // ComGoogleRtcMeetingsV1DialInNumberClass
@@ -902,11 +1000,11 @@ func (x DialInNumberClass) String() string {
 }
 
 func (DialInNumberClass) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[11].Descriptor()
+	return file_googlechat_proto_enumTypes[12].Descriptor()
 }
 
 func (DialInNumberClass) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[11]
+	return &file_googlechat_proto_enumTypes[12]
 }
 
 func (x DialInNumberClass) Number() protoreflect.EnumNumber {
@@ -925,7 +1023,7 @@ func (x *DialInNumberClass) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use DialInNumberClass.Descriptor instead.
 func (DialInNumberClass) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{11}
+	return file_googlechat_proto_rawDescGZIP(), []int{12}
 }
 
 // ComGoogleRtcMeetingsV1RecordingApplicationType
@@ -965,11 +1063,11 @@ func (x RecordingApplicationType) String() string {
 }
 
 func (RecordingApplicationType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[12].Descriptor()
+	return file_googlechat_proto_enumTypes[13].Descriptor()
 }
 
 func (RecordingApplicationType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[12]
+	return &file_googlechat_proto_enumTypes[13]
 }
 
 func (x RecordingApplicationType) Number() protoreflect.EnumNumber {
@@ -988,7 +1086,7 @@ func (x *RecordingApplicationType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use RecordingApplicationType.Descriptor instead.
 func (RecordingApplicationType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{12}
+	return file_googlechat_proto_rawDescGZIP(), []int{13}
 }
 
 // ComGoogleRtcMeetingsV1BroadcastAccessPolicy
@@ -1025,11 +1123,11 @@ func (x BroadcastAccessPolicy) String() string {
 }
 
 func (BroadcastAccessPolicy) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[13].Descriptor()
+	return file_googlechat_proto_enumTypes[14].Descriptor()
 }
 
 func (BroadcastAccessPolicy) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[13]
+	return &file_googlechat_proto_enumTypes[14]
 }
 
 func (x BroadcastAccessPolicy) Number() protoreflect.EnumNumber {
@@ -1048,7 +1146,7 @@ func (x *BroadcastAccessPolicy) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use BroadcastAccessPolicy.Descriptor instead.
 func (BroadcastAccessPolicy) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{13}
+	return file_googlechat_proto_rawDescGZIP(), []int{14}
 }
 
 type CallStatus int32
@@ -1084,11 +1182,11 @@ func (x CallStatus) String() string {
 }
 
 func (CallStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[14].Descriptor()
+	return file_googlechat_proto_enumTypes[15].Descriptor()
 }
 
 func (CallStatus) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[14]
+	return &file_googlechat_proto_enumTypes[15]
 }
 
 func (x CallStatus) Number() protoreflect.EnumNumber {
@@ -1107,7 +1205,7 @@ func (x *CallStatus) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use CallStatus.Descriptor instead.
 func (CallStatus) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{14}
+	return file_googlechat_proto_rawDescGZIP(), []int{15}
 }
 
 type RingStatus int32
@@ -1146,11 +1244,11 @@ func (x RingStatus) String() string {
 }
 
 func (RingStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[15].Descriptor()
+	return file_googlechat_proto_enumTypes[16].Descriptor()
 }
 
 func (RingStatus) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[15]
+	return &file_googlechat_proto_enumTypes[16]
 }
 
 func (x RingStatus) Number() protoreflect.EnumNumber {
@@ -1169,7 +1267,7 @@ func (x *RingStatus) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use RingStatus.Descriptor instead.
 func (RingStatus) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{15}
+	return file_googlechat_proto_rawDescGZIP(), []int{16}
 }
 
 type UserAccountState int32
@@ -1211,11 +1309,11 @@ func (x UserAccountState) String() string {
 }
 
 func (UserAccountState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[16].Descriptor()
+	return file_googlechat_proto_enumTypes[17].Descriptor()
 }
 
 func (UserAccountState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[16]
+	return &file_googlechat_proto_enumTypes[17]
 }
 
 func (x UserAccountState) Number() protoreflect.EnumNumber {
@@ -1234,7 +1332,7 @@ func (x *UserAccountState) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use UserAccountState.Descriptor instead.
 func (UserAccountState) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{16}
+	return file_googlechat_proto_rawDescGZIP(), []int{17}
 }
 
 type MembershipRole int32
@@ -1276,11 +1374,11 @@ func (x MembershipRole) String() string {
 }
 
 func (MembershipRole) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[17].Descriptor()
+	return file_googlechat_proto_enumTypes[18].Descriptor()
 }
 
 func (MembershipRole) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[17]
+	return &file_googlechat_proto_enumTypes[18]
 }
 
 func (x MembershipRole) Number() protoreflect.EnumNumber {
@@ -1299,7 +1397,7 @@ func (x *MembershipRole) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use MembershipRole.Descriptor instead.
 func (MembershipRole) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{17}
+	return file_googlechat_proto_rawDescGZIP(), []int{18}
 }
 
 type AppType int32
@@ -1338,11 +1436,11 @@ func (x AppType) String() string {
 }
 
 func (AppType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[18].Descriptor()
+	return file_googlechat_proto_enumTypes[19].Descriptor()
 }
 
 func (AppType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[18]
+	return &file_googlechat_proto_enumTypes[19]
 }
 
 func (x AppType) Number() protoreflect.EnumNumber {
@@ -1361,7 +1459,7 @@ func (x *AppType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use AppType.Descriptor instead.
 func (AppType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{18}
+	return file_googlechat_proto_rawDescGZIP(), []int{19}
 }
 
 type MembershipState int32
@@ -1403,11 +1501,11 @@ func (x MembershipState) String() string {
 }
 
 func (MembershipState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[19].Descriptor()
+	return file_googlechat_proto_enumTypes[20].Descriptor()
 }
 
 func (MembershipState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[19]
+	return &file_googlechat_proto_enumTypes[20]
 }
 
 func (x MembershipState) Number() protoreflect.EnumNumber {
@@ -1426,7 +1524,7 @@ func (x *MembershipState) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use MembershipState.Descriptor instead.
 func (MembershipState) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{19}
+	return file_googlechat_proto_rawDescGZIP(), []int{20}
 }
 
 type SharedAttributeCheckerGroupType int32
@@ -1477,11 +1575,11 @@ func (x SharedAttributeCheckerGroupType) String() string {
 }
 
 func (SharedAttributeCheckerGroupType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[20].Descriptor()
+	return file_googlechat_proto_enumTypes[21].Descriptor()
 }
 
 func (SharedAttributeCheckerGroupType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[20]
+	return &file_googlechat_proto_enumTypes[21]
 }
 
 func (x SharedAttributeCheckerGroupType) Number() protoreflect.EnumNumber {
@@ -1500,7 +1598,7 @@ func (x *SharedAttributeCheckerGroupType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use SharedAttributeCheckerGroupType.Descriptor instead.
 func (SharedAttributeCheckerGroupType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{20}
+	return file_googlechat_proto_rawDescGZIP(), []int{21}
 }
 
 type DndSettings_DndState_State int32
@@ -1536,11 +1634,11 @@ func (x DndSettings_DndState_State) String() string {
 }
 
 func (DndSettings_DndState_State) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[21].Descriptor()
+	return file_googlechat_proto_enumTypes[22].Descriptor()
 }
 
 func (DndSettings_DndState_State) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[21]
+	return &file_googlechat_proto_enumTypes[22]
 }
 
 func (x DndSettings_DndState_State) Number() protoreflect.EnumNumber {
@@ -1595,11 +1693,11 @@ func (x ClientFeatureCapabilities_CapabilityLevel) String() string {
 }
 
 func (ClientFeatureCapabilities_CapabilityLevel) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[22].Descriptor()
+	return file_googlechat_proto_enumTypes[23].Descriptor()
 }
 
 func (ClientFeatureCapabilities_CapabilityLevel) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[22]
+	return &file_googlechat_proto_enumTypes[23]
 }
 
 func (x ClientFeatureCapabilities_CapabilityLevel) Number() protoreflect.EnumNumber {
@@ -1669,11 +1767,11 @@ func (x RequestHeader_ClientType) String() string {
 }
 
 func (RequestHeader_ClientType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[23].Descriptor()
+	return file_googlechat_proto_enumTypes[24].Descriptor()
 }
 
 func (RequestHeader_ClientType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[23]
+	return &file_googlechat_proto_enumTypes[24]
 }
 
 func (x RequestHeader_ClientType) Number() protoreflect.EnumNumber {
@@ -1728,11 +1826,11 @@ func (x JAddOnsFormattedText_TextAlign) String() string {
 }
 
 func (JAddOnsFormattedText_TextAlign) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[24].Descriptor()
+	return file_googlechat_proto_enumTypes[25].Descriptor()
 }
 
 func (JAddOnsFormattedText_TextAlign) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[24]
+	return &file_googlechat_proto_enumTypes[25]
 }
 
 func (x JAddOnsFormattedText_TextAlign) Number() protoreflect.EnumNumber {
@@ -1799,11 +1897,11 @@ func (x JAddOnsFormattedText_FormattedTextElement_StyledText_Style) String() str
 }
 
 func (JAddOnsFormattedText_FormattedTextElement_StyledText_Style) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[25].Descriptor()
+	return file_googlechat_proto_enumTypes[26].Descriptor()
 }
 
 func (JAddOnsFormattedText_FormattedTextElement_StyledText_Style) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[25]
+	return &file_googlechat_proto_enumTypes[26]
 }
 
 func (x JAddOnsFormattedText_FormattedTextElement_StyledText_Style) Number() protoreflect.EnumNumber {
@@ -1861,11 +1959,11 @@ func (x JAddOnsFormattedText_FormattedTextElement_StyledText_FontWeight) String(
 }
 
 func (JAddOnsFormattedText_FormattedTextElement_StyledText_FontWeight) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[26].Descriptor()
+	return file_googlechat_proto_enumTypes[27].Descriptor()
 }
 
 func (JAddOnsFormattedText_FormattedTextElement_StyledText_FontWeight) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[26]
+	return &file_googlechat_proto_enumTypes[27]
 }
 
 func (x JAddOnsFormattedText_FormattedTextElement_StyledText_FontWeight) Number() protoreflect.EnumNumber {
@@ -1926,11 +2024,11 @@ func (x JAddOnsImageCropStyle_ImageCropType) String() string {
 }
 
 func (JAddOnsImageCropStyle_ImageCropType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[27].Descriptor()
+	return file_googlechat_proto_enumTypes[28].Descriptor()
 }
 
 func (JAddOnsImageCropStyle_ImageCropType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[27]
+	return &file_googlechat_proto_enumTypes[28]
 }
 
 func (x JAddOnsImageCropStyle_ImageCropType) Number() protoreflect.EnumNumber {
@@ -1982,11 +2080,11 @@ func (x JAddOnsOpenLink_OpenAs) String() string {
 }
 
 func (JAddOnsOpenLink_OpenAs) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[28].Descriptor()
+	return file_googlechat_proto_enumTypes[29].Descriptor()
 }
 
 func (JAddOnsOpenLink_OpenAs) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[28]
+	return &file_googlechat_proto_enumTypes[29]
 }
 
 func (x JAddOnsOpenLink_OpenAs) Number() protoreflect.EnumNumber {
@@ -2038,11 +2136,11 @@ func (x JAddOnsOpenLink_OnClose) String() string {
 }
 
 func (JAddOnsOpenLink_OnClose) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[29].Descriptor()
+	return file_googlechat_proto_enumTypes[30].Descriptor()
 }
 
 func (JAddOnsOpenLink_OnClose) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[29]
+	return &file_googlechat_proto_enumTypes[30]
 }
 
 func (x JAddOnsOpenLink_OnClose) Number() protoreflect.EnumNumber {
@@ -2094,11 +2192,11 @@ func (x JAddOnsOpenLink_LoadIndicator) String() string {
 }
 
 func (JAddOnsOpenLink_LoadIndicator) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[30].Descriptor()
+	return file_googlechat_proto_enumTypes[31].Descriptor()
 }
 
 func (JAddOnsOpenLink_LoadIndicator) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[30]
+	return &file_googlechat_proto_enumTypes[31]
 }
 
 func (x JAddOnsOpenLink_LoadIndicator) Number() protoreflect.EnumNumber {
@@ -2153,11 +2251,11 @@ func (x JAddOnsCardItem_DisplayStyle) String() string {
 }
 
 func (JAddOnsCardItem_DisplayStyle) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[31].Descriptor()
+	return file_googlechat_proto_enumTypes[32].Descriptor()
 }
 
 func (JAddOnsCardItem_DisplayStyle) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[31]
+	return &file_googlechat_proto_enumTypes[32]
 }
 
 func (x JAddOnsCardItem_DisplayStyle) Number() protoreflect.EnumNumber {
@@ -2212,11 +2310,11 @@ func (x JAddOnsGrid_GridItem_GridItemLayout) String() string {
 }
 
 func (JAddOnsGrid_GridItem_GridItemLayout) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[32].Descriptor()
+	return file_googlechat_proto_enumTypes[33].Descriptor()
 }
 
 func (JAddOnsGrid_GridItem_GridItemLayout) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[32]
+	return &file_googlechat_proto_enumTypes[33]
 }
 
 func (x JAddOnsGrid_GridItem_GridItemLayout) Number() protoreflect.EnumNumber {
@@ -2271,11 +2369,11 @@ func (x JAddOnsBorderStyle_BorderType) String() string {
 }
 
 func (JAddOnsBorderStyle_BorderType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[33].Descriptor()
+	return file_googlechat_proto_enumTypes[34].Descriptor()
 }
 
 func (JAddOnsBorderStyle_BorderType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[33]
+	return &file_googlechat_proto_enumTypes[34]
 }
 
 func (x JAddOnsBorderStyle_BorderType) Number() protoreflect.EnumNumber {
@@ -2333,11 +2431,11 @@ func (x JAddOnsWidget_HorizontalAlign) String() string {
 }
 
 func (JAddOnsWidget_HorizontalAlign) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[34].Descriptor()
+	return file_googlechat_proto_enumTypes[35].Descriptor()
 }
 
 func (JAddOnsWidget_HorizontalAlign) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[34]
+	return &file_googlechat_proto_enumTypes[35]
 }
 
 func (x JAddOnsWidget_HorizontalAlign) Number() protoreflect.EnumNumber {
@@ -2392,11 +2490,11 @@ func (x JAddOnsWidget_KeyValue_SwitchWidget_ControlType) String() string {
 }
 
 func (JAddOnsWidget_KeyValue_SwitchWidget_ControlType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[35].Descriptor()
+	return file_googlechat_proto_enumTypes[36].Descriptor()
 }
 
 func (JAddOnsWidget_KeyValue_SwitchWidget_ControlType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[35]
+	return &file_googlechat_proto_enumTypes[36]
 }
 
 func (x JAddOnsWidget_KeyValue_SwitchWidget_ControlType) Number() protoreflect.EnumNumber {
@@ -2448,11 +2546,11 @@ func (x JAddOnsWidget_TextField_TextFieldType) String() string {
 }
 
 func (JAddOnsWidget_TextField_TextFieldType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[36].Descriptor()
+	return file_googlechat_proto_enumTypes[37].Descriptor()
 }
 
 func (JAddOnsWidget_TextField_TextFieldType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[36]
+	return &file_googlechat_proto_enumTypes[37]
 }
 
 func (x JAddOnsWidget_TextField_TextFieldType) Number() protoreflect.EnumNumber {
@@ -2504,11 +2602,11 @@ func (x JAddOnsWidget_TextField_LineType) String() string {
 }
 
 func (JAddOnsWidget_TextField_LineType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[37].Descriptor()
+	return file_googlechat_proto_enumTypes[38].Descriptor()
 }
 
 func (JAddOnsWidget_TextField_LineType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[37]
+	return &file_googlechat_proto_enumTypes[38]
 }
 
 func (x JAddOnsWidget_TextField_LineType) Number() protoreflect.EnumNumber {
@@ -2566,11 +2664,11 @@ func (x JAddOnsWidget_SelectionControl_SelectionType) String() string {
 }
 
 func (JAddOnsWidget_SelectionControl_SelectionType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[38].Descriptor()
+	return file_googlechat_proto_enumTypes[39].Descriptor()
 }
 
 func (JAddOnsWidget_SelectionControl_SelectionType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[38]
+	return &file_googlechat_proto_enumTypes[39]
 }
 
 func (x JAddOnsWidget_SelectionControl_SelectionType) Number() protoreflect.EnumNumber {
@@ -2628,11 +2726,11 @@ func (x JAddOnsWidget_DateTimePicker_DateTimePickerType) String() string {
 }
 
 func (JAddOnsWidget_DateTimePicker_DateTimePickerType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[39].Descriptor()
+	return file_googlechat_proto_enumTypes[40].Descriptor()
 }
 
 func (JAddOnsWidget_DateTimePicker_DateTimePickerType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[39]
+	return &file_googlechat_proto_enumTypes[40]
 }
 
 func (x JAddOnsWidget_DateTimePicker_DateTimePickerType) Number() protoreflect.EnumNumber {
@@ -2687,11 +2785,11 @@ func (x JAddOnsWidget_TextButton_Style) String() string {
 }
 
 func (JAddOnsWidget_TextButton_Style) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[40].Descriptor()
+	return file_googlechat_proto_enumTypes[41].Descriptor()
 }
 
 func (JAddOnsWidget_TextButton_Style) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[40]
+	return &file_googlechat_proto_enumTypes[41]
 }
 
 func (x JAddOnsWidget_TextButton_Style) Number() protoreflect.EnumNumber {
@@ -2743,11 +2841,11 @@ func (x JAddOnsFormAction_LoadIndicator) String() string {
 }
 
 func (JAddOnsFormAction_LoadIndicator) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[41].Descriptor()
+	return file_googlechat_proto_enumTypes[42].Descriptor()
 }
 
 func (JAddOnsFormAction_LoadIndicator) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[41]
+	return &file_googlechat_proto_enumTypes[42]
 }
 
 func (x JAddOnsFormAction_LoadIndicator) Number() protoreflect.EnumNumber {
@@ -2802,11 +2900,11 @@ func (x Message_MessageState) String() string {
 }
 
 func (Message_MessageState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[42].Descriptor()
+	return file_googlechat_proto_enumTypes[43].Descriptor()
 }
 
 func (Message_MessageState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[42]
+	return &file_googlechat_proto_enumTypes[43]
 }
 
 func (x Message_MessageState) Number() protoreflect.EnumNumber {
@@ -2826,6 +2924,68 @@ func (x *Message_MessageState) UnmarshalJSON(b []byte) error {
 // Deprecated: Use Message_MessageState.Descriptor instead.
 func (Message_MessageState) EnumDescriptor() ([]byte, []int) {
 	return file_googlechat_proto_rawDescGZIP(), []int{47, 0}
+}
+
+type Message_MessagePermission int32
+
+const (
+	Message_PERMISSION_UNSPECIFIED Message_MessagePermission = 0
+	Message_NO_ONE                 Message_MessagePermission = 1
+	Message_CREATOR                Message_MessagePermission = 2
+	Message_MEMBER                 Message_MessagePermission = 3
+)
+
+// Enum value maps for Message_MessagePermission.
+var (
+	Message_MessagePermission_name = map[int32]string{
+		0: "PERMISSION_UNSPECIFIED",
+		1: "NO_ONE",
+		2: "CREATOR",
+		3: "MEMBER",
+	}
+	Message_MessagePermission_value = map[string]int32{
+		"PERMISSION_UNSPECIFIED": 0,
+		"NO_ONE":                 1,
+		"CREATOR":                2,
+		"MEMBER":                 3,
+	}
+)
+
+func (x Message_MessagePermission) Enum() *Message_MessagePermission {
+	p := new(Message_MessagePermission)
+	*p = x
+	return p
+}
+
+func (x Message_MessagePermission) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Message_MessagePermission) Descriptor() protoreflect.EnumDescriptor {
+	return file_googlechat_proto_enumTypes[44].Descriptor()
+}
+
+func (Message_MessagePermission) Type() protoreflect.EnumType {
+	return &file_googlechat_proto_enumTypes[44]
+}
+
+func (x Message_MessagePermission) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Do not use.
+func (x *Message_MessagePermission) UnmarshalJSON(b []byte) error {
+	num, err := protoimpl.X.UnmarshalJSONEnum(x.Descriptor(), b)
+	if err != nil {
+		return err
+	}
+	*x = Message_MessagePermission(num)
+	return nil
+}
+
+// Deprecated: Use Message_MessagePermission.Descriptor instead.
+func (Message_MessagePermission) EnumDescriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{47, 1}
 }
 
 type Message_MessageType int32
@@ -2861,11 +3021,11 @@ func (x Message_MessageType) String() string {
 }
 
 func (Message_MessageType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[43].Descriptor()
+	return file_googlechat_proto_enumTypes[45].Descriptor()
 }
 
 func (Message_MessageType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[43]
+	return &file_googlechat_proto_enumTypes[45]
 }
 
 func (x Message_MessageType) Number() protoreflect.EnumNumber {
@@ -2884,7 +3044,7 @@ func (x *Message_MessageType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use Message_MessageType.Descriptor instead.
 func (Message_MessageType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{47, 1}
+	return file_googlechat_proto_rawDescGZIP(), []int{47, 2}
 }
 
 type FormatMetadata_FormatType int32
@@ -2950,11 +3110,11 @@ func (x FormatMetadata_FormatType) String() string {
 }
 
 func (FormatMetadata_FormatType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[44].Descriptor()
+	return file_googlechat_proto_enumTypes[46].Descriptor()
 }
 
 func (FormatMetadata_FormatType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[44]
+	return &file_googlechat_proto_enumTypes[46]
 }
 
 func (x FormatMetadata_FormatType) Number() protoreflect.EnumNumber {
@@ -3012,11 +3172,11 @@ func (x Annotation_ChipRenderType) String() string {
 }
 
 func (Annotation_ChipRenderType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[45].Descriptor()
+	return file_googlechat_proto_enumTypes[47].Descriptor()
 }
 
 func (Annotation_ChipRenderType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[45]
+	return &file_googlechat_proto_enumTypes[47]
 }
 
 func (x Annotation_ChipRenderType) Number() protoreflect.EnumNumber {
@@ -3074,11 +3234,11 @@ func (x Group_GroupType) String() string {
 }
 
 func (Group_GroupType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[46].Descriptor()
+	return file_googlechat_proto_enumTypes[48].Descriptor()
 }
 
 func (Group_GroupType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[46]
+	return &file_googlechat_proto_enumTypes[48]
 }
 
 func (x Group_GroupType) Number() protoreflect.EnumNumber {
@@ -3133,11 +3293,11 @@ func (x GroupNotificationSettings_GroupNotificationState) String() string {
 }
 
 func (GroupNotificationSettings_GroupNotificationState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[47].Descriptor()
+	return file_googlechat_proto_enumTypes[49].Descriptor()
 }
 
 func (GroupNotificationSettings_GroupNotificationState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[47]
+	return &file_googlechat_proto_enumTypes[49]
 }
 
 func (x GroupNotificationSettings_GroupNotificationState) Number() protoreflect.EnumNumber {
@@ -3195,11 +3355,11 @@ func (x GroupNotificationSettings_RoomNotificationState) String() string {
 }
 
 func (GroupNotificationSettings_RoomNotificationState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[48].Descriptor()
+	return file_googlechat_proto_enumTypes[50].Descriptor()
 }
 
 func (GroupNotificationSettings_RoomNotificationState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[48]
+	return &file_googlechat_proto_enumTypes[50]
 }
 
 func (x GroupNotificationSettings_RoomNotificationState) Number() protoreflect.EnumNumber {
@@ -3254,11 +3414,11 @@ func (x RetentionSettings_RetentionState) String() string {
 }
 
 func (RetentionSettings_RetentionState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[49].Descriptor()
+	return file_googlechat_proto_enumTypes[51].Descriptor()
 }
 
 func (RetentionSettings_RetentionState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[49]
+	return &file_googlechat_proto_enumTypes[51]
 }
 
 func (x RetentionSettings_RetentionState) Number() protoreflect.EnumNumber {
@@ -3310,11 +3470,11 @@ func (x UpdateReactionRequest_ReactionUpdateType) String() string {
 }
 
 func (UpdateReactionRequest_ReactionUpdateType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[50].Descriptor()
+	return file_googlechat_proto_enumTypes[52].Descriptor()
 }
 
 func (UpdateReactionRequest_ReactionUpdateType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[50]
+	return &file_googlechat_proto_enumTypes[52]
 }
 
 func (x UpdateReactionRequest_ReactionUpdateType) Number() protoreflect.EnumNumber {
@@ -3366,11 +3526,11 @@ func (x CreateDmRequest_FetchOptions) String() string {
 }
 
 func (CreateDmRequest_FetchOptions) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[51].Descriptor()
+	return file_googlechat_proto_enumTypes[53].Descriptor()
 }
 
 func (CreateDmRequest_FetchOptions) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[51]
+	return &file_googlechat_proto_enumTypes[53]
 }
 
 func (x CreateDmRequest_FetchOptions) Number() protoreflect.EnumNumber {
@@ -3425,11 +3585,11 @@ func (x ListTopicsRequest_FetchOptions) String() string {
 }
 
 func (ListTopicsRequest_FetchOptions) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[52].Descriptor()
+	return file_googlechat_proto_enumTypes[54].Descriptor()
 }
 
 func (ListTopicsRequest_FetchOptions) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[52]
+	return &file_googlechat_proto_enumTypes[54]
 }
 
 func (x ListTopicsRequest_FetchOptions) Number() protoreflect.EnumNumber {
@@ -3481,11 +3641,11 @@ func (x MessageReactionEvent_ReactionEventType) String() string {
 }
 
 func (MessageReactionEvent_ReactionEventType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[53].Descriptor()
+	return file_googlechat_proto_enumTypes[55].Descriptor()
 }
 
 func (MessageReactionEvent_ReactionEventType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[53]
+	return &file_googlechat_proto_enumTypes[55]
 }
 
 func (x MessageReactionEvent_ReactionEventType) Number() protoreflect.EnumNumber {
@@ -3546,11 +3706,11 @@ func (x GroupUpdatedEvent_UpdateType) String() string {
 }
 
 func (GroupUpdatedEvent_UpdateType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[54].Descriptor()
+	return file_googlechat_proto_enumTypes[56].Descriptor()
 }
 
 func (GroupUpdatedEvent_UpdateType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[54]
+	return &file_googlechat_proto_enumTypes[56]
 }
 
 func (x GroupUpdatedEvent_UpdateType) Number() protoreflect.EnumNumber {
@@ -3608,11 +3768,11 @@ func (x WebPushNotificationEvent_DispatchApproachType) String() string {
 }
 
 func (WebPushNotificationEvent_DispatchApproachType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[55].Descriptor()
+	return file_googlechat_proto_enumTypes[57].Descriptor()
 }
 
 func (WebPushNotificationEvent_DispatchApproachType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[55]
+	return &file_googlechat_proto_enumTypes[57]
 }
 
 func (x WebPushNotificationEvent_DispatchApproachType) Number() protoreflect.EnumNumber {
@@ -3667,11 +3827,11 @@ func (x WebPushNotificationEvent_EndpointType) String() string {
 }
 
 func (WebPushNotificationEvent_EndpointType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[56].Descriptor()
+	return file_googlechat_proto_enumTypes[58].Descriptor()
 }
 
 func (WebPushNotificationEvent_EndpointType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[56]
+	return &file_googlechat_proto_enumTypes[58]
 }
 
 func (x WebPushNotificationEvent_EndpointType) Number() protoreflect.EnumNumber {
@@ -3726,11 +3886,11 @@ func (x ClientNotificationsState_DeviceNotificationSettingState) String() string
 }
 
 func (ClientNotificationsState_DeviceNotificationSettingState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[57].Descriptor()
+	return file_googlechat_proto_enumTypes[59].Descriptor()
 }
 
 func (ClientNotificationsState_DeviceNotificationSettingState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[57]
+	return &file_googlechat_proto_enumTypes[59]
 }
 
 func (x ClientNotificationsState_DeviceNotificationSettingState) Number() protoreflect.EnumNumber {
@@ -3785,11 +3945,11 @@ func (x PingEvent_State) String() string {
 }
 
 func (PingEvent_State) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[58].Descriptor()
+	return file_googlechat_proto_enumTypes[60].Descriptor()
 }
 
 func (PingEvent_State) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[58]
+	return &file_googlechat_proto_enumTypes[60]
 }
 
 func (x PingEvent_State) Number() protoreflect.EnumNumber {
@@ -3844,11 +4004,11 @@ func (x PingEvent_ApplicationFocusState) String() string {
 }
 
 func (PingEvent_ApplicationFocusState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[59].Descriptor()
+	return file_googlechat_proto_enumTypes[61].Descriptor()
 }
 
 func (PingEvent_ApplicationFocusState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[59]
+	return &file_googlechat_proto_enumTypes[61]
 }
 
 func (x PingEvent_ApplicationFocusState) Number() protoreflect.EnumNumber {
@@ -3909,11 +4069,11 @@ func (x PingEvent_ClientInteractiveState) String() string {
 }
 
 func (PingEvent_ClientInteractiveState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[60].Descriptor()
+	return file_googlechat_proto_enumTypes[62].Descriptor()
 }
 
 func (PingEvent_ClientInteractiveState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[60]
+	return &file_googlechat_proto_enumTypes[62]
 }
 
 func (x PingEvent_ClientInteractiveState) Number() protoreflect.EnumNumber {
@@ -3971,11 +4131,11 @@ func (x PingEvent_DeviceActiveState) String() string {
 }
 
 func (PingEvent_DeviceActiveState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[61].Descriptor()
+	return file_googlechat_proto_enumTypes[63].Descriptor()
 }
 
 func (PingEvent_DeviceActiveState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[61]
+	return &file_googlechat_proto_enumTypes[63]
 }
 
 func (x PingEvent_DeviceActiveState) Number() protoreflect.EnumNumber {
@@ -3995,6 +4155,74 @@ func (x *PingEvent_DeviceActiveState) UnmarshalJSON(b []byte) error {
 // Deprecated: Use PingEvent_DeviceActiveState.Descriptor instead.
 func (PingEvent_DeviceActiveState) EnumDescriptor() ([]byte, []int) {
 	return file_googlechat_proto_rawDescGZIP(), []int{118, 3}
+}
+
+type LatencyData_Server int32
+
+const (
+	LatencyData_UNKNOWN     LatencyData_Server = 0
+	LatencyData_FRONTEND    LatencyData_Server = 1
+	LatencyData_INTEGRATION LatencyData_Server = 2
+	LatencyData_BACKEND     LatencyData_Server = 3
+	LatencyData_DISPATCHER  LatencyData_Server = 4
+	LatencyData_SESSION     LatencyData_Server = 5
+)
+
+// Enum value maps for LatencyData_Server.
+var (
+	LatencyData_Server_name = map[int32]string{
+		0: "UNKNOWN",
+		1: "FRONTEND",
+		2: "INTEGRATION",
+		3: "BACKEND",
+		4: "DISPATCHER",
+		5: "SESSION",
+	}
+	LatencyData_Server_value = map[string]int32{
+		"UNKNOWN":     0,
+		"FRONTEND":    1,
+		"INTEGRATION": 2,
+		"BACKEND":     3,
+		"DISPATCHER":  4,
+		"SESSION":     5,
+	}
+)
+
+func (x LatencyData_Server) Enum() *LatencyData_Server {
+	p := new(LatencyData_Server)
+	*p = x
+	return p
+}
+
+func (x LatencyData_Server) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (LatencyData_Server) Descriptor() protoreflect.EnumDescriptor {
+	return file_googlechat_proto_enumTypes[64].Descriptor()
+}
+
+func (LatencyData_Server) Type() protoreflect.EnumType {
+	return &file_googlechat_proto_enumTypes[64]
+}
+
+func (x LatencyData_Server) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Do not use.
+func (x *LatencyData_Server) UnmarshalJSON(b []byte) error {
+	num, err := protoimpl.X.UnmarshalJSONEnum(x.Descriptor(), b)
+	if err != nil {
+		return err
+	}
+	*x = LatencyData_Server(num)
+	return nil
+}
+
+// Deprecated: Use LatencyData_Server.Descriptor instead.
+func (LatencyData_Server) EnumDescriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{132, 0}
 }
 
 type Event_EventType int32
@@ -4051,6 +4279,11 @@ const (
 	Event_SHARED_DRIVE_UPDATED                        Event_EventType = 48
 	Event_MESSAGE_PERSONAL_LABEL_UPDATED              Event_EventType = 49
 	Event_USER_QUOTA_EXCEEDED                         Event_EventType = 50
+	// observed live 2026-07 as raw numbers (docs/research/09, "Unknown
+	// event *types* delivered as raw numbers: type=64, type=83"); names
+	// sourced from purple-googlechat/googlechat.proto.
+	Event_GROUP_DEFAULT_SORT_ORDER_UPDATED Event_EventType = 64
+	Event_GROUP_READ_STATE_UPDATED         Event_EventType = 83
 )
 
 // Enum value maps for Event_EventType.
@@ -4107,6 +4340,8 @@ var (
 		48: "SHARED_DRIVE_UPDATED",
 		49: "MESSAGE_PERSONAL_LABEL_UPDATED",
 		50: "USER_QUOTA_EXCEEDED",
+		64: "GROUP_DEFAULT_SORT_ORDER_UPDATED",
+		83: "GROUP_READ_STATE_UPDATED",
 	}
 	Event_EventType_value = map[string]int32{
 		"UNKNOWN":                 0,
@@ -4160,6 +4395,8 @@ var (
 		"SHARED_DRIVE_UPDATED":                        48,
 		"MESSAGE_PERSONAL_LABEL_UPDATED":              49,
 		"USER_QUOTA_EXCEEDED":                         50,
+		"GROUP_DEFAULT_SORT_ORDER_UPDATED":            64,
+		"GROUP_READ_STATE_UPDATED":                    83,
 	}
 )
 
@@ -4174,11 +4411,11 @@ func (x Event_EventType) String() string {
 }
 
 func (Event_EventType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[62].Descriptor()
+	return file_googlechat_proto_enumTypes[65].Descriptor()
 }
 
 func (Event_EventType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[62]
+	return &file_googlechat_proto_enumTypes[65]
 }
 
 func (x Event_EventType) Number() protoreflect.EnumNumber {
@@ -4197,7 +4434,7 @@ func (x *Event_EventType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use Event_EventType.Descriptor instead.
 func (Event_EventType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{123, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{133, 0}
 }
 
 type InviteType_Type int32
@@ -4233,11 +4470,11 @@ func (x InviteType_Type) String() string {
 }
 
 func (InviteType_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[63].Descriptor()
+	return file_googlechat_proto_enumTypes[66].Descriptor()
 }
 
 func (InviteType_Type) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[63]
+	return &file_googlechat_proto_enumTypes[66]
 }
 
 func (x InviteType_Type) Number() protoreflect.EnumNumber {
@@ -4256,7 +4493,7 @@ func (x *InviteType_Type) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use InviteType_Type.Descriptor instead.
 func (InviteType_Type) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{124, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{134, 0}
 }
 
 type MeetingSpace_RecordingInfo_RecordingStatus int32
@@ -4295,11 +4532,11 @@ func (x MeetingSpace_RecordingInfo_RecordingStatus) String() string {
 }
 
 func (MeetingSpace_RecordingInfo_RecordingStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[64].Descriptor()
+	return file_googlechat_proto_enumTypes[67].Descriptor()
 }
 
 func (MeetingSpace_RecordingInfo_RecordingStatus) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[64]
+	return &file_googlechat_proto_enumTypes[67]
 }
 
 func (x MeetingSpace_RecordingInfo_RecordingStatus) Number() protoreflect.EnumNumber {
@@ -4318,7 +4555,7 @@ func (x *MeetingSpace_RecordingInfo_RecordingStatus) UnmarshalJSON(b []byte) err
 
 // Deprecated: Use MeetingSpace_RecordingInfo_RecordingStatus.Descriptor instead.
 func (MeetingSpace_RecordingInfo_RecordingStatus) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 3, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 3, 0}
 }
 
 type MeetingSpace_RecordingInfo_RecordingEvent_EventType int32
@@ -4351,11 +4588,11 @@ func (x MeetingSpace_RecordingInfo_RecordingEvent_EventType) String() string {
 }
 
 func (MeetingSpace_RecordingInfo_RecordingEvent_EventType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[65].Descriptor()
+	return file_googlechat_proto_enumTypes[68].Descriptor()
 }
 
 func (MeetingSpace_RecordingInfo_RecordingEvent_EventType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[65]
+	return &file_googlechat_proto_enumTypes[68]
 }
 
 func (x MeetingSpace_RecordingInfo_RecordingEvent_EventType) Number() protoreflect.EnumNumber {
@@ -4374,7 +4611,7 @@ func (x *MeetingSpace_RecordingInfo_RecordingEvent_EventType) UnmarshalJSON(b []
 
 // Deprecated: Use MeetingSpace_RecordingInfo_RecordingEvent_EventType.Descriptor instead.
 func (MeetingSpace_RecordingInfo_RecordingEvent_EventType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 3, 0, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 3, 0, 0}
 }
 
 type MeetingSpace_StreamingSessionInfo_Status int32
@@ -4413,11 +4650,11 @@ func (x MeetingSpace_StreamingSessionInfo_Status) String() string {
 }
 
 func (MeetingSpace_StreamingSessionInfo_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[66].Descriptor()
+	return file_googlechat_proto_enumTypes[69].Descriptor()
 }
 
 func (MeetingSpace_StreamingSessionInfo_Status) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[66]
+	return &file_googlechat_proto_enumTypes[69]
 }
 
 func (x MeetingSpace_StreamingSessionInfo_Status) Number() protoreflect.EnumNumber {
@@ -4436,7 +4673,7 @@ func (x *MeetingSpace_StreamingSessionInfo_Status) UnmarshalJSON(b []byte) error
 
 // Deprecated: Use MeetingSpace_StreamingSessionInfo_Status.Descriptor instead.
 func (MeetingSpace_StreamingSessionInfo_Status) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 4, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 4, 0}
 }
 
 type MeetingSpace_StreamingSessionInfo_SessionEvent_EventType int32
@@ -4466,11 +4703,11 @@ func (x MeetingSpace_StreamingSessionInfo_SessionEvent_EventType) String() strin
 }
 
 func (MeetingSpace_StreamingSessionInfo_SessionEvent_EventType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[67].Descriptor()
+	return file_googlechat_proto_enumTypes[70].Descriptor()
 }
 
 func (MeetingSpace_StreamingSessionInfo_SessionEvent_EventType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[67]
+	return &file_googlechat_proto_enumTypes[70]
 }
 
 func (x MeetingSpace_StreamingSessionInfo_SessionEvent_EventType) Number() protoreflect.EnumNumber {
@@ -4489,7 +4726,7 @@ func (x *MeetingSpace_StreamingSessionInfo_SessionEvent_EventType) UnmarshalJSON
 
 // Deprecated: Use MeetingSpace_StreamingSessionInfo_SessionEvent_EventType.Descriptor instead.
 func (MeetingSpace_StreamingSessionInfo_SessionEvent_EventType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 4, 0, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 4, 0, 0}
 }
 
 type MembershipChangedMetadata_Type int32
@@ -4546,11 +4783,11 @@ func (x MembershipChangedMetadata_Type) String() string {
 }
 
 func (MembershipChangedMetadata_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[68].Descriptor()
+	return file_googlechat_proto_enumTypes[71].Descriptor()
 }
 
 func (MembershipChangedMetadata_Type) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[68]
+	return &file_googlechat_proto_enumTypes[71]
 }
 
 func (x MembershipChangedMetadata_Type) Number() protoreflect.EnumNumber {
@@ -4569,7 +4806,7 @@ func (x *MembershipChangedMetadata_Type) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use MembershipChangedMetadata_Type.Descriptor instead.
 func (MembershipChangedMetadata_Type) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{129, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{139, 0}
 }
 
 type UserMentionMetadata_Type int32
@@ -4614,11 +4851,11 @@ func (x UserMentionMetadata_Type) String() string {
 }
 
 func (UserMentionMetadata_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[69].Descriptor()
+	return file_googlechat_proto_enumTypes[72].Descriptor()
 }
 
 func (UserMentionMetadata_Type) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[69]
+	return &file_googlechat_proto_enumTypes[72]
 }
 
 func (x UserMentionMetadata_Type) Number() protoreflect.EnumNumber {
@@ -4637,7 +4874,7 @@ func (x *UserMentionMetadata_Type) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use UserMentionMetadata_Type.Descriptor instead.
 func (UserMentionMetadata_Type) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{130, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{140, 0}
 }
 
 type SlashCommandMetadata_Type int32
@@ -4676,11 +4913,11 @@ func (x SlashCommandMetadata_Type) String() string {
 }
 
 func (SlashCommandMetadata_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[70].Descriptor()
+	return file_googlechat_proto_enumTypes[73].Descriptor()
 }
 
 func (SlashCommandMetadata_Type) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[70]
+	return &file_googlechat_proto_enumTypes[73]
 }
 
 func (x SlashCommandMetadata_Type) Number() protoreflect.EnumNumber {
@@ -4699,7 +4936,7 @@ func (x *SlashCommandMetadata_Type) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use SlashCommandMetadata_Type.Descriptor instead.
 func (SlashCommandMetadata_Type) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{131, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{141, 0}
 }
 
 type GroupVisibility_VisibilityState int32
@@ -4735,11 +4972,11 @@ func (x GroupVisibility_VisibilityState) String() string {
 }
 
 func (GroupVisibility_VisibilityState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[71].Descriptor()
+	return file_googlechat_proto_enumTypes[74].Descriptor()
 }
 
 func (GroupVisibility_VisibilityState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[71]
+	return &file_googlechat_proto_enumTypes[74]
 }
 
 func (x GroupVisibility_VisibilityState) Number() protoreflect.EnumNumber {
@@ -4758,7 +4995,7 @@ func (x *GroupVisibility_VisibilityState) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use GroupVisibility_VisibilityState.Descriptor instead.
 func (GroupVisibility_VisibilityState) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{132, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{142, 0}
 }
 
 type CatchUpResponse_ResponseStatus int32
@@ -4803,11 +5040,11 @@ func (x CatchUpResponse_ResponseStatus) String() string {
 }
 
 func (CatchUpResponse_ResponseStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[72].Descriptor()
+	return file_googlechat_proto_enumTypes[75].Descriptor()
 }
 
 func (CatchUpResponse_ResponseStatus) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[72]
+	return &file_googlechat_proto_enumTypes[75]
 }
 
 func (x CatchUpResponse_ResponseStatus) Number() protoreflect.EnumNumber {
@@ -4826,7 +5063,7 @@ func (x *CatchUpResponse_ResponseStatus) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use CatchUpResponse_ResponseStatus.Descriptor instead.
 func (CatchUpResponse_ResponseStatus) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{139, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{149, 0}
 }
 
 type GetGroupRequest_FetchOptions int32
@@ -4874,11 +5111,11 @@ func (x GetGroupRequest_FetchOptions) String() string {
 }
 
 func (GetGroupRequest_FetchOptions) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[73].Descriptor()
+	return file_googlechat_proto_enumTypes[76].Descriptor()
 }
 
 func (GetGroupRequest_FetchOptions) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[73]
+	return &file_googlechat_proto_enumTypes[76]
 }
 
 func (x GetGroupRequest_FetchOptions) Number() protoreflect.EnumNumber {
@@ -4897,7 +5134,7 @@ func (x *GetGroupRequest_FetchOptions) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use GetGroupRequest_FetchOptions.Descriptor instead.
 func (GetGroupRequest_FetchOptions) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{140, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{150, 0}
 }
 
 type WorldSection_WorldSectionType int32
@@ -4975,11 +5212,11 @@ func (x WorldSection_WorldSectionType) String() string {
 }
 
 func (WorldSection_WorldSectionType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[74].Descriptor()
+	return file_googlechat_proto_enumTypes[77].Descriptor()
 }
 
 func (WorldSection_WorldSectionType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[74]
+	return &file_googlechat_proto_enumTypes[77]
 }
 
 func (x WorldSection_WorldSectionType) Number() protoreflect.EnumNumber {
@@ -4998,7 +5235,7 @@ func (x *WorldSection_WorldSectionType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use WorldSection_WorldSectionType.Descriptor instead.
 func (WorldSection_WorldSectionType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{142, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{152, 0}
 }
 
 type WorldFilter_StarredState int32
@@ -5034,11 +5271,11 @@ func (x WorldFilter_StarredState) String() string {
 }
 
 func (WorldFilter_StarredState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[75].Descriptor()
+	return file_googlechat_proto_enumTypes[78].Descriptor()
 }
 
 func (WorldFilter_StarredState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[75]
+	return &file_googlechat_proto_enumTypes[78]
 }
 
 func (x WorldFilter_StarredState) Number() protoreflect.EnumNumber {
@@ -5057,7 +5294,7 @@ func (x *WorldFilter_StarredState) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use WorldFilter_StarredState.Descriptor instead.
 func (WorldFilter_StarredState) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{143, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{153, 0}
 }
 
 type WorldFilter_VisibilityState int32
@@ -5093,11 +5330,11 @@ func (x WorldFilter_VisibilityState) String() string {
 }
 
 func (WorldFilter_VisibilityState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[76].Descriptor()
+	return file_googlechat_proto_enumTypes[79].Descriptor()
 }
 
 func (WorldFilter_VisibilityState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[76]
+	return &file_googlechat_proto_enumTypes[79]
 }
 
 func (x WorldFilter_VisibilityState) Number() protoreflect.EnumNumber {
@@ -5116,7 +5353,7 @@ func (x *WorldFilter_VisibilityState) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use WorldFilter_VisibilityState.Descriptor instead.
 func (WorldFilter_VisibilityState) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{143, 1}
+	return file_googlechat_proto_rawDescGZIP(), []int{153, 1}
 }
 
 type WorldFilter_ReadState int32
@@ -5155,11 +5392,11 @@ func (x WorldFilter_ReadState) String() string {
 }
 
 func (WorldFilter_ReadState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[77].Descriptor()
+	return file_googlechat_proto_enumTypes[80].Descriptor()
 }
 
 func (WorldFilter_ReadState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[77]
+	return &file_googlechat_proto_enumTypes[80]
 }
 
 func (x WorldFilter_ReadState) Number() protoreflect.EnumNumber {
@@ -5178,7 +5415,7 @@ func (x *WorldFilter_ReadState) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use WorldFilter_ReadState.Descriptor instead.
 func (WorldFilter_ReadState) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{143, 2}
+	return file_googlechat_proto_rawDescGZIP(), []int{153, 2}
 }
 
 type WorldFilter_BlockState int32
@@ -5214,11 +5451,11 @@ func (x WorldFilter_BlockState) String() string {
 }
 
 func (WorldFilter_BlockState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[78].Descriptor()
+	return file_googlechat_proto_enumTypes[81].Descriptor()
 }
 
 func (WorldFilter_BlockState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[78]
+	return &file_googlechat_proto_enumTypes[81]
 }
 
 func (x WorldFilter_BlockState) Number() protoreflect.EnumNumber {
@@ -5237,7 +5474,7 @@ func (x *WorldFilter_BlockState) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use WorldFilter_BlockState.Descriptor instead.
 func (WorldFilter_BlockState) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{143, 3}
+	return file_googlechat_proto_rawDescGZIP(), []int{153, 3}
 }
 
 type WorldFilter_NamedState int32
@@ -5273,11 +5510,11 @@ func (x WorldFilter_NamedState) String() string {
 }
 
 func (WorldFilter_NamedState) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[79].Descriptor()
+	return file_googlechat_proto_enumTypes[82].Descriptor()
 }
 
 func (WorldFilter_NamedState) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[79]
+	return &file_googlechat_proto_enumTypes[82]
 }
 
 func (x WorldFilter_NamedState) Number() protoreflect.EnumNumber {
@@ -5296,7 +5533,7 @@ func (x *WorldFilter_NamedState) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use WorldFilter_NamedState.Descriptor instead.
 func (WorldFilter_NamedState) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{143, 4}
+	return file_googlechat_proto_rawDescGZIP(), []int{153, 4}
 }
 
 type WorldFilter_MemberType int32
@@ -5332,11 +5569,11 @@ func (x WorldFilter_MemberType) String() string {
 }
 
 func (WorldFilter_MemberType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[80].Descriptor()
+	return file_googlechat_proto_enumTypes[83].Descriptor()
 }
 
 func (WorldFilter_MemberType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[80]
+	return &file_googlechat_proto_enumTypes[83]
 }
 
 func (x WorldFilter_MemberType) Number() protoreflect.EnumNumber {
@@ -5355,7 +5592,7 @@ func (x *WorldFilter_MemberType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use WorldFilter_MemberType.Descriptor instead.
 func (WorldFilter_MemberType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{143, 5}
+	return file_googlechat_proto_rawDescGZIP(), []int{153, 5}
 }
 
 type WorldFilter_GroupType int32
@@ -5391,11 +5628,11 @@ func (x WorldFilter_GroupType) String() string {
 }
 
 func (WorldFilter_GroupType) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[81].Descriptor()
+	return file_googlechat_proto_enumTypes[84].Descriptor()
 }
 
 func (WorldFilter_GroupType) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[81]
+	return &file_googlechat_proto_enumTypes[84]
 }
 
 func (x WorldFilter_GroupType) Number() protoreflect.EnumNumber {
@@ -5414,7 +5651,7 @@ func (x *WorldFilter_GroupType) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use WorldFilter_GroupType.Descriptor instead.
 func (WorldFilter_GroupType) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{143, 6}
+	return file_googlechat_proto_rawDescGZIP(), []int{153, 6}
 }
 
 type PaginatedWorldRequest_FetchOptions int32
@@ -5456,11 +5693,11 @@ func (x PaginatedWorldRequest_FetchOptions) String() string {
 }
 
 func (PaginatedWorldRequest_FetchOptions) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[82].Descriptor()
+	return file_googlechat_proto_enumTypes[85].Descriptor()
 }
 
 func (PaginatedWorldRequest_FetchOptions) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[82]
+	return &file_googlechat_proto_enumTypes[85]
 }
 
 func (x PaginatedWorldRequest_FetchOptions) Number() protoreflect.EnumNumber {
@@ -5479,7 +5716,7 @@ func (x *PaginatedWorldRequest_FetchOptions) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use PaginatedWorldRequest_FetchOptions.Descriptor instead.
 func (PaginatedWorldRequest_FetchOptions) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{148, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{158, 0}
 }
 
 type InviteNotificationSettings_NotificationOption int32
@@ -5512,11 +5749,11 @@ func (x InviteNotificationSettings_NotificationOption) String() string {
 }
 
 func (InviteNotificationSettings_NotificationOption) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[83].Descriptor()
+	return file_googlechat_proto_enumTypes[86].Descriptor()
 }
 
 func (InviteNotificationSettings_NotificationOption) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[83]
+	return &file_googlechat_proto_enumTypes[86]
 }
 
 func (x InviteNotificationSettings_NotificationOption) Number() protoreflect.EnumNumber {
@@ -5535,7 +5772,7 @@ func (x *InviteNotificationSettings_NotificationOption) UnmarshalJSON(b []byte) 
 
 // Deprecated: Use InviteNotificationSettings_NotificationOption.Descriptor instead.
 func (InviteNotificationSettings_NotificationOption) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{155, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{165, 0}
 }
 
 type SetDndDurationRequest_State int32
@@ -5571,11 +5808,11 @@ func (x SetDndDurationRequest_State) String() string {
 }
 
 func (SetDndDurationRequest_State) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[84].Descriptor()
+	return file_googlechat_proto_enumTypes[87].Descriptor()
 }
 
 func (SetDndDurationRequest_State) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[84]
+	return &file_googlechat_proto_enumTypes[87]
 }
 
 func (x SetDndDurationRequest_State) Number() protoreflect.EnumNumber {
@@ -5594,7 +5831,7 @@ func (x *SetDndDurationRequest_State) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use SetDndDurationRequest_State.Descriptor instead.
 func (SetDndDurationRequest_State) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{162, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{172, 0}
 }
 
 type UpdateGroupRequest_UpdateMask int32
@@ -5639,11 +5876,11 @@ func (x UpdateGroupRequest_UpdateMask) String() string {
 }
 
 func (UpdateGroupRequest_UpdateMask) Descriptor() protoreflect.EnumDescriptor {
-	return file_googlechat_proto_enumTypes[85].Descriptor()
+	return file_googlechat_proto_enumTypes[88].Descriptor()
 }
 
 func (UpdateGroupRequest_UpdateMask) Type() protoreflect.EnumType {
-	return &file_googlechat_proto_enumTypes[85]
+	return &file_googlechat_proto_enumTypes[88]
 }
 
 func (x UpdateGroupRequest_UpdateMask) Number() protoreflect.EnumNumber {
@@ -5662,7 +5899,7 @@ func (x *UpdateGroupRequest_UpdateMask) UnmarshalJSON(b []byte) error {
 
 // Deprecated: Use UpdateGroupRequest_UpdateMask.Descriptor instead.
 func (UpdateGroupRequest_UpdateMask) EnumDescriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{164, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{174, 0}
 }
 
 type UserId struct {
@@ -8933,18 +9170,18 @@ type Message struct {
 	AppProfile        *AppProfile        `protobuf:"bytes,16,opt,name=app_profile,json=appProfile" json:"app_profile,omitempty"`
 	RetentionSettings *RetentionSettings `protobuf:"bytes,18,opt,name=retention_settings,json=retentionSettings" json:"retention_settings,omitempty"`
 	Reactions         []*Reaction        `protobuf:"bytes,21,rep,name=reactions" json:"reactions,omitempty"`
-	// repeated DYNProtoCommunalLabelTag communal_labels = 27;
-	// repeated DYNProtoPersonalLabelTag personal_labels = 26;
-	// optional ?? message_integration_payload = 23;
-	// optional DYNProtoMessage_MessagePermission editable_by = 24;
-	// optional DYNProtoMessage_MessagePermission deletable_by = 25;
-	LastReplyTime    *int64               `protobuf:"varint,5,opt,name=last_reply_time,json=lastReplyTime" json:"last_reply_time,omitempty"`
-	LastViewTime     *int64               `protobuf:"varint,6,opt,name=last_view_time,json=lastViewTime" json:"last_view_time,omitempty"`
-	LastMentionTime  *int64               `protobuf:"varint,7,opt,name=last_mention_time,json=lastMentionTime" json:"last_mention_time,omitempty"`
-	NumUnreadReplies *int64               `protobuf:"varint,9,opt,name=num_unread_replies,json=numUnreadReplies" json:"num_unread_replies,omitempty"`
-	LastReply        *Message             `protobuf:"bytes,12,opt,name=last_reply,json=lastReply" json:"last_reply,omitempty"`
-	SortTime         *int64               `protobuf:"varint,13,opt,name=sort_time,json=sortTime" json:"sort_time,omitempty"`
-	MessageType      *Message_MessageType `protobuf:"varint,28,opt,name=message_type,json=messageType,enum=Message_MessageType" json:"message_type,omitempty"`
+	// editable_by/deletable_by: observed live 2026-07 (docs/research/09,
+	// "Message fields 24, 25 (small enums, value 2)"); name+type sourced
+	// from purple-googlechat/googlechat.proto.
+	EditableBy       *Message_MessagePermission `protobuf:"varint,24,opt,name=editable_by,json=editableBy,enum=Message_MessagePermission" json:"editable_by,omitempty"`
+	DeletableBy      *Message_MessagePermission `protobuf:"varint,25,opt,name=deletable_by,json=deletableBy,enum=Message_MessagePermission" json:"deletable_by,omitempty"`
+	LastReplyTime    *int64                     `protobuf:"varint,5,opt,name=last_reply_time,json=lastReplyTime" json:"last_reply_time,omitempty"`
+	LastViewTime     *int64                     `protobuf:"varint,6,opt,name=last_view_time,json=lastViewTime" json:"last_view_time,omitempty"`
+	LastMentionTime  *int64                     `protobuf:"varint,7,opt,name=last_mention_time,json=lastMentionTime" json:"last_mention_time,omitempty"`
+	NumUnreadReplies *int64                     `protobuf:"varint,9,opt,name=num_unread_replies,json=numUnreadReplies" json:"num_unread_replies,omitempty"`
+	LastReply        *Message                   `protobuf:"bytes,12,opt,name=last_reply,json=lastReply" json:"last_reply,omitempty"`
+	SortTime         *int64                     `protobuf:"varint,13,opt,name=sort_time,json=sortTime" json:"sort_time,omitempty"`
+	MessageType      *Message_MessageType       `protobuf:"varint,28,opt,name=message_type,json=messageType,enum=Message_MessageType" json:"message_type,omitempty"`
 	// optional DYNProtoAppId origin_app_id = 29;
 	CreatorMembership *Membership `protobuf:"bytes,30,opt,name=creator_membership,json=creatorMembership" json:"creator_membership,omitempty"`
 	// optional DYNProtoMessageAttributes attributes = 31;
@@ -9080,6 +9317,20 @@ func (x *Message) GetReactions() []*Reaction {
 		return x.Reactions
 	}
 	return nil
+}
+
+func (x *Message) GetEditableBy() Message_MessagePermission {
+	if x != nil && x.EditableBy != nil {
+		return *x.EditableBy
+	}
+	return Message_PERMISSION_UNSPECIFIED
+}
+
+func (x *Message) GetDeletableBy() Message_MessagePermission {
+	if x != nil && x.DeletableBy != nil {
+		return *x.DeletableBy
+	}
+	return Message_PERMISSION_UNSPECIFIED
 }
 
 func (x *Message) GetLastReplyTime() int64 {
@@ -13776,8 +14027,12 @@ type MessageEvent struct {
 	LastMessageInTopicTime *int64                 `protobuf:"varint,4,opt,name=last_message_in_topic_time,json=lastMessageInTopicTime" json:"last_message_in_topic_time,omitempty"`
 	PrevRevisionTime       *int64                 `protobuf:"varint,5,opt,name=prev_revision_time,json=prevRevisionTime" json:"prev_revision_time,omitempty"`
 	IsHeadMessage          *bool                  `protobuf:"varint,6,opt,name=is_head_message,json=isHeadMessage" json:"is_head_message,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// num_recipients: observed live 2026-07 (docs/research/09, "MessageEvent
+	// field 7 (small enum, value 2)"); name+type sourced from
+	// purple-googlechat/googlechat.proto (plain int32, not an enum).
+	NumRecipients *int32 `protobuf:"varint,7,opt,name=num_recipients,json=numRecipients" json:"num_recipients,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MessageEvent) Reset() {
@@ -13836,6 +14091,13 @@ func (x *MessageEvent) GetIsHeadMessage() bool {
 		return *x.IsHeadMessage
 	}
 	return false
+}
+
+func (x *MessageEvent) GetNumRecipients() int32 {
+	if x != nil && x.NumRecipients != nil {
+		return *x.NumRecipients
+	}
+	return 0
 }
 
 type MessageReactionEvent struct {
@@ -14848,6 +15110,609 @@ func (x *StreamEventsResponse) GetClockSyncResponse() *ClockSyncResponse {
 	return nil
 }
 
+type TopicMuteChangedEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TopicId       *TopicId               `protobuf:"bytes,1,opt,name=topic_id,json=topicId" json:"topic_id,omitempty"`
+	Muted         *bool                  `protobuf:"varint,2,opt,name=muted" json:"muted,omitempty"`
+	EventTime     *int64                 `protobuf:"varint,3,opt,name=event_time,json=eventTime" json:"event_time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TopicMuteChangedEvent) Reset() {
+	*x = TopicMuteChangedEvent{}
+	mi := &file_googlechat_proto_msgTypes[123]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TopicMuteChangedEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TopicMuteChangedEvent) ProtoMessage() {}
+
+func (x *TopicMuteChangedEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[123]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TopicMuteChangedEvent.ProtoReflect.Descriptor instead.
+func (*TopicMuteChangedEvent) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{123}
+}
+
+func (x *TopicMuteChangedEvent) GetTopicId() *TopicId {
+	if x != nil {
+		return x.TopicId
+	}
+	return nil
+}
+
+func (x *TopicMuteChangedEvent) GetMuted() bool {
+	if x != nil && x.Muted != nil {
+		return *x.Muted
+	}
+	return false
+}
+
+func (x *TopicMuteChangedEvent) GetEventTime() int64 {
+	if x != nil && x.EventTime != nil {
+		return *x.EventTime
+	}
+	return 0
+}
+
+type GroupUnreadSubscribedTopicCountUpdatedEvent struct {
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	UnreadSubscribedTopicCount *int64                 `protobuf:"varint,1,opt,name=unread_subscribed_topic_count,json=unreadSubscribedTopicCount" json:"unread_subscribed_topic_count,omitempty"`
+	UpdateTimestamp            *int64                 `protobuf:"varint,2,opt,name=update_timestamp,json=updateTimestamp" json:"update_timestamp,omitempty"`
+	GroupId                    *GroupId               `protobuf:"bytes,3,opt,name=group_id,json=groupId" json:"group_id,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *GroupUnreadSubscribedTopicCountUpdatedEvent) Reset() {
+	*x = GroupUnreadSubscribedTopicCountUpdatedEvent{}
+	mi := &file_googlechat_proto_msgTypes[124]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupUnreadSubscribedTopicCountUpdatedEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupUnreadSubscribedTopicCountUpdatedEvent) ProtoMessage() {}
+
+func (x *GroupUnreadSubscribedTopicCountUpdatedEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[124]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupUnreadSubscribedTopicCountUpdatedEvent.ProtoReflect.Descriptor instead.
+func (*GroupUnreadSubscribedTopicCountUpdatedEvent) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{124}
+}
+
+func (x *GroupUnreadSubscribedTopicCountUpdatedEvent) GetUnreadSubscribedTopicCount() int64 {
+	if x != nil && x.UnreadSubscribedTopicCount != nil {
+		return *x.UnreadSubscribedTopicCount
+	}
+	return 0
+}
+
+func (x *GroupUnreadSubscribedTopicCountUpdatedEvent) GetUpdateTimestamp() int64 {
+	if x != nil && x.UpdateTimestamp != nil {
+		return *x.UpdateTimestamp
+	}
+	return 0
+}
+
+func (x *GroupUnreadSubscribedTopicCountUpdatedEvent) GetGroupId() *GroupId {
+	if x != nil {
+		return x.GroupId
+	}
+	return nil
+}
+
+type TopicCreatedEvent struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Topic          *Topic                 `protobuf:"bytes,1,opt,name=topic" json:"topic,omitempty"`
+	HasMoreReplied *bool                  `protobuf:"varint,2,opt,name=has_more_replied,json=hasMoreReplied" json:"has_more_replied,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TopicCreatedEvent) Reset() {
+	*x = TopicCreatedEvent{}
+	mi := &file_googlechat_proto_msgTypes[125]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TopicCreatedEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TopicCreatedEvent) ProtoMessage() {}
+
+func (x *TopicCreatedEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[125]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TopicCreatedEvent.ProtoReflect.Descriptor instead.
+func (*TopicCreatedEvent) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{125}
+}
+
+func (x *TopicCreatedEvent) GetTopic() *Topic {
+	if x != nil {
+		return x.Topic
+	}
+	return nil
+}
+
+func (x *TopicCreatedEvent) GetHasMoreReplied() bool {
+	if x != nil && x.HasMoreReplied != nil {
+		return *x.HasMoreReplied
+	}
+	return false
+}
+
+// MessageSmartRepliesEvent: observed live 2026-07 (docs/research/09,
+// EventBody field 25, accompanies MESSAGE_SMART_REPLIES) -- type inferred
+// from wire shape. purple-googlechat also lacks a real definition for this
+// field (still commented out there); fields below follow the same
+// group/topic-id + microsecond-timestamp shape seen on the other sibling
+// EventBody payloads (e.g. GroupUnreadSubscribedTopicCountUpdatedEvent).
+type MessageSmartRepliesEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       *GroupId               `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`                      // observed live 2026-07, type inferred from wire shape (docs/research/09)
+	EventTimeUsec *int64                 `protobuf:"varint,2,opt,name=event_time_usec,json=eventTimeUsec" json:"event_time_usec,omitempty"` // observed live 2026-07, type inferred from wire shape (docs/research/09)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MessageSmartRepliesEvent) Reset() {
+	*x = MessageSmartRepliesEvent{}
+	mi := &file_googlechat_proto_msgTypes[126]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MessageSmartRepliesEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MessageSmartRepliesEvent) ProtoMessage() {}
+
+func (x *MessageSmartRepliesEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[126]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MessageSmartRepliesEvent.ProtoReflect.Descriptor instead.
+func (*MessageSmartRepliesEvent) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{126}
+}
+
+func (x *MessageSmartRepliesEvent) GetGroupId() *GroupId {
+	if x != nil {
+		return x.GroupId
+	}
+	return nil
+}
+
+func (x *MessageSmartRepliesEvent) GetEventTimeUsec() int64 {
+	if x != nil && x.EventTimeUsec != nil {
+		return *x.EventTimeUsec
+	}
+	return 0
+}
+
+// GroupDefaultSortOrderUpdatedEvent: observed live 2026-07 (docs/research/09,
+// EventBody field 53) -- type inferred from wire shape. purple-googlechat
+// only has the EventType enum value (GROUP_DEFAULT_SORT_ORDER_UPDATED = 64)
+// for this, not a real EventBody payload definition; shape inferred as
+// above.
+type GroupDefaultSortOrderUpdatedEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       *GroupId               `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`                      // observed live 2026-07, type inferred from wire shape (docs/research/09)
+	EventTimeUsec *int64                 `protobuf:"varint,2,opt,name=event_time_usec,json=eventTimeUsec" json:"event_time_usec,omitempty"` // observed live 2026-07, type inferred from wire shape (docs/research/09)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GroupDefaultSortOrderUpdatedEvent) Reset() {
+	*x = GroupDefaultSortOrderUpdatedEvent{}
+	mi := &file_googlechat_proto_msgTypes[127]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupDefaultSortOrderUpdatedEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupDefaultSortOrderUpdatedEvent) ProtoMessage() {}
+
+func (x *GroupDefaultSortOrderUpdatedEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[127]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupDefaultSortOrderUpdatedEvent.ProtoReflect.Descriptor instead.
+func (*GroupDefaultSortOrderUpdatedEvent) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{127}
+}
+
+func (x *GroupDefaultSortOrderUpdatedEvent) GetGroupId() *GroupId {
+	if x != nil {
+		return x.GroupId
+	}
+	return nil
+}
+
+func (x *GroupDefaultSortOrderUpdatedEvent) GetEventTimeUsec() int64 {
+	if x != nil && x.EventTimeUsec != nil {
+		return *x.EventTimeUsec
+	}
+	return 0
+}
+
+type GroupReadStateUpdatedEvent struct {
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	GroupId                   *GroupId               `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`
+	LastHeadMessageCreateTime *int64                 `protobuf:"varint,2,opt,name=last_head_message_create_time,json=lastHeadMessageCreateTime" json:"last_head_message_create_time,omitempty"`
+	MostRecentReadTime        *int64                 `protobuf:"varint,3,opt,name=most_recent_read_time,json=mostRecentReadTime" json:"most_recent_read_time,omitempty"`
+	MarkAsUnreadTime          *int64                 `protobuf:"varint,4,opt,name=mark_as_unread_time,json=markAsUnreadTime" json:"mark_as_unread_time,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *GroupReadStateUpdatedEvent) Reset() {
+	*x = GroupReadStateUpdatedEvent{}
+	mi := &file_googlechat_proto_msgTypes[128]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupReadStateUpdatedEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupReadStateUpdatedEvent) ProtoMessage() {}
+
+func (x *GroupReadStateUpdatedEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[128]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupReadStateUpdatedEvent.ProtoReflect.Descriptor instead.
+func (*GroupReadStateUpdatedEvent) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{128}
+}
+
+func (x *GroupReadStateUpdatedEvent) GetGroupId() *GroupId {
+	if x != nil {
+		return x.GroupId
+	}
+	return nil
+}
+
+func (x *GroupReadStateUpdatedEvent) GetLastHeadMessageCreateTime() int64 {
+	if x != nil && x.LastHeadMessageCreateTime != nil {
+		return *x.LastHeadMessageCreateTime
+	}
+	return 0
+}
+
+func (x *GroupReadStateUpdatedEvent) GetMostRecentReadTime() int64 {
+	if x != nil && x.MostRecentReadTime != nil {
+		return *x.MostRecentReadTime
+	}
+	return 0
+}
+
+func (x *GroupReadStateUpdatedEvent) GetMarkAsUnreadTime() int64 {
+	if x != nil && x.MarkAsUnreadTime != nil {
+		return *x.MarkAsUnreadTime
+	}
+	return 0
+}
+
+type BackendMetadata struct {
+	state                         protoimpl.MessageState     `protogen:"open.v1"`
+	DispatchTimeMillis            *int64                     `protobuf:"varint,1,opt,name=dispatch_time_millis,json=dispatchTimeMillis" json:"dispatch_time_millis,omitempty"`
+	DispatchSubIdentifier         *int32                     `protobuf:"varint,2,opt,name=dispatch_sub_identifier,json=dispatchSubIdentifier" json:"dispatch_sub_identifier,omitempty"`
+	DispatchRandomFiller          []byte                     `protobuf:"bytes,3,opt,name=dispatch_random_filler,json=dispatchRandomFiller" json:"dispatch_random_filler,omitempty"`
+	DispatchTimestampMicros       *int64                     `protobuf:"varint,4,opt,name=dispatch_timestamp_micros,json=dispatchTimestampMicros" json:"dispatch_timestamp_micros,omitempty"`
+	Dimensions                    []BackendMetadataDimension `protobuf:"varint,5,rep,name=dimensions,enum=BackendMetadataDimension" json:"dimensions,omitempty"`
+	UserTargetedEventDualDispatch *bool                      `protobuf:"varint,6,opt,name=user_targeted_event_dual_dispatch,json=userTargetedEventDualDispatch" json:"user_targeted_event_dual_dispatch,omitempty"`
+	PayloadHash                   *int32                     `protobuf:"varint,7,opt,name=payload_hash,json=payloadHash" json:"payload_hash,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
+}
+
+func (x *BackendMetadata) Reset() {
+	*x = BackendMetadata{}
+	mi := &file_googlechat_proto_msgTypes[129]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackendMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackendMetadata) ProtoMessage() {}
+
+func (x *BackendMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[129]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackendMetadata.ProtoReflect.Descriptor instead.
+func (*BackendMetadata) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{129}
+}
+
+func (x *BackendMetadata) GetDispatchTimeMillis() int64 {
+	if x != nil && x.DispatchTimeMillis != nil {
+		return *x.DispatchTimeMillis
+	}
+	return 0
+}
+
+func (x *BackendMetadata) GetDispatchSubIdentifier() int32 {
+	if x != nil && x.DispatchSubIdentifier != nil {
+		return *x.DispatchSubIdentifier
+	}
+	return 0
+}
+
+func (x *BackendMetadata) GetDispatchRandomFiller() []byte {
+	if x != nil {
+		return x.DispatchRandomFiller
+	}
+	return nil
+}
+
+func (x *BackendMetadata) GetDispatchTimestampMicros() int64 {
+	if x != nil && x.DispatchTimestampMicros != nil {
+		return *x.DispatchTimestampMicros
+	}
+	return 0
+}
+
+func (x *BackendMetadata) GetDimensions() []BackendMetadataDimension {
+	if x != nil {
+		return x.Dimensions
+	}
+	return nil
+}
+
+func (x *BackendMetadata) GetUserTargetedEventDualDispatch() bool {
+	if x != nil && x.UserTargetedEventDualDispatch != nil {
+		return *x.UserTargetedEventDualDispatch
+	}
+	return false
+}
+
+func (x *BackendMetadata) GetPayloadHash() int32 {
+	if x != nil && x.PayloadHash != nil {
+		return *x.PayloadHash
+	}
+	return 0
+}
+
+type Timestamp struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Seconds       *int64                 `protobuf:"varint,1,opt,name=seconds" json:"seconds,omitempty"`
+	Nanos         *int32                 `protobuf:"varint,2,opt,name=nanos" json:"nanos,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Timestamp) Reset() {
+	*x = Timestamp{}
+	mi := &file_googlechat_proto_msgTypes[130]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Timestamp) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Timestamp) ProtoMessage() {}
+
+func (x *Timestamp) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[130]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Timestamp.ProtoReflect.Descriptor instead.
+func (*Timestamp) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{130}
+}
+
+func (x *Timestamp) GetSeconds() int64 {
+	if x != nil && x.Seconds != nil {
+		return *x.Seconds
+	}
+	return 0
+}
+
+func (x *Timestamp) GetNanos() int32 {
+	if x != nil && x.Nanos != nil {
+		return *x.Nanos
+	}
+	return 0
+}
+
+type Interval struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Start         *Timestamp             `protobuf:"bytes,1,opt,name=start" json:"start,omitempty"`
+	End           *Timestamp             `protobuf:"bytes,2,opt,name=end" json:"end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Interval) Reset() {
+	*x = Interval{}
+	mi := &file_googlechat_proto_msgTypes[131]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Interval) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Interval) ProtoMessage() {}
+
+func (x *Interval) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[131]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Interval.ProtoReflect.Descriptor instead.
+func (*Interval) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{131}
+}
+
+func (x *Interval) GetStart() *Timestamp {
+	if x != nil {
+		return x.Start
+	}
+	return nil
+}
+
+func (x *Interval) GetEnd() *Timestamp {
+	if x != nil {
+		return x.End
+	}
+	return nil
+}
+
+type LatencyData struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Server        *LatencyData_Server    `protobuf:"varint,1,opt,name=server,enum=LatencyData_Server" json:"server,omitempty"`
+	Interval      *Interval              `protobuf:"bytes,2,opt,name=interval" json:"interval,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LatencyData) Reset() {
+	*x = LatencyData{}
+	mi := &file_googlechat_proto_msgTypes[132]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LatencyData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LatencyData) ProtoMessage() {}
+
+func (x *LatencyData) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[132]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LatencyData.ProtoReflect.Descriptor instead.
+func (*LatencyData) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{132}
+}
+
+func (x *LatencyData) GetServer() LatencyData_Server {
+	if x != nil && x.Server != nil {
+		return *x.Server
+	}
+	return LatencyData_UNKNOWN
+}
+
+func (x *LatencyData) GetInterval() *Interval {
+	if x != nil {
+		return x.Interval
+	}
+	return nil
+}
+
 type Event struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	GroupId *GroupId               `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`
@@ -14858,15 +15723,21 @@ type Event struct {
 	//
 	//	*Event_UserRevision
 	//	*Event_GroupRevision
-	RevisionType  isEvent_RevisionType `protobuf_oneof:"RevisionType"`
-	Bodies        []*Event_EventBody   `protobuf:"bytes,8,rep,name=bodies" json:"bodies,omitempty"` // This is the second and subsequent event bodies in this event
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	RevisionType isEvent_RevisionType `protobuf_oneof:"RevisionType"`
+	Bodies       []*Event_EventBody   `protobuf:"bytes,8,rep,name=bodies" json:"bodies,omitempty"` // This is the second and subsequent event bodies in this event
+	// backend_metadata/latency_data: observed live 2026-07 (docs/research/09,
+	// "Event field 9 ... looks like per-event trace/latency metadata" and
+	// "field 11 ... arrays of [sec, nsec] timing pairs"); name+type sourced
+	// from purple-googlechat/googlechat.proto.
+	BackendMetadata *BackendMetadata `protobuf:"bytes,9,opt,name=backend_metadata,json=backendMetadata" json:"backend_metadata,omitempty"`
+	LatencyData     []*LatencyData   `protobuf:"bytes,11,rep,name=latency_data,json=latencyData" json:"latency_data,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_googlechat_proto_msgTypes[123]
+	mi := &file_googlechat_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14878,7 +15749,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[123]
+	mi := &file_googlechat_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14891,7 +15762,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{123}
+	return file_googlechat_proto_rawDescGZIP(), []int{133}
 }
 
 func (x *Event) GetGroupId() *GroupId {
@@ -14954,6 +15825,20 @@ func (x *Event) GetBodies() []*Event_EventBody {
 	return nil
 }
 
+func (x *Event) GetBackendMetadata() *BackendMetadata {
+	if x != nil {
+		return x.BackendMetadata
+	}
+	return nil
+}
+
+func (x *Event) GetLatencyData() []*LatencyData {
+	if x != nil {
+		return x.LatencyData
+	}
+	return nil
+}
+
 type isEvent_RevisionType interface {
 	isEvent_RevisionType()
 }
@@ -14978,7 +15863,7 @@ type InviteType struct {
 
 func (x *InviteType) Reset() {
 	*x = InviteType{}
-	mi := &file_googlechat_proto_msgTypes[124]
+	mi := &file_googlechat_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14990,7 +15875,7 @@ func (x *InviteType) String() string {
 func (*InviteType) ProtoMessage() {}
 
 func (x *InviteType) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[124]
+	mi := &file_googlechat_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15003,7 +15888,7 @@ func (x *InviteType) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InviteType.ProtoReflect.Descriptor instead.
 func (*InviteType) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{124}
+	return file_googlechat_proto_rawDescGZIP(), []int{134}
 }
 
 type GroupDetails struct {
@@ -15016,7 +15901,7 @@ type GroupDetails struct {
 
 func (x *GroupDetails) Reset() {
 	*x = GroupDetails{}
-	mi := &file_googlechat_proto_msgTypes[125]
+	mi := &file_googlechat_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15028,7 +15913,7 @@ func (x *GroupDetails) String() string {
 func (*GroupDetails) ProtoMessage() {}
 
 func (x *GroupDetails) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[125]
+	mi := &file_googlechat_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15041,7 +15926,7 @@ func (x *GroupDetails) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupDetails.ProtoReflect.Descriptor instead.
 func (*GroupDetails) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{125}
+	return file_googlechat_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *GroupDetails) GetDescription() string {
@@ -15072,7 +15957,7 @@ type RoomUpdatedMetadata struct {
 
 func (x *RoomUpdatedMetadata) Reset() {
 	*x = RoomUpdatedMetadata{}
-	mi := &file_googlechat_proto_msgTypes[126]
+	mi := &file_googlechat_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15084,7 +15969,7 @@ func (x *RoomUpdatedMetadata) String() string {
 func (*RoomUpdatedMetadata) ProtoMessage() {}
 
 func (x *RoomUpdatedMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[126]
+	mi := &file_googlechat_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15097,7 +15982,7 @@ func (x *RoomUpdatedMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoomUpdatedMetadata.ProtoReflect.Descriptor instead.
 func (*RoomUpdatedMetadata) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{126}
+	return file_googlechat_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *RoomUpdatedMetadata) GetName() string {
@@ -15164,7 +16049,7 @@ type MeetingSpace struct {
 
 func (x *MeetingSpace) Reset() {
 	*x = MeetingSpace{}
-	mi := &file_googlechat_proto_msgTypes[127]
+	mi := &file_googlechat_proto_msgTypes[137]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15176,7 +16061,7 @@ func (x *MeetingSpace) String() string {
 func (*MeetingSpace) ProtoMessage() {}
 
 func (x *MeetingSpace) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[127]
+	mi := &file_googlechat_proto_msgTypes[137]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15189,7 +16074,7 @@ func (x *MeetingSpace) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace.ProtoReflect.Descriptor instead.
 func (*MeetingSpace) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127}
+	return file_googlechat_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *MeetingSpace) GetMeetingSpaceId() string {
@@ -15294,7 +16179,7 @@ type VideoCallMetadata struct {
 
 func (x *VideoCallMetadata) Reset() {
 	*x = VideoCallMetadata{}
-	mi := &file_googlechat_proto_msgTypes[128]
+	mi := &file_googlechat_proto_msgTypes[138]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15306,7 +16191,7 @@ func (x *VideoCallMetadata) String() string {
 func (*VideoCallMetadata) ProtoMessage() {}
 
 func (x *VideoCallMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[128]
+	mi := &file_googlechat_proto_msgTypes[138]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15319,7 +16204,7 @@ func (x *VideoCallMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VideoCallMetadata.ProtoReflect.Descriptor instead.
 func (*VideoCallMetadata) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{128}
+	return file_googlechat_proto_rawDescGZIP(), []int{138}
 }
 
 func (x *VideoCallMetadata) GetMeetingSpace() *MeetingSpace {
@@ -15357,7 +16242,7 @@ type MembershipChangedMetadata struct {
 
 func (x *MembershipChangedMetadata) Reset() {
 	*x = MembershipChangedMetadata{}
-	mi := &file_googlechat_proto_msgTypes[129]
+	mi := &file_googlechat_proto_msgTypes[139]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15369,7 +16254,7 @@ func (x *MembershipChangedMetadata) String() string {
 func (*MembershipChangedMetadata) ProtoMessage() {}
 
 func (x *MembershipChangedMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[129]
+	mi := &file_googlechat_proto_msgTypes[139]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15382,7 +16267,7 @@ func (x *MembershipChangedMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MembershipChangedMetadata.ProtoReflect.Descriptor instead.
 func (*MembershipChangedMetadata) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{129}
+	return file_googlechat_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *MembershipChangedMetadata) GetType() MembershipChangedMetadata_Type {
@@ -15440,7 +16325,7 @@ type UserMentionMetadata struct {
 
 func (x *UserMentionMetadata) Reset() {
 	*x = UserMentionMetadata{}
-	mi := &file_googlechat_proto_msgTypes[130]
+	mi := &file_googlechat_proto_msgTypes[140]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15452,7 +16337,7 @@ func (x *UserMentionMetadata) String() string {
 func (*UserMentionMetadata) ProtoMessage() {}
 
 func (x *UserMentionMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[130]
+	mi := &file_googlechat_proto_msgTypes[140]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15465,7 +16350,7 @@ func (x *UserMentionMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserMentionMetadata.ProtoReflect.Descriptor instead.
 func (*UserMentionMetadata) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{130}
+	return file_googlechat_proto_rawDescGZIP(), []int{140}
 }
 
 func (x *UserMentionMetadata) GetId() *UserId {
@@ -15517,7 +16402,7 @@ type SlashCommandMetadata struct {
 
 func (x *SlashCommandMetadata) Reset() {
 	*x = SlashCommandMetadata{}
-	mi := &file_googlechat_proto_msgTypes[131]
+	mi := &file_googlechat_proto_msgTypes[141]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15529,7 +16414,7 @@ func (x *SlashCommandMetadata) String() string {
 func (*SlashCommandMetadata) ProtoMessage() {}
 
 func (x *SlashCommandMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[131]
+	mi := &file_googlechat_proto_msgTypes[141]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15542,7 +16427,7 @@ func (x *SlashCommandMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SlashCommandMetadata.ProtoReflect.Descriptor instead.
 func (*SlashCommandMetadata) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{131}
+	return file_googlechat_proto_rawDescGZIP(), []int{141}
 }
 
 func (x *SlashCommandMetadata) GetId() *UserId {
@@ -15595,7 +16480,7 @@ type GroupVisibility struct {
 
 func (x *GroupVisibility) Reset() {
 	*x = GroupVisibility{}
-	mi := &file_googlechat_proto_msgTypes[132]
+	mi := &file_googlechat_proto_msgTypes[142]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15607,7 +16492,7 @@ func (x *GroupVisibility) String() string {
 func (*GroupVisibility) ProtoMessage() {}
 
 func (x *GroupVisibility) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[132]
+	mi := &file_googlechat_proto_msgTypes[142]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15620,7 +16505,7 @@ func (x *GroupVisibility) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupVisibility.ProtoReflect.Descriptor instead.
 func (*GroupVisibility) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{132}
+	return file_googlechat_proto_rawDescGZIP(), []int{142}
 }
 
 type ComGoogleProtobufTimestamp struct {
@@ -15633,7 +16518,7 @@ type ComGoogleProtobufTimestamp struct {
 
 func (x *ComGoogleProtobufTimestamp) Reset() {
 	*x = ComGoogleProtobufTimestamp{}
-	mi := &file_googlechat_proto_msgTypes[133]
+	mi := &file_googlechat_proto_msgTypes[143]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15645,7 +16530,7 @@ func (x *ComGoogleProtobufTimestamp) String() string {
 func (*ComGoogleProtobufTimestamp) ProtoMessage() {}
 
 func (x *ComGoogleProtobufTimestamp) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[133]
+	mi := &file_googlechat_proto_msgTypes[143]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15658,7 +16543,7 @@ func (x *ComGoogleProtobufTimestamp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComGoogleProtobufTimestamp.ProtoReflect.Descriptor instead.
 func (*ComGoogleProtobufTimestamp) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{133}
+	return file_googlechat_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *ComGoogleProtobufTimestamp) GetSeconds() int64 {
@@ -15684,7 +16569,7 @@ type GetServerTimeRequest struct {
 
 func (x *GetServerTimeRequest) Reset() {
 	*x = GetServerTimeRequest{}
-	mi := &file_googlechat_proto_msgTypes[134]
+	mi := &file_googlechat_proto_msgTypes[144]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15696,7 +16581,7 @@ func (x *GetServerTimeRequest) String() string {
 func (*GetServerTimeRequest) ProtoMessage() {}
 
 func (x *GetServerTimeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[134]
+	mi := &file_googlechat_proto_msgTypes[144]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15709,7 +16594,7 @@ func (x *GetServerTimeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerTimeRequest.ProtoReflect.Descriptor instead.
 func (*GetServerTimeRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{134}
+	return file_googlechat_proto_rawDescGZIP(), []int{144}
 }
 
 func (x *GetServerTimeRequest) GetRequestHeader() *RequestHeader {
@@ -15728,7 +16613,7 @@ type GetServerTimeResponse struct {
 
 func (x *GetServerTimeResponse) Reset() {
 	*x = GetServerTimeResponse{}
-	mi := &file_googlechat_proto_msgTypes[135]
+	mi := &file_googlechat_proto_msgTypes[145]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15740,7 +16625,7 @@ func (x *GetServerTimeResponse) String() string {
 func (*GetServerTimeResponse) ProtoMessage() {}
 
 func (x *GetServerTimeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[135]
+	mi := &file_googlechat_proto_msgTypes[145]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15753,7 +16638,7 @@ func (x *GetServerTimeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerTimeResponse.ProtoReflect.Descriptor instead.
 func (*GetServerTimeResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{135}
+	return file_googlechat_proto_rawDescGZIP(), []int{145}
 }
 
 func (x *GetServerTimeResponse) GetTimestamp() *ComGoogleProtobufTimestamp {
@@ -15773,7 +16658,7 @@ type CatchUpRange struct {
 
 func (x *CatchUpRange) Reset() {
 	*x = CatchUpRange{}
-	mi := &file_googlechat_proto_msgTypes[136]
+	mi := &file_googlechat_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15785,7 +16670,7 @@ func (x *CatchUpRange) String() string {
 func (*CatchUpRange) ProtoMessage() {}
 
 func (x *CatchUpRange) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[136]
+	mi := &file_googlechat_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15798,7 +16683,7 @@ func (x *CatchUpRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatchUpRange.ProtoReflect.Descriptor instead.
 func (*CatchUpRange) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{136}
+	return file_googlechat_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *CatchUpRange) GetFromRevisionTimestamp() int64 {
@@ -15828,7 +16713,7 @@ type CatchUpGroupRequest struct {
 
 func (x *CatchUpGroupRequest) Reset() {
 	*x = CatchUpGroupRequest{}
-	mi := &file_googlechat_proto_msgTypes[137]
+	mi := &file_googlechat_proto_msgTypes[147]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15840,7 +16725,7 @@ func (x *CatchUpGroupRequest) String() string {
 func (*CatchUpGroupRequest) ProtoMessage() {}
 
 func (x *CatchUpGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[137]
+	mi := &file_googlechat_proto_msgTypes[147]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15853,7 +16738,7 @@ func (x *CatchUpGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatchUpGroupRequest.ProtoReflect.Descriptor instead.
 func (*CatchUpGroupRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{137}
+	return file_googlechat_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *CatchUpGroupRequest) GetRequestHeader() *RequestHeader {
@@ -15903,7 +16788,7 @@ type CatchUpUserRequest struct {
 
 func (x *CatchUpUserRequest) Reset() {
 	*x = CatchUpUserRequest{}
-	mi := &file_googlechat_proto_msgTypes[138]
+	mi := &file_googlechat_proto_msgTypes[148]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15915,7 +16800,7 @@ func (x *CatchUpUserRequest) String() string {
 func (*CatchUpUserRequest) ProtoMessage() {}
 
 func (x *CatchUpUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[138]
+	mi := &file_googlechat_proto_msgTypes[148]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15928,7 +16813,7 @@ func (x *CatchUpUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatchUpUserRequest.ProtoReflect.Descriptor instead.
 func (*CatchUpUserRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{138}
+	return file_googlechat_proto_rawDescGZIP(), []int{148}
 }
 
 func (x *CatchUpUserRequest) GetRequestHeader() *RequestHeader {
@@ -15971,7 +16856,7 @@ type CatchUpResponse struct {
 
 func (x *CatchUpResponse) Reset() {
 	*x = CatchUpResponse{}
-	mi := &file_googlechat_proto_msgTypes[139]
+	mi := &file_googlechat_proto_msgTypes[149]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15983,7 +16868,7 @@ func (x *CatchUpResponse) String() string {
 func (*CatchUpResponse) ProtoMessage() {}
 
 func (x *CatchUpResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[139]
+	mi := &file_googlechat_proto_msgTypes[149]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15996,7 +16881,7 @@ func (x *CatchUpResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CatchUpResponse.ProtoReflect.Descriptor instead.
 func (*CatchUpResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{139}
+	return file_googlechat_proto_rawDescGZIP(), []int{149}
 }
 
 func (x *CatchUpResponse) GetEvents() []*Event {
@@ -16034,7 +16919,7 @@ type GetGroupRequest struct {
 
 func (x *GetGroupRequest) Reset() {
 	*x = GetGroupRequest{}
-	mi := &file_googlechat_proto_msgTypes[140]
+	mi := &file_googlechat_proto_msgTypes[150]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16046,7 +16931,7 @@ func (x *GetGroupRequest) String() string {
 func (*GetGroupRequest) ProtoMessage() {}
 
 func (x *GetGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[140]
+	mi := &file_googlechat_proto_msgTypes[150]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16059,7 +16944,7 @@ func (x *GetGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupRequest.ProtoReflect.Descriptor instead.
 func (*GetGroupRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{140}
+	return file_googlechat_proto_rawDescGZIP(), []int{150}
 }
 
 func (x *GetGroupRequest) GetRequestHeader() *RequestHeader {
@@ -16121,7 +17006,7 @@ type GetGroupResponse struct {
 
 func (x *GetGroupResponse) Reset() {
 	*x = GetGroupResponse{}
-	mi := &file_googlechat_proto_msgTypes[141]
+	mi := &file_googlechat_proto_msgTypes[151]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16133,7 +17018,7 @@ func (x *GetGroupResponse) String() string {
 func (*GetGroupResponse) ProtoMessage() {}
 
 func (x *GetGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[141]
+	mi := &file_googlechat_proto_msgTypes[151]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16146,7 +17031,7 @@ func (x *GetGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGroupResponse.ProtoReflect.Descriptor instead.
 func (*GetGroupResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{141}
+	return file_googlechat_proto_rawDescGZIP(), []int{151}
 }
 
 func (x *GetGroupResponse) GetGroup() *Group {
@@ -16221,7 +17106,7 @@ type WorldSection struct {
 
 func (x *WorldSection) Reset() {
 	*x = WorldSection{}
-	mi := &file_googlechat_proto_msgTypes[142]
+	mi := &file_googlechat_proto_msgTypes[152]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16233,7 +17118,7 @@ func (x *WorldSection) String() string {
 func (*WorldSection) ProtoMessage() {}
 
 func (x *WorldSection) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[142]
+	mi := &file_googlechat_proto_msgTypes[152]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16246,7 +17131,7 @@ func (x *WorldSection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldSection.ProtoReflect.Descriptor instead.
 func (*WorldSection) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{142}
+	return file_googlechat_proto_rawDescGZIP(), []int{152}
 }
 
 func (x *WorldSection) GetWorldSectionType() WorldSection_WorldSectionType {
@@ -16273,7 +17158,7 @@ type WorldFilter struct {
 
 func (x *WorldFilter) Reset() {
 	*x = WorldFilter{}
-	mi := &file_googlechat_proto_msgTypes[143]
+	mi := &file_googlechat_proto_msgTypes[153]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16285,7 +17170,7 @@ func (x *WorldFilter) String() string {
 func (*WorldFilter) ProtoMessage() {}
 
 func (x *WorldFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[143]
+	mi := &file_googlechat_proto_msgTypes[153]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16298,7 +17183,7 @@ func (x *WorldFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldFilter.ProtoReflect.Descriptor instead.
 func (*WorldFilter) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{143}
+	return file_googlechat_proto_rawDescGZIP(), []int{153}
 }
 
 func (x *WorldFilter) GetStarredState() WorldFilter_StarredState {
@@ -16375,7 +17260,7 @@ type NameUsers struct {
 
 func (x *NameUsers) Reset() {
 	*x = NameUsers{}
-	mi := &file_googlechat_proto_msgTypes[144]
+	mi := &file_googlechat_proto_msgTypes[154]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16387,7 +17272,7 @@ func (x *NameUsers) String() string {
 func (*NameUsers) ProtoMessage() {}
 
 func (x *NameUsers) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[144]
+	mi := &file_googlechat_proto_msgTypes[154]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16400,7 +17285,7 @@ func (x *NameUsers) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NameUsers.ProtoReflect.Descriptor instead.
 func (*NameUsers) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{144}
+	return file_googlechat_proto_rawDescGZIP(), []int{154}
 }
 
 func (x *NameUsers) GetNameUserIds() []*UserId {
@@ -16458,7 +17343,7 @@ type WorldItemLite struct {
 
 func (x *WorldItemLite) Reset() {
 	*x = WorldItemLite{}
-	mi := &file_googlechat_proto_msgTypes[145]
+	mi := &file_googlechat_proto_msgTypes[155]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16470,7 +17355,7 @@ func (x *WorldItemLite) String() string {
 func (*WorldItemLite) ProtoMessage() {}
 
 func (x *WorldItemLite) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[145]
+	mi := &file_googlechat_proto_msgTypes[155]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16483,7 +17368,7 @@ func (x *WorldItemLite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldItemLite.ProtoReflect.Descriptor instead.
 func (*WorldItemLite) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{145}
+	return file_googlechat_proto_rawDescGZIP(), []int{155}
 }
 
 func (x *WorldItemLite) GetGroupId() *GroupId {
@@ -16636,7 +17521,7 @@ type WorldSectionRequest struct {
 
 func (x *WorldSectionRequest) Reset() {
 	*x = WorldSectionRequest{}
-	mi := &file_googlechat_proto_msgTypes[146]
+	mi := &file_googlechat_proto_msgTypes[156]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16648,7 +17533,7 @@ func (x *WorldSectionRequest) String() string {
 func (*WorldSectionRequest) ProtoMessage() {}
 
 func (x *WorldSectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[146]
+	mi := &file_googlechat_proto_msgTypes[156]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16661,7 +17546,7 @@ func (x *WorldSectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldSectionRequest.ProtoReflect.Descriptor instead.
 func (*WorldSectionRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{146}
+	return file_googlechat_proto_rawDescGZIP(), []int{156}
 }
 
 func (x *WorldSectionRequest) GetPageSize() int32 {
@@ -16739,7 +17624,7 @@ type WorldSectionResponse struct {
 
 func (x *WorldSectionResponse) Reset() {
 	*x = WorldSectionResponse{}
-	mi := &file_googlechat_proto_msgTypes[147]
+	mi := &file_googlechat_proto_msgTypes[157]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16751,7 +17636,7 @@ func (x *WorldSectionResponse) String() string {
 func (*WorldSectionResponse) ProtoMessage() {}
 
 func (x *WorldSectionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[147]
+	mi := &file_googlechat_proto_msgTypes[157]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16764,7 +17649,7 @@ func (x *WorldSectionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldSectionResponse.ProtoReflect.Descriptor instead.
 func (*WorldSectionResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{147}
+	return file_googlechat_proto_rawDescGZIP(), []int{157}
 }
 
 func (x *WorldSectionResponse) GetWorldSection() *WorldSection {
@@ -16824,7 +17709,7 @@ type PaginatedWorldRequest struct {
 
 func (x *PaginatedWorldRequest) Reset() {
 	*x = PaginatedWorldRequest{}
-	mi := &file_googlechat_proto_msgTypes[148]
+	mi := &file_googlechat_proto_msgTypes[158]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16836,7 +17721,7 @@ func (x *PaginatedWorldRequest) String() string {
 func (*PaginatedWorldRequest) ProtoMessage() {}
 
 func (x *PaginatedWorldRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[148]
+	mi := &file_googlechat_proto_msgTypes[158]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16849,7 +17734,7 @@ func (x *PaginatedWorldRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaginatedWorldRequest.ProtoReflect.Descriptor instead.
 func (*PaginatedWorldRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{148}
+	return file_googlechat_proto_rawDescGZIP(), []int{158}
 }
 
 func (x *PaginatedWorldRequest) GetRequestHeader() *RequestHeader {
@@ -16913,7 +17798,7 @@ type PaginatedWorldResponse struct {
 
 func (x *PaginatedWorldResponse) Reset() {
 	*x = PaginatedWorldResponse{}
-	mi := &file_googlechat_proto_msgTypes[149]
+	mi := &file_googlechat_proto_msgTypes[159]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16925,7 +17810,7 @@ func (x *PaginatedWorldResponse) String() string {
 func (*PaginatedWorldResponse) ProtoMessage() {}
 
 func (x *PaginatedWorldResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[149]
+	mi := &file_googlechat_proto_msgTypes[159]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16938,7 +17823,7 @@ func (x *PaginatedWorldResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaginatedWorldResponse.ProtoReflect.Descriptor instead.
 func (*PaginatedWorldResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{149}
+	return file_googlechat_proto_rawDescGZIP(), []int{159}
 }
 
 func (x *PaginatedWorldResponse) GetWorldSectionResponses() []*WorldSectionResponse {
@@ -16981,7 +17866,7 @@ type RemoveMembershipsRequest struct {
 
 func (x *RemoveMembershipsRequest) Reset() {
 	*x = RemoveMembershipsRequest{}
-	mi := &file_googlechat_proto_msgTypes[150]
+	mi := &file_googlechat_proto_msgTypes[160]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16993,7 +17878,7 @@ func (x *RemoveMembershipsRequest) String() string {
 func (*RemoveMembershipsRequest) ProtoMessage() {}
 
 func (x *RemoveMembershipsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[150]
+	mi := &file_googlechat_proto_msgTypes[160]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17006,7 +17891,7 @@ func (x *RemoveMembershipsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveMembershipsRequest.ProtoReflect.Descriptor instead.
 func (*RemoveMembershipsRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{150}
+	return file_googlechat_proto_rawDescGZIP(), []int{160}
 }
 
 func (x *RemoveMembershipsRequest) GetRequestHeader() *RequestHeader {
@@ -17050,7 +17935,7 @@ type RemoveMembershipResult struct {
 
 func (x *RemoveMembershipResult) Reset() {
 	*x = RemoveMembershipResult{}
-	mi := &file_googlechat_proto_msgTypes[151]
+	mi := &file_googlechat_proto_msgTypes[161]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17062,7 +17947,7 @@ func (x *RemoveMembershipResult) String() string {
 func (*RemoveMembershipResult) ProtoMessage() {}
 
 func (x *RemoveMembershipResult) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[151]
+	mi := &file_googlechat_proto_msgTypes[161]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17075,7 +17960,7 @@ func (x *RemoveMembershipResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveMembershipResult.ProtoReflect.Descriptor instead.
 func (*RemoveMembershipResult) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{151}
+	return file_googlechat_proto_rawDescGZIP(), []int{161}
 }
 
 func (x *RemoveMembershipResult) GetRequestHeader() *RequestHeader {
@@ -17111,7 +17996,7 @@ type RemoveMembershipsResponse struct {
 
 func (x *RemoveMembershipsResponse) Reset() {
 	*x = RemoveMembershipsResponse{}
-	mi := &file_googlechat_proto_msgTypes[152]
+	mi := &file_googlechat_proto_msgTypes[162]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17123,7 +18008,7 @@ func (x *RemoveMembershipsResponse) String() string {
 func (*RemoveMembershipsResponse) ProtoMessage() {}
 
 func (x *RemoveMembershipsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[152]
+	mi := &file_googlechat_proto_msgTypes[162]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17136,7 +18021,7 @@ func (x *RemoveMembershipsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveMembershipsResponse.ProtoReflect.Descriptor instead.
 func (*RemoveMembershipsResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{152}
+	return file_googlechat_proto_rawDescGZIP(), []int{162}
 }
 
 func (x *RemoveMembershipsResponse) GetResults() []*RemoveMembershipResult {
@@ -17171,7 +18056,7 @@ type HideGroupRequest struct {
 
 func (x *HideGroupRequest) Reset() {
 	*x = HideGroupRequest{}
-	mi := &file_googlechat_proto_msgTypes[153]
+	mi := &file_googlechat_proto_msgTypes[163]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17183,7 +18068,7 @@ func (x *HideGroupRequest) String() string {
 func (*HideGroupRequest) ProtoMessage() {}
 
 func (x *HideGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[153]
+	mi := &file_googlechat_proto_msgTypes[163]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17196,7 +18081,7 @@ func (x *HideGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HideGroupRequest.ProtoReflect.Descriptor instead.
 func (*HideGroupRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{153}
+	return file_googlechat_proto_rawDescGZIP(), []int{163}
 }
 
 func (x *HideGroupRequest) GetRequestHeader() *RequestHeader {
@@ -17230,7 +18115,7 @@ type HideGroupResponse struct {
 
 func (x *HideGroupResponse) Reset() {
 	*x = HideGroupResponse{}
-	mi := &file_googlechat_proto_msgTypes[154]
+	mi := &file_googlechat_proto_msgTypes[164]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17242,7 +18127,7 @@ func (x *HideGroupResponse) String() string {
 func (*HideGroupResponse) ProtoMessage() {}
 
 func (x *HideGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[154]
+	mi := &file_googlechat_proto_msgTypes[164]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17255,7 +18140,7 @@ func (x *HideGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HideGroupResponse.ProtoReflect.Descriptor instead.
 func (*HideGroupResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{154}
+	return file_googlechat_proto_rawDescGZIP(), []int{164}
 }
 
 func (x *HideGroupResponse) GetReadState() *GroupReadState {
@@ -17281,7 +18166,7 @@ type InviteNotificationSettings struct {
 
 func (x *InviteNotificationSettings) Reset() {
 	*x = InviteNotificationSettings{}
-	mi := &file_googlechat_proto_msgTypes[155]
+	mi := &file_googlechat_proto_msgTypes[165]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17293,7 +18178,7 @@ func (x *InviteNotificationSettings) String() string {
 func (*InviteNotificationSettings) ProtoMessage() {}
 
 func (x *InviteNotificationSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[155]
+	mi := &file_googlechat_proto_msgTypes[165]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17306,7 +18191,7 @@ func (x *InviteNotificationSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InviteNotificationSettings.ProtoReflect.Descriptor instead.
 func (*InviteNotificationSettings) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{155}
+	return file_googlechat_proto_rawDescGZIP(), []int{165}
 }
 
 func (x *InviteNotificationSettings) GetOption() []InviteNotificationSettings_NotificationOption {
@@ -17330,7 +18215,7 @@ type CreateMembershipRequest struct {
 
 func (x *CreateMembershipRequest) Reset() {
 	*x = CreateMembershipRequest{}
-	mi := &file_googlechat_proto_msgTypes[156]
+	mi := &file_googlechat_proto_msgTypes[166]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17342,7 +18227,7 @@ func (x *CreateMembershipRequest) String() string {
 func (*CreateMembershipRequest) ProtoMessage() {}
 
 func (x *CreateMembershipRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[156]
+	mi := &file_googlechat_proto_msgTypes[166]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17355,7 +18240,7 @@ func (x *CreateMembershipRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMembershipRequest.ProtoReflect.Descriptor instead.
 func (*CreateMembershipRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{156}
+	return file_googlechat_proto_rawDescGZIP(), []int{166}
 }
 
 func (x *CreateMembershipRequest) GetRequestHeader() *RequestHeader {
@@ -17412,7 +18297,7 @@ type CreateMembershipResponse struct {
 
 func (x *CreateMembershipResponse) Reset() {
 	*x = CreateMembershipResponse{}
-	mi := &file_googlechat_proto_msgTypes[157]
+	mi := &file_googlechat_proto_msgTypes[167]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17424,7 +18309,7 @@ func (x *CreateMembershipResponse) String() string {
 func (*CreateMembershipResponse) ProtoMessage() {}
 
 func (x *CreateMembershipResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[157]
+	mi := &file_googlechat_proto_msgTypes[167]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17437,7 +18322,7 @@ func (x *CreateMembershipResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMembershipResponse.ProtoReflect.Descriptor instead.
 func (*CreateMembershipResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{157}
+	return file_googlechat_proto_rawDescGZIP(), []int{167}
 }
 
 func (x *CreateMembershipResponse) GetResults() []*CreateMembershipResult {
@@ -17479,7 +18364,7 @@ type MarkGroupReadstateRequest struct {
 
 func (x *MarkGroupReadstateRequest) Reset() {
 	*x = MarkGroupReadstateRequest{}
-	mi := &file_googlechat_proto_msgTypes[158]
+	mi := &file_googlechat_proto_msgTypes[168]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17491,7 +18376,7 @@ func (x *MarkGroupReadstateRequest) String() string {
 func (*MarkGroupReadstateRequest) ProtoMessage() {}
 
 func (x *MarkGroupReadstateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[158]
+	mi := &file_googlechat_proto_msgTypes[168]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17504,7 +18389,7 @@ func (x *MarkGroupReadstateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkGroupReadstateRequest.ProtoReflect.Descriptor instead.
 func (*MarkGroupReadstateRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{158}
+	return file_googlechat_proto_rawDescGZIP(), []int{168}
 }
 
 func (x *MarkGroupReadstateRequest) GetRequestHeader() *RequestHeader {
@@ -17538,7 +18423,7 @@ type MarkGroupReadstateResponse struct {
 
 func (x *MarkGroupReadstateResponse) Reset() {
 	*x = MarkGroupReadstateResponse{}
-	mi := &file_googlechat_proto_msgTypes[159]
+	mi := &file_googlechat_proto_msgTypes[169]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17550,7 +18435,7 @@ func (x *MarkGroupReadstateResponse) String() string {
 func (*MarkGroupReadstateResponse) ProtoMessage() {}
 
 func (x *MarkGroupReadstateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[159]
+	mi := &file_googlechat_proto_msgTypes[169]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17563,7 +18448,7 @@ func (x *MarkGroupReadstateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkGroupReadstateResponse.ProtoReflect.Descriptor instead.
 func (*MarkGroupReadstateResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{159}
+	return file_googlechat_proto_rawDescGZIP(), []int{169}
 }
 
 func (x *MarkGroupReadstateResponse) GetReadState() *GroupReadState {
@@ -17590,7 +18475,7 @@ type SetPresenceSharedRequest struct {
 
 func (x *SetPresenceSharedRequest) Reset() {
 	*x = SetPresenceSharedRequest{}
-	mi := &file_googlechat_proto_msgTypes[160]
+	mi := &file_googlechat_proto_msgTypes[170]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17602,7 +18487,7 @@ func (x *SetPresenceSharedRequest) String() string {
 func (*SetPresenceSharedRequest) ProtoMessage() {}
 
 func (x *SetPresenceSharedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[160]
+	mi := &file_googlechat_proto_msgTypes[170]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17615,7 +18500,7 @@ func (x *SetPresenceSharedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetPresenceSharedRequest.ProtoReflect.Descriptor instead.
 func (*SetPresenceSharedRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{160}
+	return file_googlechat_proto_rawDescGZIP(), []int{170}
 }
 
 func (x *SetPresenceSharedRequest) GetRequestHeader() *RequestHeader {
@@ -17642,7 +18527,7 @@ type SetPresenceSharedResponse struct {
 
 func (x *SetPresenceSharedResponse) Reset() {
 	*x = SetPresenceSharedResponse{}
-	mi := &file_googlechat_proto_msgTypes[161]
+	mi := &file_googlechat_proto_msgTypes[171]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17654,7 +18539,7 @@ func (x *SetPresenceSharedResponse) String() string {
 func (*SetPresenceSharedResponse) ProtoMessage() {}
 
 func (x *SetPresenceSharedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[161]
+	mi := &file_googlechat_proto_msgTypes[171]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17667,7 +18552,7 @@ func (x *SetPresenceSharedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetPresenceSharedResponse.ProtoReflect.Descriptor instead.
 func (*SetPresenceSharedResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{161}
+	return file_googlechat_proto_rawDescGZIP(), []int{171}
 }
 
 func (x *SetPresenceSharedResponse) GetUserStatus() *UserStatus {
@@ -17699,7 +18584,7 @@ type SetDndDurationRequest struct {
 
 func (x *SetDndDurationRequest) Reset() {
 	*x = SetDndDurationRequest{}
-	mi := &file_googlechat_proto_msgTypes[162]
+	mi := &file_googlechat_proto_msgTypes[172]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17711,7 +18596,7 @@ func (x *SetDndDurationRequest) String() string {
 func (*SetDndDurationRequest) ProtoMessage() {}
 
 func (x *SetDndDurationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[162]
+	mi := &file_googlechat_proto_msgTypes[172]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17724,7 +18609,7 @@ func (x *SetDndDurationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetDndDurationRequest.ProtoReflect.Descriptor instead.
 func (*SetDndDurationRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{162}
+	return file_googlechat_proto_rawDescGZIP(), []int{172}
 }
 
 func (x *SetDndDurationRequest) GetRequestHeader() *RequestHeader {
@@ -17792,7 +18677,7 @@ type SetDndDurationResponse struct {
 
 func (x *SetDndDurationResponse) Reset() {
 	*x = SetDndDurationResponse{}
-	mi := &file_googlechat_proto_msgTypes[163]
+	mi := &file_googlechat_proto_msgTypes[173]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17804,7 +18689,7 @@ func (x *SetDndDurationResponse) String() string {
 func (*SetDndDurationResponse) ProtoMessage() {}
 
 func (x *SetDndDurationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[163]
+	mi := &file_googlechat_proto_msgTypes[173]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17817,7 +18702,7 @@ func (x *SetDndDurationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetDndDurationResponse.ProtoReflect.Descriptor instead.
 func (*SetDndDurationResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{163}
+	return file_googlechat_proto_rawDescGZIP(), []int{173}
 }
 
 func (x *SetDndDurationResponse) GetUserStatus() *UserStatus {
@@ -17847,7 +18732,7 @@ type UpdateGroupRequest struct {
 
 func (x *UpdateGroupRequest) Reset() {
 	*x = UpdateGroupRequest{}
-	mi := &file_googlechat_proto_msgTypes[164]
+	mi := &file_googlechat_proto_msgTypes[174]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17859,7 +18744,7 @@ func (x *UpdateGroupRequest) String() string {
 func (*UpdateGroupRequest) ProtoMessage() {}
 
 func (x *UpdateGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[164]
+	mi := &file_googlechat_proto_msgTypes[174]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17872,7 +18757,7 @@ func (x *UpdateGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGroupRequest.ProtoReflect.Descriptor instead.
 func (*UpdateGroupRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{164}
+	return file_googlechat_proto_rawDescGZIP(), []int{174}
 }
 
 func (x *UpdateGroupRequest) GetRequestHeader() *RequestHeader {
@@ -17920,7 +18805,7 @@ type UpdateGroupResponse struct {
 
 func (x *UpdateGroupResponse) Reset() {
 	*x = UpdateGroupResponse{}
-	mi := &file_googlechat_proto_msgTypes[165]
+	mi := &file_googlechat_proto_msgTypes[175]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17932,7 +18817,7 @@ func (x *UpdateGroupResponse) String() string {
 func (*UpdateGroupResponse) ProtoMessage() {}
 
 func (x *UpdateGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[165]
+	mi := &file_googlechat_proto_msgTypes[175]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17945,7 +18830,7 @@ func (x *UpdateGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGroupResponse.ProtoReflect.Descriptor instead.
 func (*UpdateGroupResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{165}
+	return file_googlechat_proto_rawDescGZIP(), []int{175}
 }
 
 func (x *UpdateGroupResponse) GetGroup() *Group {
@@ -17978,7 +18863,7 @@ type BlockEntityRequest struct {
 
 func (x *BlockEntityRequest) Reset() {
 	*x = BlockEntityRequest{}
-	mi := &file_googlechat_proto_msgTypes[166]
+	mi := &file_googlechat_proto_msgTypes[176]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17990,7 +18875,7 @@ func (x *BlockEntityRequest) String() string {
 func (*BlockEntityRequest) ProtoMessage() {}
 
 func (x *BlockEntityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[166]
+	mi := &file_googlechat_proto_msgTypes[176]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18003,7 +18888,7 @@ func (x *BlockEntityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockEntityRequest.ProtoReflect.Descriptor instead.
 func (*BlockEntityRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{166}
+	return file_googlechat_proto_rawDescGZIP(), []int{176}
 }
 
 func (x *BlockEntityRequest) GetRequestHeader() *RequestHeader {
@@ -18078,7 +18963,7 @@ type BlockEntityResponse struct {
 
 func (x *BlockEntityResponse) Reset() {
 	*x = BlockEntityResponse{}
-	mi := &file_googlechat_proto_msgTypes[167]
+	mi := &file_googlechat_proto_msgTypes[177]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18090,7 +18975,7 @@ func (x *BlockEntityResponse) String() string {
 func (*BlockEntityResponse) ProtoMessage() {}
 
 func (x *BlockEntityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[167]
+	mi := &file_googlechat_proto_msgTypes[177]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18103,7 +18988,7 @@ func (x *BlockEntityResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockEntityResponse.ProtoReflect.Descriptor instead.
 func (*BlockEntityResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{167}
+	return file_googlechat_proto_rawDescGZIP(), []int{177}
 }
 
 func (x *BlockEntityResponse) GetReadState() *GroupReadState {
@@ -18135,7 +19020,7 @@ type SetCustomStatusRequest struct {
 
 func (x *SetCustomStatusRequest) Reset() {
 	*x = SetCustomStatusRequest{}
-	mi := &file_googlechat_proto_msgTypes[168]
+	mi := &file_googlechat_proto_msgTypes[178]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18147,7 +19032,7 @@ func (x *SetCustomStatusRequest) String() string {
 func (*SetCustomStatusRequest) ProtoMessage() {}
 
 func (x *SetCustomStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[168]
+	mi := &file_googlechat_proto_msgTypes[178]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18160,7 +19045,7 @@ func (x *SetCustomStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetCustomStatusRequest.ProtoReflect.Descriptor instead.
 func (*SetCustomStatusRequest) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{168}
+	return file_googlechat_proto_rawDescGZIP(), []int{178}
 }
 
 func (x *SetCustomStatusRequest) GetRequestHeader() *RequestHeader {
@@ -18230,7 +19115,7 @@ type SetCustomStatusResponse struct {
 
 func (x *SetCustomStatusResponse) Reset() {
 	*x = SetCustomStatusResponse{}
-	mi := &file_googlechat_proto_msgTypes[169]
+	mi := &file_googlechat_proto_msgTypes[179]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18242,7 +19127,7 @@ func (x *SetCustomStatusResponse) String() string {
 func (*SetCustomStatusResponse) ProtoMessage() {}
 
 func (x *SetCustomStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[169]
+	mi := &file_googlechat_proto_msgTypes[179]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18255,7 +19140,7 @@ func (x *SetCustomStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetCustomStatusResponse.ProtoReflect.Descriptor instead.
 func (*SetCustomStatusResponse) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{169}
+	return file_googlechat_proto_rawDescGZIP(), []int{179}
 }
 
 func (x *SetCustomStatusResponse) GetUserStatus() *UserStatus {
@@ -18282,7 +19167,7 @@ type WriteRevision struct {
 
 func (x *WriteRevision) Reset() {
 	*x = WriteRevision{}
-	mi := &file_googlechat_proto_msgTypes[170]
+	mi := &file_googlechat_proto_msgTypes[180]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18294,7 +19179,7 @@ func (x *WriteRevision) String() string {
 func (*WriteRevision) ProtoMessage() {}
 
 func (x *WriteRevision) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[170]
+	mi := &file_googlechat_proto_msgTypes[180]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18307,7 +19192,7 @@ func (x *WriteRevision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WriteRevision.ProtoReflect.Descriptor instead.
 func (*WriteRevision) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{170}
+	return file_googlechat_proto_rawDescGZIP(), []int{180}
 }
 
 func (x *WriteRevision) GetTimestamp() int64 {
@@ -18333,7 +19218,7 @@ type ReadRevision struct {
 
 func (x *ReadRevision) Reset() {
 	*x = ReadRevision{}
-	mi := &file_googlechat_proto_msgTypes[171]
+	mi := &file_googlechat_proto_msgTypes[181]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18345,7 +19230,7 @@ func (x *ReadRevision) String() string {
 func (*ReadRevision) ProtoMessage() {}
 
 func (x *ReadRevision) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[171]
+	mi := &file_googlechat_proto_msgTypes[181]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18358,7 +19243,7 @@ func (x *ReadRevision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadRevision.ProtoReflect.Descriptor instead.
 func (*ReadRevision) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{171}
+	return file_googlechat_proto_rawDescGZIP(), []int{181}
 }
 
 func (x *ReadRevision) GetTimestamp() int64 {
@@ -18377,7 +19262,7 @@ type ReferenceRevision struct {
 
 func (x *ReferenceRevision) Reset() {
 	*x = ReferenceRevision{}
-	mi := &file_googlechat_proto_msgTypes[172]
+	mi := &file_googlechat_proto_msgTypes[182]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18389,7 +19274,7 @@ func (x *ReferenceRevision) String() string {
 func (*ReferenceRevision) ProtoMessage() {}
 
 func (x *ReferenceRevision) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[172]
+	mi := &file_googlechat_proto_msgTypes[182]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18402,7 +19287,7 @@ func (x *ReferenceRevision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReferenceRevision.ProtoReflect.Descriptor instead.
 func (*ReferenceRevision) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{172}
+	return file_googlechat_proto_rawDescGZIP(), []int{182}
 }
 
 func (x *ReferenceRevision) GetTimestamp() int64 {
@@ -18425,7 +19310,7 @@ type JAddOnsFormattedText_FormattedTextElement struct {
 
 func (x *JAddOnsFormattedText_FormattedTextElement) Reset() {
 	*x = JAddOnsFormattedText_FormattedTextElement{}
-	mi := &file_googlechat_proto_msgTypes[173]
+	mi := &file_googlechat_proto_msgTypes[183]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18437,7 +19322,7 @@ func (x *JAddOnsFormattedText_FormattedTextElement) String() string {
 func (*JAddOnsFormattedText_FormattedTextElement) ProtoMessage() {}
 
 func (x *JAddOnsFormattedText_FormattedTextElement) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[173]
+	mi := &file_googlechat_proto_msgTypes[183]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18508,7 +19393,7 @@ type JAddOnsFormattedText_FormattedTextElement_DateTime struct {
 
 func (x *JAddOnsFormattedText_FormattedTextElement_DateTime) Reset() {
 	*x = JAddOnsFormattedText_FormattedTextElement_DateTime{}
-	mi := &file_googlechat_proto_msgTypes[174]
+	mi := &file_googlechat_proto_msgTypes[184]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18520,7 +19405,7 @@ func (x *JAddOnsFormattedText_FormattedTextElement_DateTime) String() string {
 func (*JAddOnsFormattedText_FormattedTextElement_DateTime) ProtoMessage() {}
 
 func (x *JAddOnsFormattedText_FormattedTextElement_DateTime) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[174]
+	mi := &file_googlechat_proto_msgTypes[184]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18578,7 +19463,7 @@ type JAddOnsFormattedText_FormattedTextElement_StyledText struct {
 
 func (x *JAddOnsFormattedText_FormattedTextElement_StyledText) Reset() {
 	*x = JAddOnsFormattedText_FormattedTextElement_StyledText{}
-	mi := &file_googlechat_proto_msgTypes[175]
+	mi := &file_googlechat_proto_msgTypes[185]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18590,7 +19475,7 @@ func (x *JAddOnsFormattedText_FormattedTextElement_StyledText) String() string {
 func (*JAddOnsFormattedText_FormattedTextElement_StyledText) ProtoMessage() {}
 
 func (x *JAddOnsFormattedText_FormattedTextElement_StyledText) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[175]
+	mi := &file_googlechat_proto_msgTypes[185]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18659,7 +19544,7 @@ type JAddOnsFormattedText_FormattedTextElement_HyperLink struct {
 
 func (x *JAddOnsFormattedText_FormattedTextElement_HyperLink) Reset() {
 	*x = JAddOnsFormattedText_FormattedTextElement_HyperLink{}
-	mi := &file_googlechat_proto_msgTypes[176]
+	mi := &file_googlechat_proto_msgTypes[186]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18671,7 +19556,7 @@ func (x *JAddOnsFormattedText_FormattedTextElement_HyperLink) String() string {
 func (*JAddOnsFormattedText_FormattedTextElement_HyperLink) ProtoMessage() {}
 
 func (x *JAddOnsFormattedText_FormattedTextElement_HyperLink) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[176]
+	mi := &file_googlechat_proto_msgTypes[186]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18721,7 +19606,7 @@ type JAddOnsCardItem_CardItemHeader struct {
 
 func (x *JAddOnsCardItem_CardItemHeader) Reset() {
 	*x = JAddOnsCardItem_CardItemHeader{}
-	mi := &file_googlechat_proto_msgTypes[177]
+	mi := &file_googlechat_proto_msgTypes[187]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18733,7 +19618,7 @@ func (x *JAddOnsCardItem_CardItemHeader) String() string {
 func (*JAddOnsCardItem_CardItemHeader) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[177]
+	mi := &file_googlechat_proto_msgTypes[187]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18798,7 +19683,7 @@ type JAddOnsCardItem_CardItemSection struct {
 
 func (x *JAddOnsCardItem_CardItemSection) Reset() {
 	*x = JAddOnsCardItem_CardItemSection{}
-	mi := &file_googlechat_proto_msgTypes[178]
+	mi := &file_googlechat_proto_msgTypes[188]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18810,7 +19695,7 @@ func (x *JAddOnsCardItem_CardItemSection) String() string {
 func (*JAddOnsCardItem_CardItemSection) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemSection) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[178]
+	mi := &file_googlechat_proto_msgTypes[188]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18878,7 +19763,7 @@ type JAddOnsCardItem_CardItemAction struct {
 
 func (x *JAddOnsCardItem_CardItemAction) Reset() {
 	*x = JAddOnsCardItem_CardItemAction{}
-	mi := &file_googlechat_proto_msgTypes[179]
+	mi := &file_googlechat_proto_msgTypes[189]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18890,7 +19775,7 @@ func (x *JAddOnsCardItem_CardItemAction) String() string {
 func (*JAddOnsCardItem_CardItemAction) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemAction) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[179]
+	mi := &file_googlechat_proto_msgTypes[189]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18931,7 +19816,7 @@ type JAddOnsCardItem_CardItemFixedFooter struct {
 
 func (x *JAddOnsCardItem_CardItemFixedFooter) Reset() {
 	*x = JAddOnsCardItem_CardItemFixedFooter{}
-	mi := &file_googlechat_proto_msgTypes[180]
+	mi := &file_googlechat_proto_msgTypes[190]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18943,7 +19828,7 @@ func (x *JAddOnsCardItem_CardItemFixedFooter) String() string {
 func (*JAddOnsCardItem_CardItemFixedFooter) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemFixedFooter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[180]
+	mi := &file_googlechat_proto_msgTypes[190]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18989,7 +19874,7 @@ type JAddOnsCardItem_CardItemRefreshAction struct {
 
 func (x *JAddOnsCardItem_CardItemRefreshAction) Reset() {
 	*x = JAddOnsCardItem_CardItemRefreshAction{}
-	mi := &file_googlechat_proto_msgTypes[181]
+	mi := &file_googlechat_proto_msgTypes[191]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19001,7 +19886,7 @@ func (x *JAddOnsCardItem_CardItemRefreshAction) String() string {
 func (*JAddOnsCardItem_CardItemRefreshAction) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemRefreshAction) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[181]
+	mi := &file_googlechat_proto_msgTypes[191]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19039,7 +19924,7 @@ type JAddOnsGrid_GridItem struct {
 
 func (x *JAddOnsGrid_GridItem) Reset() {
 	*x = JAddOnsGrid_GridItem{}
-	mi := &file_googlechat_proto_msgTypes[182]
+	mi := &file_googlechat_proto_msgTypes[192]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19051,7 +19936,7 @@ func (x *JAddOnsGrid_GridItem) String() string {
 func (*JAddOnsGrid_GridItem) ProtoMessage() {}
 
 func (x *JAddOnsGrid_GridItem) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[182]
+	mi := &file_googlechat_proto_msgTypes[192]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19125,7 +20010,7 @@ type JAddOnsWidget_TextParagraph struct {
 
 func (x *JAddOnsWidget_TextParagraph) Reset() {
 	*x = JAddOnsWidget_TextParagraph{}
-	mi := &file_googlechat_proto_msgTypes[183]
+	mi := &file_googlechat_proto_msgTypes[193]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19137,7 +20022,7 @@ func (x *JAddOnsWidget_TextParagraph) String() string {
 func (*JAddOnsWidget_TextParagraph) ProtoMessage() {}
 
 func (x *JAddOnsWidget_TextParagraph) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[183]
+	mi := &file_googlechat_proto_msgTypes[193]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19171,7 +20056,7 @@ type JAddOnsWidget_TextKeyValue struct {
 
 func (x *JAddOnsWidget_TextKeyValue) Reset() {
 	*x = JAddOnsWidget_TextKeyValue{}
-	mi := &file_googlechat_proto_msgTypes[184]
+	mi := &file_googlechat_proto_msgTypes[194]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19183,7 +20068,7 @@ func (x *JAddOnsWidget_TextKeyValue) String() string {
 func (*JAddOnsWidget_TextKeyValue) ProtoMessage() {}
 
 func (x *JAddOnsWidget_TextKeyValue) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[184]
+	mi := &file_googlechat_proto_msgTypes[194]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19231,7 +20116,7 @@ type JAddOnsWidget_ImageKeyValue struct {
 
 func (x *JAddOnsWidget_ImageKeyValue) Reset() {
 	*x = JAddOnsWidget_ImageKeyValue{}
-	mi := &file_googlechat_proto_msgTypes[185]
+	mi := &file_googlechat_proto_msgTypes[195]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19243,7 +20128,7 @@ func (x *JAddOnsWidget_ImageKeyValue) String() string {
 func (*JAddOnsWidget_ImageKeyValue) ProtoMessage() {}
 
 func (x *JAddOnsWidget_ImageKeyValue) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[185]
+	mi := &file_googlechat_proto_msgTypes[195]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19293,7 +20178,7 @@ type JAddOnsWidget_Image struct {
 
 func (x *JAddOnsWidget_Image) Reset() {
 	*x = JAddOnsWidget_Image{}
-	mi := &file_googlechat_proto_msgTypes[186]
+	mi := &file_googlechat_proto_msgTypes[196]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19305,7 +20190,7 @@ func (x *JAddOnsWidget_Image) String() string {
 func (*JAddOnsWidget_Image) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Image) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[186]
+	mi := &file_googlechat_proto_msgTypes[196]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19367,7 +20252,7 @@ type JAddOnsWidget_Icon struct {
 
 func (x *JAddOnsWidget_Icon) Reset() {
 	*x = JAddOnsWidget_Icon{}
-	mi := &file_googlechat_proto_msgTypes[187]
+	mi := &file_googlechat_proto_msgTypes[197]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19379,7 +20264,7 @@ func (x *JAddOnsWidget_Icon) String() string {
 func (*JAddOnsWidget_Icon) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Icon) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[187]
+	mi := &file_googlechat_proto_msgTypes[197]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19439,7 +20324,7 @@ type JAddOnsWidget_KeyValue struct {
 
 func (x *JAddOnsWidget_KeyValue) Reset() {
 	*x = JAddOnsWidget_KeyValue{}
-	mi := &file_googlechat_proto_msgTypes[188]
+	mi := &file_googlechat_proto_msgTypes[198]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19451,7 +20336,7 @@ func (x *JAddOnsWidget_KeyValue) String() string {
 func (*JAddOnsWidget_KeyValue) ProtoMessage() {}
 
 func (x *JAddOnsWidget_KeyValue) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[188]
+	mi := &file_googlechat_proto_msgTypes[198]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19594,7 +20479,7 @@ type JAddOnsWidget_Divider struct {
 
 func (x *JAddOnsWidget_Divider) Reset() {
 	*x = JAddOnsWidget_Divider{}
-	mi := &file_googlechat_proto_msgTypes[189]
+	mi := &file_googlechat_proto_msgTypes[199]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19606,7 +20491,7 @@ func (x *JAddOnsWidget_Divider) String() string {
 func (*JAddOnsWidget_Divider) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Divider) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[189]
+	mi := &file_googlechat_proto_msgTypes[199]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19634,7 +20519,7 @@ type JAddOnsWidget_Menu struct {
 
 func (x *JAddOnsWidget_Menu) Reset() {
 	*x = JAddOnsWidget_Menu{}
-	mi := &file_googlechat_proto_msgTypes[190]
+	mi := &file_googlechat_proto_msgTypes[200]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19646,7 +20531,7 @@ func (x *JAddOnsWidget_Menu) String() string {
 func (*JAddOnsWidget_Menu) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Menu) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[190]
+	mi := &file_googlechat_proto_msgTypes[200]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19699,7 +20584,7 @@ type JAddOnsWidget_AutoComplete struct {
 
 func (x *JAddOnsWidget_AutoComplete) Reset() {
 	*x = JAddOnsWidget_AutoComplete{}
-	mi := &file_googlechat_proto_msgTypes[191]
+	mi := &file_googlechat_proto_msgTypes[201]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19711,7 +20596,7 @@ func (x *JAddOnsWidget_AutoComplete) String() string {
 func (*JAddOnsWidget_AutoComplete) ProtoMessage() {}
 
 func (x *JAddOnsWidget_AutoComplete) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[191]
+	mi := &file_googlechat_proto_msgTypes[201]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19754,7 +20639,7 @@ type JAddOnsWidget_TextField struct {
 
 func (x *JAddOnsWidget_TextField) Reset() {
 	*x = JAddOnsWidget_TextField{}
-	mi := &file_googlechat_proto_msgTypes[192]
+	mi := &file_googlechat_proto_msgTypes[202]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19766,7 +20651,7 @@ func (x *JAddOnsWidget_TextField) String() string {
 func (*JAddOnsWidget_TextField) ProtoMessage() {}
 
 func (x *JAddOnsWidget_TextField) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[192]
+	mi := &file_googlechat_proto_msgTypes[202]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19880,7 +20765,7 @@ type JAddOnsWidget_SelectionControl struct {
 
 func (x *JAddOnsWidget_SelectionControl) Reset() {
 	*x = JAddOnsWidget_SelectionControl{}
-	mi := &file_googlechat_proto_msgTypes[193]
+	mi := &file_googlechat_proto_msgTypes[203]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19892,7 +20777,7 @@ func (x *JAddOnsWidget_SelectionControl) String() string {
 func (*JAddOnsWidget_SelectionControl) ProtoMessage() {}
 
 func (x *JAddOnsWidget_SelectionControl) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[193]
+	mi := &file_googlechat_proto_msgTypes[203]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19966,7 +20851,7 @@ type JAddOnsWidget_DateTimePicker struct {
 
 func (x *JAddOnsWidget_DateTimePicker) Reset() {
 	*x = JAddOnsWidget_DateTimePicker{}
-	mi := &file_googlechat_proto_msgTypes[194]
+	mi := &file_googlechat_proto_msgTypes[204]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19978,7 +20863,7 @@ func (x *JAddOnsWidget_DateTimePicker) String() string {
 func (*JAddOnsWidget_DateTimePicker) ProtoMessage() {}
 
 func (x *JAddOnsWidget_DateTimePicker) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[194]
+	mi := &file_googlechat_proto_msgTypes[204]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20066,7 +20951,7 @@ type JAddOnsWidget_TextButton struct {
 
 func (x *JAddOnsWidget_TextButton) Reset() {
 	*x = JAddOnsWidget_TextButton{}
-	mi := &file_googlechat_proto_msgTypes[195]
+	mi := &file_googlechat_proto_msgTypes[205]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20078,7 +20963,7 @@ func (x *JAddOnsWidget_TextButton) String() string {
 func (*JAddOnsWidget_TextButton) ProtoMessage() {}
 
 func (x *JAddOnsWidget_TextButton) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[195]
+	mi := &file_googlechat_proto_msgTypes[205]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20162,7 +21047,7 @@ type JAddOnsWidget_ImageButton struct {
 
 func (x *JAddOnsWidget_ImageButton) Reset() {
 	*x = JAddOnsWidget_ImageButton{}
-	mi := &file_googlechat_proto_msgTypes[196]
+	mi := &file_googlechat_proto_msgTypes[206]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20174,7 +21059,7 @@ func (x *JAddOnsWidget_ImageButton) String() string {
 func (*JAddOnsWidget_ImageButton) ProtoMessage() {}
 
 func (x *JAddOnsWidget_ImageButton) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[196]
+	mi := &file_googlechat_proto_msgTypes[206]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20231,7 +21116,7 @@ type JAddOnsWidget_Button struct {
 
 func (x *JAddOnsWidget_Button) Reset() {
 	*x = JAddOnsWidget_Button{}
-	mi := &file_googlechat_proto_msgTypes[197]
+	mi := &file_googlechat_proto_msgTypes[207]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20243,7 +21128,7 @@ func (x *JAddOnsWidget_Button) String() string {
 func (*JAddOnsWidget_Button) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Button) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[197]
+	mi := &file_googlechat_proto_msgTypes[207]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20314,7 +21199,7 @@ type JAddOnsWidget_KeyValue_SwitchWidget struct {
 
 func (x *JAddOnsWidget_KeyValue_SwitchWidget) Reset() {
 	*x = JAddOnsWidget_KeyValue_SwitchWidget{}
-	mi := &file_googlechat_proto_msgTypes[198]
+	mi := &file_googlechat_proto_msgTypes[208]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20326,7 +21211,7 @@ func (x *JAddOnsWidget_KeyValue_SwitchWidget) String() string {
 func (*JAddOnsWidget_KeyValue_SwitchWidget) ProtoMessage() {}
 
 func (x *JAddOnsWidget_KeyValue_SwitchWidget) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[198]
+	mi := &file_googlechat_proto_msgTypes[208]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20395,7 +21280,7 @@ type JAddOnsWidget_Menu_MenuItem struct {
 
 func (x *JAddOnsWidget_Menu_MenuItem) Reset() {
 	*x = JAddOnsWidget_Menu_MenuItem{}
-	mi := &file_googlechat_proto_msgTypes[199]
+	mi := &file_googlechat_proto_msgTypes[209]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20407,7 +21292,7 @@ func (x *JAddOnsWidget_Menu_MenuItem) String() string {
 func (*JAddOnsWidget_Menu_MenuItem) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Menu_MenuItem) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[199]
+	mi := &file_googlechat_proto_msgTypes[209]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20453,7 +21338,7 @@ type JAddOnsWidget_AutoComplete_AutoCompleteItem struct {
 
 func (x *JAddOnsWidget_AutoComplete_AutoCompleteItem) Reset() {
 	*x = JAddOnsWidget_AutoComplete_AutoCompleteItem{}
-	mi := &file_googlechat_proto_msgTypes[200]
+	mi := &file_googlechat_proto_msgTypes[210]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20465,7 +21350,7 @@ func (x *JAddOnsWidget_AutoComplete_AutoCompleteItem) String() string {
 func (*JAddOnsWidget_AutoComplete_AutoCompleteItem) ProtoMessage() {}
 
 func (x *JAddOnsWidget_AutoComplete_AutoCompleteItem) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[200]
+	mi := &file_googlechat_proto_msgTypes[210]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20500,7 +21385,7 @@ type JAddOnsWidget_SelectionControl_SelectionItem struct {
 
 func (x *JAddOnsWidget_SelectionControl_SelectionItem) Reset() {
 	*x = JAddOnsWidget_SelectionControl_SelectionItem{}
-	mi := &file_googlechat_proto_msgTypes[201]
+	mi := &file_googlechat_proto_msgTypes[211]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20512,7 +21397,7 @@ func (x *JAddOnsWidget_SelectionControl_SelectionItem) String() string {
 func (*JAddOnsWidget_SelectionControl_SelectionItem) ProtoMessage() {}
 
 func (x *JAddOnsWidget_SelectionControl_SelectionItem) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[201]
+	mi := &file_googlechat_proto_msgTypes[211]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20566,7 +21451,7 @@ type JAddOnsFormAction_ActionParameter struct {
 
 func (x *JAddOnsFormAction_ActionParameter) Reset() {
 	*x = JAddOnsFormAction_ActionParameter{}
-	mi := &file_googlechat_proto_msgTypes[202]
+	mi := &file_googlechat_proto_msgTypes[212]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20578,7 +21463,7 @@ func (x *JAddOnsFormAction_ActionParameter) String() string {
 func (*JAddOnsFormAction_ActionParameter) ProtoMessage() {}
 
 func (x *JAddOnsFormAction_ActionParameter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[202]
+	mi := &file_googlechat_proto_msgTypes[212]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20620,7 +21505,7 @@ type JAddOnsContextualAddOn_Toolbar struct {
 
 func (x *JAddOnsContextualAddOn_Toolbar) Reset() {
 	*x = JAddOnsContextualAddOn_Toolbar{}
-	mi := &file_googlechat_proto_msgTypes[203]
+	mi := &file_googlechat_proto_msgTypes[213]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20632,7 +21517,7 @@ func (x *JAddOnsContextualAddOn_Toolbar) String() string {
 func (*JAddOnsContextualAddOn_Toolbar) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Toolbar) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[203]
+	mi := &file_googlechat_proto_msgTypes[213]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20691,7 +21576,7 @@ type JAddOnsContextualAddOn_Card struct {
 
 func (x *JAddOnsContextualAddOn_Card) Reset() {
 	*x = JAddOnsContextualAddOn_Card{}
-	mi := &file_googlechat_proto_msgTypes[204]
+	mi := &file_googlechat_proto_msgTypes[214]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20703,7 +21588,7 @@ func (x *JAddOnsContextualAddOn_Card) String() string {
 func (*JAddOnsContextualAddOn_Card) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[204]
+	mi := &file_googlechat_proto_msgTypes[214]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20781,7 +21666,7 @@ type JAddOnsContextualAddOn_Card_CardHeader struct {
 
 func (x *JAddOnsContextualAddOn_Card_CardHeader) Reset() {
 	*x = JAddOnsContextualAddOn_Card_CardHeader{}
-	mi := &file_googlechat_proto_msgTypes[205]
+	mi := &file_googlechat_proto_msgTypes[215]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20793,7 +21678,7 @@ func (x *JAddOnsContextualAddOn_Card_CardHeader) String() string {
 func (*JAddOnsContextualAddOn_Card_CardHeader) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_CardHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[205]
+	mi := &file_googlechat_proto_msgTypes[215]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20858,7 +21743,7 @@ type JAddOnsContextualAddOn_Card_Section struct {
 
 func (x *JAddOnsContextualAddOn_Card_Section) Reset() {
 	*x = JAddOnsContextualAddOn_Card_Section{}
-	mi := &file_googlechat_proto_msgTypes[206]
+	mi := &file_googlechat_proto_msgTypes[216]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20870,7 +21755,7 @@ func (x *JAddOnsContextualAddOn_Card_Section) String() string {
 func (*JAddOnsContextualAddOn_Card_Section) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_Section) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[206]
+	mi := &file_googlechat_proto_msgTypes[216]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20938,7 +21823,7 @@ type JAddOnsContextualAddOn_Card_CardAction struct {
 
 func (x *JAddOnsContextualAddOn_Card_CardAction) Reset() {
 	*x = JAddOnsContextualAddOn_Card_CardAction{}
-	mi := &file_googlechat_proto_msgTypes[207]
+	mi := &file_googlechat_proto_msgTypes[217]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20950,7 +21835,7 @@ func (x *JAddOnsContextualAddOn_Card_CardAction) String() string {
 func (*JAddOnsContextualAddOn_Card_CardAction) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_CardAction) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[207]
+	mi := &file_googlechat_proto_msgTypes[217]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20991,7 +21876,7 @@ type JAddOnsContextualAddOn_Card_FixedFooter struct {
 
 func (x *JAddOnsContextualAddOn_Card_FixedFooter) Reset() {
 	*x = JAddOnsContextualAddOn_Card_FixedFooter{}
-	mi := &file_googlechat_proto_msgTypes[208]
+	mi := &file_googlechat_proto_msgTypes[218]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21003,7 +21888,7 @@ func (x *JAddOnsContextualAddOn_Card_FixedFooter) String() string {
 func (*JAddOnsContextualAddOn_Card_FixedFooter) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_FixedFooter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[208]
+	mi := &file_googlechat_proto_msgTypes[218]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21049,7 +21934,7 @@ type JAddOnsContextualAddOn_Card_RefreshAction struct {
 
 func (x *JAddOnsContextualAddOn_Card_RefreshAction) Reset() {
 	*x = JAddOnsContextualAddOn_Card_RefreshAction{}
-	mi := &file_googlechat_proto_msgTypes[209]
+	mi := &file_googlechat_proto_msgTypes[219]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21061,7 +21946,7 @@ func (x *JAddOnsContextualAddOn_Card_RefreshAction) String() string {
 func (*JAddOnsContextualAddOn_Card_RefreshAction) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_RefreshAction) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[209]
+	mi := &file_googlechat_proto_msgTypes[219]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21092,7 +21977,7 @@ type Group_FlatGroup struct {
 
 func (x *Group_FlatGroup) Reset() {
 	*x = Group_FlatGroup{}
-	mi := &file_googlechat_proto_msgTypes[210]
+	mi := &file_googlechat_proto_msgTypes[220]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21104,7 +21989,7 @@ func (x *Group_FlatGroup) String() string {
 func (*Group_FlatGroup) ProtoMessage() {}
 
 func (x *Group_FlatGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[210]
+	mi := &file_googlechat_proto_msgTypes[220]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21128,7 +22013,7 @@ type Group_ThreadedGroup struct {
 
 func (x *Group_ThreadedGroup) Reset() {
 	*x = Group_ThreadedGroup{}
-	mi := &file_googlechat_proto_msgTypes[211]
+	mi := &file_googlechat_proto_msgTypes[221]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21140,7 +22025,7 @@ func (x *Group_ThreadedGroup) String() string {
 func (*Group_ThreadedGroup) ProtoMessage() {}
 
 func (x *Group_ThreadedGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[211]
+	mi := &file_googlechat_proto_msgTypes[221]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21164,7 +22049,7 @@ type SpaceCreationInfo_FlatGroup struct {
 
 func (x *SpaceCreationInfo_FlatGroup) Reset() {
 	*x = SpaceCreationInfo_FlatGroup{}
-	mi := &file_googlechat_proto_msgTypes[212]
+	mi := &file_googlechat_proto_msgTypes[222]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21176,7 +22061,7 @@ func (x *SpaceCreationInfo_FlatGroup) String() string {
 func (*SpaceCreationInfo_FlatGroup) ProtoMessage() {}
 
 func (x *SpaceCreationInfo_FlatGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[212]
+	mi := &file_googlechat_proto_msgTypes[222]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21200,7 +22085,7 @@ type SpaceCreationInfo_ThreadedGroup struct {
 
 func (x *SpaceCreationInfo_ThreadedGroup) Reset() {
 	*x = SpaceCreationInfo_ThreadedGroup{}
-	mi := &file_googlechat_proto_msgTypes[213]
+	mi := &file_googlechat_proto_msgTypes[223]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21212,7 +22097,7 @@ func (x *SpaceCreationInfo_ThreadedGroup) String() string {
 func (*SpaceCreationInfo_ThreadedGroup) ProtoMessage() {}
 
 func (x *SpaceCreationInfo_ThreadedGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[213]
+	mi := &file_googlechat_proto_msgTypes[223]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21236,7 +22121,7 @@ type SpaceCreationInfo_SpaceType struct {
 
 func (x *SpaceCreationInfo_SpaceType) Reset() {
 	*x = SpaceCreationInfo_SpaceType{}
-	mi := &file_googlechat_proto_msgTypes[214]
+	mi := &file_googlechat_proto_msgTypes[224]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21248,7 +22133,7 @@ func (x *SpaceCreationInfo_SpaceType) String() string {
 func (*SpaceCreationInfo_SpaceType) ProtoMessage() {}
 
 func (x *SpaceCreationInfo_SpaceType) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[214]
+	mi := &file_googlechat_proto_msgTypes[224]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21271,13 +22156,19 @@ type Event_EventBody struct {
 	//	*Event_EventBody_GroupViewed
 	//	*Event_EventBody_GroupUpdated
 	//	*Event_EventBody_MessagePosted
+	//	*Event_EventBody_TopicMuteChanged
 	//	*Event_EventBody_WebPushNotification
+	//	*Event_EventBody_GroupUnreadSubscribedTopicCountUpdatedEvent
 	//	*Event_EventBody_MembershipChanged
 	//	*Event_EventBody_MessageDeleted
+	//	*Event_EventBody_TopicCreated
 	//	*Event_EventBody_MessageReaction
 	//	*Event_EventBody_UserStatusUpdated
+	//	*Event_EventBody_MessageSmartRepliesEvent
 	//	*Event_EventBody_TypingStateChanged
 	//	*Event_EventBody_ReadReceiptChanged
+	//	*Event_EventBody_GroupDefaultSortOrderUpdatedEvent
+	//	*Event_EventBody_GroupReadStateUpdatedEvent
 	Type          isEvent_EventBody_Type `protobuf_oneof:"Type"`
 	EventType     *Event_EventType       `protobuf:"varint,12,opt,name=event_type,json=eventType,enum=Event_EventType" json:"event_type,omitempty"`
 	TraceId       *int64                 `protobuf:"varint,20,opt,name=trace_id,json=traceId" json:"trace_id,omitempty"`
@@ -21287,7 +22178,7 @@ type Event_EventBody struct {
 
 func (x *Event_EventBody) Reset() {
 	*x = Event_EventBody{}
-	mi := &file_googlechat_proto_msgTypes[215]
+	mi := &file_googlechat_proto_msgTypes[225]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21299,7 +22190,7 @@ func (x *Event_EventBody) String() string {
 func (*Event_EventBody) ProtoMessage() {}
 
 func (x *Event_EventBody) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[215]
+	mi := &file_googlechat_proto_msgTypes[225]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21312,7 +22203,7 @@ func (x *Event_EventBody) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event_EventBody.ProtoReflect.Descriptor instead.
 func (*Event_EventBody) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{123, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{133, 0}
 }
 
 func (x *Event_EventBody) GetType() isEvent_EventBody_Type {
@@ -21349,10 +22240,28 @@ func (x *Event_EventBody) GetMessagePosted() *MessageEvent {
 	return nil
 }
 
+func (x *Event_EventBody) GetTopicMuteChanged() *TopicMuteChangedEvent {
+	if x != nil {
+		if x, ok := x.Type.(*Event_EventBody_TopicMuteChanged); ok {
+			return x.TopicMuteChanged
+		}
+	}
+	return nil
+}
+
 func (x *Event_EventBody) GetWebPushNotification() *WebPushNotificationEvent {
 	if x != nil {
 		if x, ok := x.Type.(*Event_EventBody_WebPushNotification); ok {
 			return x.WebPushNotification
+		}
+	}
+	return nil
+}
+
+func (x *Event_EventBody) GetGroupUnreadSubscribedTopicCountUpdatedEvent() *GroupUnreadSubscribedTopicCountUpdatedEvent {
+	if x != nil {
+		if x, ok := x.Type.(*Event_EventBody_GroupUnreadSubscribedTopicCountUpdatedEvent); ok {
+			return x.GroupUnreadSubscribedTopicCountUpdatedEvent
 		}
 	}
 	return nil
@@ -21376,6 +22285,15 @@ func (x *Event_EventBody) GetMessageDeleted() *MessageDeletedEvent {
 	return nil
 }
 
+func (x *Event_EventBody) GetTopicCreated() *TopicCreatedEvent {
+	if x != nil {
+		if x, ok := x.Type.(*Event_EventBody_TopicCreated); ok {
+			return x.TopicCreated
+		}
+	}
+	return nil
+}
+
 func (x *Event_EventBody) GetMessageReaction() *MessageReactionEvent {
 	if x != nil {
 		if x, ok := x.Type.(*Event_EventBody_MessageReaction); ok {
@@ -21394,6 +22312,15 @@ func (x *Event_EventBody) GetUserStatusUpdated() *UserStatusUpdatedEvent {
 	return nil
 }
 
+func (x *Event_EventBody) GetMessageSmartRepliesEvent() *MessageSmartRepliesEvent {
+	if x != nil {
+		if x, ok := x.Type.(*Event_EventBody_MessageSmartRepliesEvent); ok {
+			return x.MessageSmartRepliesEvent
+		}
+	}
+	return nil
+}
+
 func (x *Event_EventBody) GetTypingStateChanged() *TypingStateChangedEvent {
 	if x != nil {
 		if x, ok := x.Type.(*Event_EventBody_TypingStateChanged); ok {
@@ -21407,6 +22334,24 @@ func (x *Event_EventBody) GetReadReceiptChanged() *ReadReceiptChangedEvent {
 	if x != nil {
 		if x, ok := x.Type.(*Event_EventBody_ReadReceiptChanged); ok {
 			return x.ReadReceiptChanged
+		}
+	}
+	return nil
+}
+
+func (x *Event_EventBody) GetGroupDefaultSortOrderUpdatedEvent() *GroupDefaultSortOrderUpdatedEvent {
+	if x != nil {
+		if x, ok := x.Type.(*Event_EventBody_GroupDefaultSortOrderUpdatedEvent); ok {
+			return x.GroupDefaultSortOrderUpdatedEvent
+		}
+	}
+	return nil
+}
+
+func (x *Event_EventBody) GetGroupReadStateUpdatedEvent() *GroupReadStateUpdatedEvent {
+	if x != nil {
+		if x, ok := x.Type.(*Event_EventBody_GroupReadStateUpdatedEvent); ok {
+			return x.GroupReadStateUpdatedEvent
 		}
 	}
 	return nil
@@ -21443,15 +22388,25 @@ type Event_EventBody_MessagePosted struct {
 	MessagePosted *MessageEvent `protobuf:"bytes,6,opt,name=message_posted,json=messagePosted,oneof"`
 }
 
+type Event_EventBody_TopicMuteChanged struct {
+	// observed live 2026-07 (docs/research/09); name+type sourced
+	// from purple-googlechat/googlechat.proto.
+	TopicMuteChanged *TopicMuteChangedEvent `protobuf:"bytes,7,opt,name=topic_mute_changed,json=topicMuteChanged,oneof"`
+}
+
 type Event_EventBody_WebPushNotification struct {
-	// TopicMuteChangedEvent topic_mute_changed = 7;
 	// UserSettingsChangedEvent user_settings_changed = 8;
 	// GroupStarredEvent group_starred = 9;
 	WebPushNotification *WebPushNotificationEvent `protobuf:"bytes,10,opt,name=web_push_notification,json=webPushNotification,oneof"`
 }
 
+type Event_EventBody_GroupUnreadSubscribedTopicCountUpdatedEvent struct {
+	// observed live 2026-07 (docs/research/09); name+type sourced
+	// from purple-googlechat/googlechat.proto.
+	GroupUnreadSubscribedTopicCountUpdatedEvent *GroupUnreadSubscribedTopicCountUpdatedEvent `protobuf:"bytes,11,opt,name=group_unread_subscribed_topic_count_updated_event,json=groupUnreadSubscribedTopicCountUpdatedEvent,oneof"`
+}
+
 type Event_EventBody_MembershipChanged struct {
-	// GroupUnreadSubscribedTopicCountUpdatedEvent group_unread_subscribed_topic_count_updated_event = 11;
 	// InviteCountUpdatedEvent invite_count_updated = 13;
 	MembershipChanged *MembershipChangedEvent `protobuf:"bytes,14,opt,name=membership_changed,json=membershipChanged,oneof"`
 }
@@ -21463,9 +22418,15 @@ type Event_EventBody_MessageDeleted struct {
 	MessageDeleted *MessageDeletedEvent `protobuf:"bytes,18,opt,name=message_deleted,json=messageDeleted,oneof"`
 }
 
-type Event_EventBody_MessageReaction struct {
+type Event_EventBody_TopicCreated struct {
 	// RetentionSettingsUpdatedEvent retention_settings_updated = 19;
-	// TopicCreatedEvent topic_created = 21;
+	// observed live 2026-07 (docs/research/09, accompanies
+	// TOPIC_CREATED); name+type sourced from
+	// purple-googlechat/googlechat.proto.
+	TopicCreated *TopicCreatedEvent `protobuf:"bytes,21,opt,name=topic_created,json=topicCreated,oneof"`
+}
+
+type Event_EventBody_MessageReaction struct {
 	MessageReaction *MessageReactionEvent `protobuf:"bytes,22,opt,name=message_reaction,json=messageReaction,oneof"`
 }
 
@@ -21473,9 +22434,15 @@ type Event_EventBody_UserStatusUpdated struct {
 	UserStatusUpdated *UserStatusUpdatedEvent `protobuf:"bytes,23,opt,name=user_status_updated,json=userStatusUpdated,oneof"`
 }
 
-type Event_EventBody_TypingStateChanged struct {
+type Event_EventBody_MessageSmartRepliesEvent struct {
 	// WorkingHoursSettingsUpdatedEvent working_hours_settings_updated_event = 24;
-	// MessageSmartRepliesEvent message_smart_replies_event = 25;
+	// observed live 2026-07 (docs/research/09, accompanies
+	// MESSAGE_SMART_REPLIES); type inferred from wire shape --
+	// purple-googlechat also lacks a real definition for this field.
+	MessageSmartRepliesEvent *MessageSmartRepliesEvent `protobuf:"bytes,25,opt,name=message_smart_replies_event,json=messageSmartRepliesEvent,oneof"`
+}
+
+type Event_EventBody_TypingStateChanged struct {
 	TypingStateChanged *TypingStateChangedEvent `protobuf:"bytes,26,opt,name=typing_state_changed,json=typingStateChanged,oneof"`
 }
 
@@ -21488,25 +22455,61 @@ type Event_EventBody_ReadReceiptChanged struct {
 	ReadReceiptChanged *ReadReceiptChangedEvent `protobuf:"bytes,33,opt,name=read_receipt_changed,json=readReceiptChanged,oneof"`
 }
 
+type Event_EventBody_GroupDefaultSortOrderUpdatedEvent struct {
+	// GroupNoOpEvent group_no_op_event = 34;
+	// UserNoOpEvent user_no_op_event = 35;
+	// UserDenormalizedGroupUpdatedEvent user_denormalized_group_updated_event = 36;
+	// NotificationsCardEvent notifications_card_event = 37;
+	// ?? user_hub_availability_event = 38;
+	// PresenceSharedUpdatedEvent presence_shared_updated_event = 39;
+	// UserOwnershipUpdatedEvent user_ownership_updated_event = 40;
+	// SharedDriveCreateScheduledEvent shared_drive_create_scheduled_event = 41;
+	// SharedDriveUpdatedEvent shared_drive_updated_event = 42;
+	// MessagePersonalLabelUpdatedEvent message_personal_label_updated = 43;
+	// observed live 2026-07 (docs/research/09); type inferred from
+	// wire shape -- purple-googlechat only has the EventType enum
+	// value (GROUP_DEFAULT_SORT_ORDER_UPDATED = 64) for this, not a
+	// real EventBody payload definition.
+	GroupDefaultSortOrderUpdatedEvent *GroupDefaultSortOrderUpdatedEvent `protobuf:"bytes,53,opt,name=group_default_sort_order_updated_event,json=groupDefaultSortOrderUpdatedEvent,oneof"`
+}
+
+type Event_EventBody_GroupReadStateUpdatedEvent struct {
+	// observed live 2026-07 (docs/research/09); name+type sourced
+	// from purple-googlechat/googlechat.proto.
+	GroupReadStateUpdatedEvent *GroupReadStateUpdatedEvent `protobuf:"bytes,65,opt,name=group_read_state_updated_event,json=groupReadStateUpdatedEvent,oneof"`
+}
+
 func (*Event_EventBody_GroupViewed) isEvent_EventBody_Type() {}
 
 func (*Event_EventBody_GroupUpdated) isEvent_EventBody_Type() {}
 
 func (*Event_EventBody_MessagePosted) isEvent_EventBody_Type() {}
 
+func (*Event_EventBody_TopicMuteChanged) isEvent_EventBody_Type() {}
+
 func (*Event_EventBody_WebPushNotification) isEvent_EventBody_Type() {}
+
+func (*Event_EventBody_GroupUnreadSubscribedTopicCountUpdatedEvent) isEvent_EventBody_Type() {}
 
 func (*Event_EventBody_MembershipChanged) isEvent_EventBody_Type() {}
 
 func (*Event_EventBody_MessageDeleted) isEvent_EventBody_Type() {}
 
+func (*Event_EventBody_TopicCreated) isEvent_EventBody_Type() {}
+
 func (*Event_EventBody_MessageReaction) isEvent_EventBody_Type() {}
 
 func (*Event_EventBody_UserStatusUpdated) isEvent_EventBody_Type() {}
 
+func (*Event_EventBody_MessageSmartRepliesEvent) isEvent_EventBody_Type() {}
+
 func (*Event_EventBody_TypingStateChanged) isEvent_EventBody_Type() {}
 
 func (*Event_EventBody_ReadReceiptChanged) isEvent_EventBody_Type() {}
+
+func (*Event_EventBody_GroupDefaultSortOrderUpdatedEvent) isEvent_EventBody_Type() {}
+
+func (*Event_EventBody_GroupReadStateUpdatedEvent) isEvent_EventBody_Type() {}
 
 type RoomUpdatedMetadata_RoomRenameMetadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -21518,7 +22521,7 @@ type RoomUpdatedMetadata_RoomRenameMetadata struct {
 
 func (x *RoomUpdatedMetadata_RoomRenameMetadata) Reset() {
 	*x = RoomUpdatedMetadata_RoomRenameMetadata{}
-	mi := &file_googlechat_proto_msgTypes[216]
+	mi := &file_googlechat_proto_msgTypes[226]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21530,7 +22533,7 @@ func (x *RoomUpdatedMetadata_RoomRenameMetadata) String() string {
 func (*RoomUpdatedMetadata_RoomRenameMetadata) ProtoMessage() {}
 
 func (x *RoomUpdatedMetadata_RoomRenameMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[216]
+	mi := &file_googlechat_proto_msgTypes[226]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21543,7 +22546,7 @@ func (x *RoomUpdatedMetadata_RoomRenameMetadata) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use RoomUpdatedMetadata_RoomRenameMetadata.ProtoReflect.Descriptor instead.
 func (*RoomUpdatedMetadata_RoomRenameMetadata) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{126, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{136, 0}
 }
 
 func (x *RoomUpdatedMetadata_RoomRenameMetadata) GetNewName() string {
@@ -21570,7 +22573,7 @@ type RoomUpdatedMetadata_GroupDetailsUpdatedMetadata struct {
 
 func (x *RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) Reset() {
 	*x = RoomUpdatedMetadata_GroupDetailsUpdatedMetadata{}
-	mi := &file_googlechat_proto_msgTypes[217]
+	mi := &file_googlechat_proto_msgTypes[227]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21582,7 +22585,7 @@ func (x *RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) String() string {
 func (*RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) ProtoMessage() {}
 
 func (x *RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[217]
+	mi := &file_googlechat_proto_msgTypes[227]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21595,7 +22598,7 @@ func (x *RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) ProtoReflect() protore
 
 // Deprecated: Use RoomUpdatedMetadata_GroupDetailsUpdatedMetadata.ProtoReflect.Descriptor instead.
 func (*RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{126, 1}
+	return file_googlechat_proto_rawDescGZIP(), []int{136, 1}
 }
 
 func (x *RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) GetNewGroupDetails() *GroupDetails {
@@ -21625,7 +22628,7 @@ type MeetingSpace_PhoneAccess struct {
 
 func (x *MeetingSpace_PhoneAccess) Reset() {
 	*x = MeetingSpace_PhoneAccess{}
-	mi := &file_googlechat_proto_msgTypes[218]
+	mi := &file_googlechat_proto_msgTypes[228]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21637,7 +22640,7 @@ func (x *MeetingSpace_PhoneAccess) String() string {
 func (*MeetingSpace_PhoneAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_PhoneAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[218]
+	mi := &file_googlechat_proto_msgTypes[228]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21650,7 +22653,7 @@ func (x *MeetingSpace_PhoneAccess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_PhoneAccess.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_PhoneAccess) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 0}
 }
 
 func (x *MeetingSpace_PhoneAccess) GetPhoneNumber() string {
@@ -21698,7 +22701,7 @@ type MeetingSpace_UniversalPhoneAccess struct {
 
 func (x *MeetingSpace_UniversalPhoneAccess) Reset() {
 	*x = MeetingSpace_UniversalPhoneAccess{}
-	mi := &file_googlechat_proto_msgTypes[219]
+	mi := &file_googlechat_proto_msgTypes[229]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21710,7 +22713,7 @@ func (x *MeetingSpace_UniversalPhoneAccess) String() string {
 func (*MeetingSpace_UniversalPhoneAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_UniversalPhoneAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[219]
+	mi := &file_googlechat_proto_msgTypes[229]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21723,7 +22726,7 @@ func (x *MeetingSpace_UniversalPhoneAccess) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use MeetingSpace_UniversalPhoneAccess.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_UniversalPhoneAccess) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 1}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 1}
 }
 
 func (x *MeetingSpace_UniversalPhoneAccess) GetPin() string {
@@ -21750,7 +22753,7 @@ type MeetingSpace_Presenter struct {
 
 func (x *MeetingSpace_Presenter) Reset() {
 	*x = MeetingSpace_Presenter{}
-	mi := &file_googlechat_proto_msgTypes[220]
+	mi := &file_googlechat_proto_msgTypes[230]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21762,7 +22765,7 @@ func (x *MeetingSpace_Presenter) String() string {
 func (*MeetingSpace_Presenter) ProtoMessage() {}
 
 func (x *MeetingSpace_Presenter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[220]
+	mi := &file_googlechat_proto_msgTypes[230]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21775,7 +22778,7 @@ func (x *MeetingSpace_Presenter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_Presenter.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_Presenter) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 2}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 2}
 }
 
 func (x *MeetingSpace_Presenter) GetPresenterDeviceId() string {
@@ -21806,7 +22809,7 @@ type MeetingSpace_RecordingInfo struct {
 
 func (x *MeetingSpace_RecordingInfo) Reset() {
 	*x = MeetingSpace_RecordingInfo{}
-	mi := &file_googlechat_proto_msgTypes[221]
+	mi := &file_googlechat_proto_msgTypes[231]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21818,7 +22821,7 @@ func (x *MeetingSpace_RecordingInfo) String() string {
 func (*MeetingSpace_RecordingInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_RecordingInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[221]
+	mi := &file_googlechat_proto_msgTypes[231]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21831,7 +22834,7 @@ func (x *MeetingSpace_RecordingInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_RecordingInfo.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_RecordingInfo) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 3}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 3}
 }
 
 func (x *MeetingSpace_RecordingInfo) GetRecordingStatus() MeetingSpace_RecordingInfo_RecordingStatus {
@@ -21892,7 +22895,7 @@ type MeetingSpace_StreamingSessionInfo struct {
 
 func (x *MeetingSpace_StreamingSessionInfo) Reset() {
 	*x = MeetingSpace_StreamingSessionInfo{}
-	mi := &file_googlechat_proto_msgTypes[222]
+	mi := &file_googlechat_proto_msgTypes[232]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21904,7 +22907,7 @@ func (x *MeetingSpace_StreamingSessionInfo) String() string {
 func (*MeetingSpace_StreamingSessionInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_StreamingSessionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[222]
+	mi := &file_googlechat_proto_msgTypes[232]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21917,7 +22920,7 @@ func (x *MeetingSpace_StreamingSessionInfo) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use MeetingSpace_StreamingSessionInfo.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_StreamingSessionInfo) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 4}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 4}
 }
 
 func (x *MeetingSpace_StreamingSessionInfo) GetStatus() MeetingSpace_StreamingSessionInfo_Status {
@@ -21995,7 +22998,7 @@ type MeetingSpace_CallInfo struct {
 
 func (x *MeetingSpace_CallInfo) Reset() {
 	*x = MeetingSpace_CallInfo{}
-	mi := &file_googlechat_proto_msgTypes[223]
+	mi := &file_googlechat_proto_msgTypes[233]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22007,7 +23010,7 @@ func (x *MeetingSpace_CallInfo) String() string {
 func (*MeetingSpace_CallInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_CallInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[223]
+	mi := &file_googlechat_proto_msgTypes[233]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22020,7 +23023,7 @@ func (x *MeetingSpace_CallInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_CallInfo.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_CallInfo) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 5}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 5}
 }
 
 func (x *MeetingSpace_CallInfo) GetPresenter() *MeetingSpace_Presenter {
@@ -22109,7 +23112,7 @@ type MeetingSpace_GatewayAccess struct {
 
 func (x *MeetingSpace_GatewayAccess) Reset() {
 	*x = MeetingSpace_GatewayAccess{}
-	mi := &file_googlechat_proto_msgTypes[224]
+	mi := &file_googlechat_proto_msgTypes[234]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22121,7 +23124,7 @@ func (x *MeetingSpace_GatewayAccess) String() string {
 func (*MeetingSpace_GatewayAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_GatewayAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[224]
+	mi := &file_googlechat_proto_msgTypes[234]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22134,7 +23137,7 @@ func (x *MeetingSpace_GatewayAccess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_GatewayAccess.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_GatewayAccess) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 6}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 6}
 }
 
 func (x *MeetingSpace_GatewayAccess) GetEnabled() bool {
@@ -22154,7 +23157,7 @@ type MeetingSpace_GatewaySipAccess struct {
 
 func (x *MeetingSpace_GatewaySipAccess) Reset() {
 	*x = MeetingSpace_GatewaySipAccess{}
-	mi := &file_googlechat_proto_msgTypes[225]
+	mi := &file_googlechat_proto_msgTypes[235]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22166,7 +23169,7 @@ func (x *MeetingSpace_GatewaySipAccess) String() string {
 func (*MeetingSpace_GatewaySipAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_GatewaySipAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[225]
+	mi := &file_googlechat_proto_msgTypes[235]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22179,7 +23182,7 @@ func (x *MeetingSpace_GatewaySipAccess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_GatewaySipAccess.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_GatewaySipAccess) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 7}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 7}
 }
 
 func (x *MeetingSpace_GatewaySipAccess) GetUri() string {
@@ -22205,7 +23208,7 @@ type MeetingSpace_BroadcastAccess struct {
 
 func (x *MeetingSpace_BroadcastAccess) Reset() {
 	*x = MeetingSpace_BroadcastAccess{}
-	mi := &file_googlechat_proto_msgTypes[226]
+	mi := &file_googlechat_proto_msgTypes[236]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22217,7 +23220,7 @@ func (x *MeetingSpace_BroadcastAccess) String() string {
 func (*MeetingSpace_BroadcastAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_BroadcastAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[226]
+	mi := &file_googlechat_proto_msgTypes[236]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22230,7 +23233,7 @@ func (x *MeetingSpace_BroadcastAccess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_BroadcastAccess.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_BroadcastAccess) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 8}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 8}
 }
 
 func (x *MeetingSpace_BroadcastAccess) GetViewUrl() string {
@@ -22254,7 +23257,7 @@ type MeetingSpace_Settings struct {
 
 func (x *MeetingSpace_Settings) Reset() {
 	*x = MeetingSpace_Settings{}
-	mi := &file_googlechat_proto_msgTypes[227]
+	mi := &file_googlechat_proto_msgTypes[237]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22266,7 +23269,7 @@ func (x *MeetingSpace_Settings) String() string {
 func (*MeetingSpace_Settings) ProtoMessage() {}
 
 func (x *MeetingSpace_Settings) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[227]
+	mi := &file_googlechat_proto_msgTypes[237]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22279,7 +23282,7 @@ func (x *MeetingSpace_Settings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_Settings.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_Settings) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 9}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 9}
 }
 
 func (x *MeetingSpace_Settings) GetAccessLock() bool {
@@ -22334,7 +23337,7 @@ type MeetingSpace_RecordingInfo_RecordingEvent struct {
 
 func (x *MeetingSpace_RecordingInfo_RecordingEvent) Reset() {
 	*x = MeetingSpace_RecordingInfo_RecordingEvent{}
-	mi := &file_googlechat_proto_msgTypes[228]
+	mi := &file_googlechat_proto_msgTypes[238]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22346,7 +23349,7 @@ func (x *MeetingSpace_RecordingInfo_RecordingEvent) String() string {
 func (*MeetingSpace_RecordingInfo_RecordingEvent) ProtoMessage() {}
 
 func (x *MeetingSpace_RecordingInfo_RecordingEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[228]
+	mi := &file_googlechat_proto_msgTypes[238]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22359,7 +23362,7 @@ func (x *MeetingSpace_RecordingInfo_RecordingEvent) ProtoReflect() protoreflect.
 
 // Deprecated: Use MeetingSpace_RecordingInfo_RecordingEvent.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_RecordingInfo_RecordingEvent) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 3, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 3, 0}
 }
 
 func (x *MeetingSpace_RecordingInfo_RecordingEvent) GetDeviceId() string {
@@ -22386,7 +23389,7 @@ type MeetingSpace_StreamingSessionInfo_SessionEvent struct {
 
 func (x *MeetingSpace_StreamingSessionInfo_SessionEvent) Reset() {
 	*x = MeetingSpace_StreamingSessionInfo_SessionEvent{}
-	mi := &file_googlechat_proto_msgTypes[229]
+	mi := &file_googlechat_proto_msgTypes[239]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22398,7 +23401,7 @@ func (x *MeetingSpace_StreamingSessionInfo_SessionEvent) String() string {
 func (*MeetingSpace_StreamingSessionInfo_SessionEvent) ProtoMessage() {}
 
 func (x *MeetingSpace_StreamingSessionInfo_SessionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[229]
+	mi := &file_googlechat_proto_msgTypes[239]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22411,7 +23414,7 @@ func (x *MeetingSpace_StreamingSessionInfo_SessionEvent) ProtoReflect() protoref
 
 // Deprecated: Use MeetingSpace_StreamingSessionInfo_SessionEvent.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_StreamingSessionInfo_SessionEvent) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 4, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 4, 0}
 }
 
 func (x *MeetingSpace_StreamingSessionInfo_SessionEvent) GetDeviceId() string {
@@ -22437,7 +23440,7 @@ type MeetingSpace_StreamingSessionInfo_StreamViewerStats struct {
 
 func (x *MeetingSpace_StreamingSessionInfo_StreamViewerStats) Reset() {
 	*x = MeetingSpace_StreamingSessionInfo_StreamViewerStats{}
-	mi := &file_googlechat_proto_msgTypes[230]
+	mi := &file_googlechat_proto_msgTypes[240]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22449,7 +23452,7 @@ func (x *MeetingSpace_StreamingSessionInfo_StreamViewerStats) String() string {
 func (*MeetingSpace_StreamingSessionInfo_StreamViewerStats) ProtoMessage() {}
 
 func (x *MeetingSpace_StreamingSessionInfo_StreamViewerStats) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[230]
+	mi := &file_googlechat_proto_msgTypes[240]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22462,7 +23465,7 @@ func (x *MeetingSpace_StreamingSessionInfo_StreamViewerStats) ProtoReflect() pro
 
 // Deprecated: Use MeetingSpace_StreamingSessionInfo_StreamViewerStats.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_StreamingSessionInfo_StreamViewerStats) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 4, 1}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 4, 1}
 }
 
 func (x *MeetingSpace_StreamingSessionInfo_StreamViewerStats) GetEstimatedViewerCount() int64 {
@@ -22488,7 +23491,7 @@ type MeetingSpace_CallInfo_CallSettings struct {
 
 func (x *MeetingSpace_CallInfo_CallSettings) Reset() {
 	*x = MeetingSpace_CallInfo_CallSettings{}
-	mi := &file_googlechat_proto_msgTypes[231]
+	mi := &file_googlechat_proto_msgTypes[241]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22500,7 +23503,7 @@ func (x *MeetingSpace_CallInfo_CallSettings) String() string {
 func (*MeetingSpace_CallInfo_CallSettings) ProtoMessage() {}
 
 func (x *MeetingSpace_CallInfo_CallSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[231]
+	mi := &file_googlechat_proto_msgTypes[241]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22513,7 +23516,7 @@ func (x *MeetingSpace_CallInfo_CallSettings) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use MeetingSpace_CallInfo_CallSettings.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_CallInfo_CallSettings) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 5, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 5, 0}
 }
 
 func (x *MeetingSpace_CallInfo_CallSettings) GetAccessLock() bool {
@@ -22584,7 +23587,7 @@ type MeetingSpace_CallInfo_PaygateInfo struct {
 
 func (x *MeetingSpace_CallInfo_PaygateInfo) Reset() {
 	*x = MeetingSpace_CallInfo_PaygateInfo{}
-	mi := &file_googlechat_proto_msgTypes[232]
+	mi := &file_googlechat_proto_msgTypes[242]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22596,7 +23599,7 @@ func (x *MeetingSpace_CallInfo_PaygateInfo) String() string {
 func (*MeetingSpace_CallInfo_PaygateInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_CallInfo_PaygateInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[232]
+	mi := &file_googlechat_proto_msgTypes[242]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22609,7 +23612,7 @@ func (x *MeetingSpace_CallInfo_PaygateInfo) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use MeetingSpace_CallInfo_PaygateInfo.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_CallInfo_PaygateInfo) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 5, 1}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 5, 1}
 }
 
 func (x *MeetingSpace_CallInfo_PaygateInfo) GetShowUpgradePromos() bool {
@@ -22642,7 +23645,7 @@ type MeetingSpace_CallInfo_CseInfo struct {
 
 func (x *MeetingSpace_CallInfo_CseInfo) Reset() {
 	*x = MeetingSpace_CallInfo_CseInfo{}
-	mi := &file_googlechat_proto_msgTypes[233]
+	mi := &file_googlechat_proto_msgTypes[243]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22654,7 +23657,7 @@ func (x *MeetingSpace_CallInfo_CseInfo) String() string {
 func (*MeetingSpace_CallInfo_CseInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_CallInfo_CseInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[233]
+	mi := &file_googlechat_proto_msgTypes[243]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22667,7 +23670,7 @@ func (x *MeetingSpace_CallInfo_CseInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeetingSpace_CallInfo_CseInfo.ProtoReflect.Descriptor instead.
 func (*MeetingSpace_CallInfo_CseInfo) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{127, 5, 2}
+	return file_googlechat_proto_rawDescGZIP(), []int{137, 5, 2}
 }
 
 func (x *MeetingSpace_CallInfo_CseInfo) GetWrappedKey() []byte {
@@ -22689,7 +23692,7 @@ type MembershipChangedMetadata_AffectedMembership struct {
 
 func (x *MembershipChangedMetadata_AffectedMembership) Reset() {
 	*x = MembershipChangedMetadata_AffectedMembership{}
-	mi := &file_googlechat_proto_msgTypes[234]
+	mi := &file_googlechat_proto_msgTypes[244]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22701,7 +23704,7 @@ func (x *MembershipChangedMetadata_AffectedMembership) String() string {
 func (*MembershipChangedMetadata_AffectedMembership) ProtoMessage() {}
 
 func (x *MembershipChangedMetadata_AffectedMembership) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[234]
+	mi := &file_googlechat_proto_msgTypes[244]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22714,7 +23717,7 @@ func (x *MembershipChangedMetadata_AffectedMembership) ProtoReflect() protorefle
 
 // Deprecated: Use MembershipChangedMetadata_AffectedMembership.ProtoReflect.Descriptor instead.
 func (*MembershipChangedMetadata_AffectedMembership) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{129, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{139, 0}
 }
 
 func (x *MembershipChangedMetadata_AffectedMembership) GetAffectedMember() *MemberId {
@@ -22755,7 +23758,7 @@ type WorldItemLite_MembershipLite struct {
 
 func (x *WorldItemLite_MembershipLite) Reset() {
 	*x = WorldItemLite_MembershipLite{}
-	mi := &file_googlechat_proto_msgTypes[235]
+	mi := &file_googlechat_proto_msgTypes[245]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22767,7 +23770,7 @@ func (x *WorldItemLite_MembershipLite) String() string {
 func (*WorldItemLite_MembershipLite) ProtoMessage() {}
 
 func (x *WorldItemLite_MembershipLite) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[235]
+	mi := &file_googlechat_proto_msgTypes[245]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22780,7 +23783,7 @@ func (x *WorldItemLite_MembershipLite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldItemLite_MembershipLite.ProtoReflect.Descriptor instead.
 func (*WorldItemLite_MembershipLite) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{145, 0}
+	return file_googlechat_proto_rawDescGZIP(), []int{155, 0}
 }
 
 func (x *WorldItemLite_MembershipLite) GetUserId() *UserId {
@@ -22808,7 +23811,7 @@ type WorldItemLite_DmMembers struct {
 
 func (x *WorldItemLite_DmMembers) Reset() {
 	*x = WorldItemLite_DmMembers{}
-	mi := &file_googlechat_proto_msgTypes[236]
+	mi := &file_googlechat_proto_msgTypes[246]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22820,7 +23823,7 @@ func (x *WorldItemLite_DmMembers) String() string {
 func (*WorldItemLite_DmMembers) ProtoMessage() {}
 
 func (x *WorldItemLite_DmMembers) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[236]
+	mi := &file_googlechat_proto_msgTypes[246]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22833,7 +23836,7 @@ func (x *WorldItemLite_DmMembers) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldItemLite_DmMembers.ProtoReflect.Descriptor instead.
 func (*WorldItemLite_DmMembers) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{145, 1}
+	return file_googlechat_proto_rawDescGZIP(), []int{155, 1}
 }
 
 func (x *WorldItemLite_DmMembers) GetMembers() []*UserId {
@@ -22873,7 +23876,7 @@ type WorldItemLite_GroupLite struct {
 
 func (x *WorldItemLite_GroupLite) Reset() {
 	*x = WorldItemLite_GroupLite{}
-	mi := &file_googlechat_proto_msgTypes[237]
+	mi := &file_googlechat_proto_msgTypes[247]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22885,7 +23888,7 @@ func (x *WorldItemLite_GroupLite) String() string {
 func (*WorldItemLite_GroupLite) ProtoMessage() {}
 
 func (x *WorldItemLite_GroupLite) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[237]
+	mi := &file_googlechat_proto_msgTypes[247]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22898,7 +23901,7 @@ func (x *WorldItemLite_GroupLite) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldItemLite_GroupLite.ProtoReflect.Descriptor instead.
 func (*WorldItemLite_GroupLite) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{145, 2}
+	return file_googlechat_proto_rawDescGZIP(), []int{155, 2}
 }
 
 func (x *WorldItemLite_GroupLite) GetCreatorId() *UserId {
@@ -22958,7 +23961,7 @@ type WorldItemLite_FlatGroup struct {
 
 func (x *WorldItemLite_FlatGroup) Reset() {
 	*x = WorldItemLite_FlatGroup{}
-	mi := &file_googlechat_proto_msgTypes[238]
+	mi := &file_googlechat_proto_msgTypes[248]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22970,7 +23973,7 @@ func (x *WorldItemLite_FlatGroup) String() string {
 func (*WorldItemLite_FlatGroup) ProtoMessage() {}
 
 func (x *WorldItemLite_FlatGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[238]
+	mi := &file_googlechat_proto_msgTypes[248]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22983,7 +23986,7 @@ func (x *WorldItemLite_FlatGroup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldItemLite_FlatGroup.ProtoReflect.Descriptor instead.
 func (*WorldItemLite_FlatGroup) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{145, 3}
+	return file_googlechat_proto_rawDescGZIP(), []int{155, 3}
 }
 
 type WorldItemLite_ThreadedGroup struct {
@@ -22994,7 +23997,7 @@ type WorldItemLite_ThreadedGroup struct {
 
 func (x *WorldItemLite_ThreadedGroup) Reset() {
 	*x = WorldItemLite_ThreadedGroup{}
-	mi := &file_googlechat_proto_msgTypes[239]
+	mi := &file_googlechat_proto_msgTypes[249]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23006,7 +24009,7 @@ func (x *WorldItemLite_ThreadedGroup) String() string {
 func (*WorldItemLite_ThreadedGroup) ProtoMessage() {}
 
 func (x *WorldItemLite_ThreadedGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[239]
+	mi := &file_googlechat_proto_msgTypes[249]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23019,7 +24022,7 @@ func (x *WorldItemLite_ThreadedGroup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorldItemLite_ThreadedGroup.ProtoReflect.Descriptor instead.
 func (*WorldItemLite_ThreadedGroup) Descriptor() ([]byte, []int) {
-	return file_googlechat_proto_rawDescGZIP(), []int{145, 4}
+	return file_googlechat_proto_rawDescGZIP(), []int{155, 4}
 }
 
 var File_googlechat_proto protoreflect.FileDescriptor
@@ -23585,7 +24588,8 @@ const file_googlechat_proto_rawDesc = "" +
 	"\tMessageId\x12-\n" +
 	"\tparent_id\x18\x01 \x01(\v2\x10.MessageParentIdR\bparentId\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\x02 \x01(\tR\tmessageId\"\xe3\b\n" +
+	"message_id\x18\x02 \x01(\tR\tmessageId\"\xb5\n" +
+	"\n" +
 	"\aMessage\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\v2\n" +
 	".MessageIdR\x02id\x12:\n" +
@@ -23605,7 +24609,10 @@ const file_googlechat_proto_rawDesc = "" +
 	"\vapp_profile\x18\x10 \x01(\v2\v.AppProfileR\n" +
 	"appProfile\x12A\n" +
 	"\x12retention_settings\x18\x12 \x01(\v2\x12.RetentionSettingsR\x11retentionSettings\x12'\n" +
-	"\treactions\x18\x15 \x03(\v2\t.ReactionR\treactions\x12&\n" +
+	"\treactions\x18\x15 \x03(\v2\t.ReactionR\treactions\x12;\n" +
+	"\veditable_by\x18\x18 \x01(\x0e2\x1a.Message.MessagePermissionR\n" +
+	"editableBy\x12=\n" +
+	"\fdeletable_by\x18\x19 \x01(\x0e2\x1a.Message.MessagePermissionR\vdeletableBy\x12&\n" +
 	"\x0flast_reply_time\x18\x05 \x01(\x03R\rlastReplyTime\x12$\n" +
 	"\x0elast_view_time\x18\x06 \x01(\x03R\flastViewTime\x12*\n" +
 	"\x11last_mention_time\x18\a \x01(\x03R\x0flastMentionTime\x12,\n" +
@@ -23619,7 +24626,14 @@ const file_googlechat_proto_rawDesc = "" +
 	"\fMessageState\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x11\n" +
 	"\rGROUP_VISIBLE\x10\x01\x12\v\n" +
-	"\aON_HOLD\x10\x02\"Q\n" +
+	"\aON_HOLD\x10\x02\"T\n" +
+	"\x11MessagePermission\x12\x1a\n" +
+	"\x16PERMISSION_UNSPECIFIED\x10\x00\x12\n" +
+	"\n" +
+	"\x06NO_ONE\x10\x01\x12\v\n" +
+	"\aCREATOR\x10\x02\x12\n" +
+	"\n" +
+	"\x06MEMBER\x10\x03\"Q\n" +
 	"\vMessageType\x12\x1c\n" +
 	"\x18MESSAGE_TYPE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fUSER_MESSAGE\x10\x01\x12\x12\n" +
@@ -24083,12 +25097,13 @@ const file_googlechat_proto_rawDesc = "" +
 	"navigation\"\xbf\x01\n" +
 	"\x17MobileLocalNotification\x12W\n" +
 	"\x1aandroid_local_notification\x18\x01 \x01(\v2\x19.AndroidLocalNotificationR\x18androidLocalNotification\x12K\n" +
-	"\x16ios_local_notification\x18\x02 \x01(\v2\x15.IosLocalNotificationR\x14iosLocalNotification\"\xc4\x01\n" +
+	"\x16ios_local_notification\x18\x02 \x01(\v2\x15.IosLocalNotificationR\x14iosLocalNotification\"\xeb\x01\n" +
 	"\fMessageEvent\x12\"\n" +
 	"\amessage\x18\x01 \x01(\v2\b.MessageR\amessage\x12:\n" +
 	"\x1alast_message_in_topic_time\x18\x04 \x01(\x03R\x16lastMessageInTopicTime\x12,\n" +
 	"\x12prev_revision_time\x18\x05 \x01(\x03R\x10prevRevisionTime\x12&\n" +
-	"\x0fis_head_message\x18\x06 \x01(\bR\risHeadMessage\"\x86\x02\n" +
+	"\x0fis_head_message\x18\x06 \x01(\bR\risHeadMessage\x12%\n" +
+	"\x0enum_recipients\x18\a \x01(\x05R\rnumRecipients\"\x86\x02\n" +
 	"\x14MessageReactionEvent\x12)\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\v2\n" +
@@ -24213,7 +25228,59 @@ const file_googlechat_proto_rawDesc = "" +
 	"\x14StreamEventsResponse\x12\x1c\n" +
 	"\x05event\x18\x01 \x01(\v2\x06.EventR\x05event\x12\x1b\n" +
 	"\tsample_id\x18\x02 \x01(\tR\bsampleId\x12B\n" +
-	"\x13clock_sync_response\x18\x03 \x01(\v2\x12.ClockSyncResponseR\x11clockSyncResponse\"\xc6\x13\n" +
+	"\x13clock_sync_response\x18\x03 \x01(\v2\x12.ClockSyncResponseR\x11clockSyncResponse\"q\n" +
+	"\x15TopicMuteChangedEvent\x12#\n" +
+	"\btopic_id\x18\x01 \x01(\v2\b.TopicIdR\atopicId\x12\x14\n" +
+	"\x05muted\x18\x02 \x01(\bR\x05muted\x12\x1d\n" +
+	"\n" +
+	"event_time\x18\x03 \x01(\x03R\teventTime\"\xc0\x01\n" +
+	"+GroupUnreadSubscribedTopicCountUpdatedEvent\x12A\n" +
+	"\x1dunread_subscribed_topic_count\x18\x01 \x01(\x03R\x1aunreadSubscribedTopicCount\x12)\n" +
+	"\x10update_timestamp\x18\x02 \x01(\x03R\x0fupdateTimestamp\x12#\n" +
+	"\bgroup_id\x18\x03 \x01(\v2\b.GroupIdR\agroupId\"[\n" +
+	"\x11TopicCreatedEvent\x12\x1c\n" +
+	"\x05topic\x18\x01 \x01(\v2\x06.TopicR\x05topic\x12(\n" +
+	"\x10has_more_replied\x18\x02 \x01(\bR\x0ehasMoreReplied\"g\n" +
+	"\x18MessageSmartRepliesEvent\x12#\n" +
+	"\bgroup_id\x18\x01 \x01(\v2\b.GroupIdR\agroupId\x12&\n" +
+	"\x0fevent_time_usec\x18\x02 \x01(\x03R\reventTimeUsec\"p\n" +
+	"!GroupDefaultSortOrderUpdatedEvent\x12#\n" +
+	"\bgroup_id\x18\x01 \x01(\v2\b.GroupIdR\agroupId\x12&\n" +
+	"\x0fevent_time_usec\x18\x02 \x01(\x03R\reventTimeUsec\"\xe5\x01\n" +
+	"\x1aGroupReadStateUpdatedEvent\x12#\n" +
+	"\bgroup_id\x18\x01 \x01(\v2\b.GroupIdR\agroupId\x12@\n" +
+	"\x1dlast_head_message_create_time\x18\x02 \x01(\x03R\x19lastHeadMessageCreateTime\x121\n" +
+	"\x15most_recent_read_time\x18\x03 \x01(\x03R\x12mostRecentReadTime\x12-\n" +
+	"\x13mark_as_unread_time\x18\x04 \x01(\x03R\x10markAsUnreadTime\"\x95\x03\n" +
+	"\x0fBackendMetadata\x120\n" +
+	"\x14dispatch_time_millis\x18\x01 \x01(\x03R\x12dispatchTimeMillis\x126\n" +
+	"\x17dispatch_sub_identifier\x18\x02 \x01(\x05R\x15dispatchSubIdentifier\x124\n" +
+	"\x16dispatch_random_filler\x18\x03 \x01(\fR\x14dispatchRandomFiller\x12:\n" +
+	"\x19dispatch_timestamp_micros\x18\x04 \x01(\x03R\x17dispatchTimestampMicros\x129\n" +
+	"\n" +
+	"dimensions\x18\x05 \x03(\x0e2\x19.BackendMetadataDimensionR\n" +
+	"dimensions\x12H\n" +
+	"!user_targeted_event_dual_dispatch\x18\x06 \x01(\bR\x1duserTargetedEventDualDispatch\x12!\n" +
+	"\fpayload_hash\x18\a \x01(\x05R\vpayloadHash\";\n" +
+	"\tTimestamp\x12\x18\n" +
+	"\aseconds\x18\x01 \x01(\x03R\aseconds\x12\x14\n" +
+	"\x05nanos\x18\x02 \x01(\x05R\x05nanos\"J\n" +
+	"\bInterval\x12 \n" +
+	"\x05start\x18\x01 \x01(\v2\n" +
+	".TimestampR\x05start\x12\x1c\n" +
+	"\x03end\x18\x02 \x01(\v2\n" +
+	".TimestampR\x03end\"\xc1\x01\n" +
+	"\vLatencyData\x12+\n" +
+	"\x06server\x18\x01 \x01(\x0e2\x13.LatencyData.ServerR\x06server\x12%\n" +
+	"\binterval\x18\x02 \x01(\v2\t.IntervalR\binterval\"^\n" +
+	"\x06Server\x12\v\n" +
+	"\aUNKNOWN\x10\x00\x12\f\n" +
+	"\bFRONTEND\x10\x01\x12\x0f\n" +
+	"\vINTEGRATION\x10\x02\x12\v\n" +
+	"\aBACKEND\x10\x03\x12\x0e\n" +
+	"\n" +
+	"DISPATCHER\x10\x04\x12\v\n" +
+	"\aSESSION\x10\x05\"\xcc\x19\n" +
 	"\x05Event\x12#\n" +
 	"\bgroup_id\x18\x01 \x01(\v2\b.GroupIdR\agroupId\x12$\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x10.Event.EventTypeR\x04type\x12$\n" +
@@ -24221,24 +25288,32 @@ const file_googlechat_proto_rawDesc = "" +
 	"\auser_id\x18\x05 \x01(\v2\a.UserIdR\x06userId\x125\n" +
 	"\ruser_revision\x18\x06 \x01(\v2\x0e.WriteRevisionH\x00R\fuserRevision\x127\n" +
 	"\x0egroup_revision\x18\a \x01(\v2\x0e.WriteRevisionH\x00R\rgroupRevision\x12(\n" +
-	"\x06bodies\x18\b \x03(\v2\x10.Event.EventBodyR\x06bodies\x1a\x91\x06\n" +
+	"\x06bodies\x18\b \x03(\v2\x10.Event.EventBodyR\x06bodies\x12;\n" +
+	"\x10backend_metadata\x18\t \x01(\v2\x10.BackendMetadataR\x0fbackendMetadata\x12/\n" +
+	"\flatency_data\x18\v \x03(\v2\f.LatencyDataR\vlatencyData\x1a\xe5\n" +
+	"\n" +
 	"\tEventBody\x126\n" +
 	"\fgroup_viewed\x18\x03 \x01(\v2\x11.GroupViewedEventH\x00R\vgroupViewed\x129\n" +
 	"\rgroup_updated\x18\x05 \x01(\v2\x12.GroupUpdatedEventH\x00R\fgroupUpdated\x126\n" +
-	"\x0emessage_posted\x18\x06 \x01(\v2\r.MessageEventH\x00R\rmessagePosted\x12O\n" +
+	"\x0emessage_posted\x18\x06 \x01(\v2\r.MessageEventH\x00R\rmessagePosted\x12F\n" +
+	"\x12topic_mute_changed\x18\a \x01(\v2\x16.TopicMuteChangedEventH\x00R\x10topicMuteChanged\x12O\n" +
 	"\x15web_push_notification\x18\n" +
-	" \x01(\v2\x19.WebPushNotificationEventH\x00R\x13webPushNotification\x12H\n" +
+	" \x01(\v2\x19.WebPushNotificationEventH\x00R\x13webPushNotification\x12\x96\x01\n" +
+	"1group_unread_subscribed_topic_count_updated_event\x18\v \x01(\v2,.GroupUnreadSubscribedTopicCountUpdatedEventH\x00R+groupUnreadSubscribedTopicCountUpdatedEvent\x12H\n" +
 	"\x12membership_changed\x18\x0e \x01(\v2\x17.MembershipChangedEventH\x00R\x11membershipChanged\x12?\n" +
-	"\x0fmessage_deleted\x18\x12 \x01(\v2\x14.MessageDeletedEventH\x00R\x0emessageDeleted\x12B\n" +
+	"\x0fmessage_deleted\x18\x12 \x01(\v2\x14.MessageDeletedEventH\x00R\x0emessageDeleted\x129\n" +
+	"\rtopic_created\x18\x15 \x01(\v2\x12.TopicCreatedEventH\x00R\ftopicCreated\x12B\n" +
 	"\x10message_reaction\x18\x16 \x01(\v2\x15.MessageReactionEventH\x00R\x0fmessageReaction\x12I\n" +
-	"\x13user_status_updated\x18\x17 \x01(\v2\x17.UserStatusUpdatedEventH\x00R\x11userStatusUpdated\x12L\n" +
+	"\x13user_status_updated\x18\x17 \x01(\v2\x17.UserStatusUpdatedEventH\x00R\x11userStatusUpdated\x12Z\n" +
+	"\x1bmessage_smart_replies_event\x18\x19 \x01(\v2\x19.MessageSmartRepliesEventH\x00R\x18messageSmartRepliesEvent\x12L\n" +
 	"\x14typing_state_changed\x18\x1a \x01(\v2\x18.TypingStateChangedEventH\x00R\x12typingStateChanged\x12L\n" +
-	"\x14read_receipt_changed\x18! \x01(\v2\x18.ReadReceiptChangedEventH\x00R\x12readReceiptChanged\x12/\n" +
+	"\x14read_receipt_changed\x18! \x01(\v2\x18.ReadReceiptChangedEventH\x00R\x12readReceiptChanged\x12w\n" +
+	"&group_default_sort_order_updated_event\x185 \x01(\v2\".GroupDefaultSortOrderUpdatedEventH\x00R!groupDefaultSortOrderUpdatedEvent\x12a\n" +
+	"\x1egroup_read_state_updated_event\x18A \x01(\v2\x1b.GroupReadStateUpdatedEventH\x00R\x1agroupReadStateUpdatedEvent\x12/\n" +
 	"\n" +
 	"event_type\x18\f \x01(\x0e2\x10.Event.EventTypeR\teventType\x12\x19\n" +
 	"\btrace_id\x18\x14 \x01(\x03R\atraceIdB\x06\n" +
-	"\x04Type\"\xeb\n" +
-	"\n" +
+	"\x04Type\"\xaf\v\n" +
 	"\tEventType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x17\n" +
 	"\x13USER_ADDED_TO_GROUP\x10\x01\x12\x1b\n" +
@@ -24292,7 +25367,9 @@ const file_googlechat_proto_rawDesc = "" +
 	"\x1dSHARED_DRIVE_CREATE_SCHEDULED\x10/\x12\x18\n" +
 	"\x14SHARED_DRIVE_UPDATED\x100\x12\"\n" +
 	"\x1eMESSAGE_PERSONAL_LABEL_UPDATED\x101\x12\x17\n" +
-	"\x13USER_QUOTA_EXCEEDED\x102B\x0e\n" +
+	"\x13USER_QUOTA_EXCEEDED\x102\x12$\n" +
+	" GROUP_DEFAULT_SORT_ORDER_UPDATED\x10@\x12\x1c\n" +
+	"\x18GROUP_READ_STATE_UPDATED\x10SB\x0e\n" +
 	"\fRevisionType\"A\n" +
 	"\n" +
 	"InviteType\"3\n" +
@@ -24915,7 +25992,26 @@ const file_googlechat_proto_rawDesc = "" +
 	"\vWEB_PWA_DEV\x10\x8d\x01\x12\x15\n" +
 	"\x10WEB_PWA_PRODTEST\x10\x8e\x01\x12\x14\n" +
 	"\x0fWEB_PWA_STAGING\x10\x8f\x01\x12\x11\n" +
-	"\fWEB_PWA_PROD\x10\x90\x01*\xa4\x01\n" +
+	"\fWEB_PWA_PROD\x10\x90\x01*\xfb\x02\n" +
+	"\x18BackendMetadataDimension\x12&\n" +
+	"\"BACKEND_METADATA_DIMENSION_UNKNOWN\x10\x00\x12\x10\n" +
+	"\fTYPE_UNKNOWN\x10\x01\x12\v\n" +
+	"\aTYPE_DM\x10\x02\x12\x0e\n" +
+	"\n" +
+	"TYPE_SPACE\x10\x03\x12\r\n" +
+	"\tTYPE_USER\x10\x04\x12\x16\n" +
+	"\x12GROUP_SIZE_UNKNOWN\x10\x05\x12\x18\n" +
+	"\x14PAYLOAD_SIZE_UNKNOWN\x10\t\x12\x16\n" +
+	"\x12PAYLOAD_SIZE_LT_1K\x10\n" +
+	"\x12\x16\n" +
+	"\x12PAYLOAD_SIZE_1K_3K\x10\v\x12\x17\n" +
+	"\x13PAYLOAD_SIZE_3K_64K\x10\f\x12\x17\n" +
+	"\x13PAYLOAD_SIZE_GT_64K\x10\r\x12\x14\n" +
+	"\x10GROUP_SIZE_SMALL\x10\x0e\x12\x15\n" +
+	"\x11GROUP_SIZE_MEDIUM\x10\x0f\x12\x14\n" +
+	"\x10GROUP_SIZE_LARGE\x10\x10\x12\x11\n" +
+	"\rTYPE_PRESENCE\x10\x11\x12\x0f\n" +
+	"\vTYPE_STATUS\x10\x12*\xa4\x01\n" +
 	"\bPlatform\x12\x16\n" +
 	"\x12UNDEFINED_PLATFORM\x10\x00\x12\a\n" +
 	"\x03WEB\x10\x01\x12\n" +
@@ -25035,8 +26131,8 @@ func file_googlechat_proto_rawDescGZIP() []byte {
 	return file_googlechat_proto_rawDescData
 }
 
-var file_googlechat_proto_enumTypes = make([]protoimpl.EnumInfo, 86)
-var file_googlechat_proto_msgTypes = make([]protoimpl.MessageInfo, 240)
+var file_googlechat_proto_enumTypes = make([]protoimpl.EnumInfo, 89)
+var file_googlechat_proto_msgTypes = make([]protoimpl.MessageInfo, 250)
 var file_googlechat_proto_goTypes = []any{
 	(UserType)(0),                                  // 0: UserType
 	(InviteCategory)(0),                            // 1: InviteCategory
@@ -25047,898 +26143,932 @@ var file_googlechat_proto_goTypes = []any{
 	(GroupSupportLevel)(0),                         // 6: GroupSupportLevel
 	(NotificationCause)(0),                         // 7: NotificationCause
 	(EventOrigin)(0),                               // 8: EventOrigin
-	(Platform)(0),                                  // 9: Platform
-	(AnnotationType)(0),                            // 10: AnnotationType
-	(DialInNumberClass)(0),                         // 11: DialInNumberClass
-	(RecordingApplicationType)(0),                  // 12: RecordingApplicationType
-	(BroadcastAccessPolicy)(0),                     // 13: BroadcastAccessPolicy
-	(CallStatus)(0),                                // 14: CallStatus
-	(RingStatus)(0),                                // 15: RingStatus
-	(UserAccountState)(0),                          // 16: UserAccountState
-	(MembershipRole)(0),                            // 17: MembershipRole
-	(AppType)(0),                                   // 18: AppType
-	(MembershipState)(0),                           // 19: MembershipState
-	(SharedAttributeCheckerGroupType)(0),           // 20: SharedAttributeCheckerGroupType
-	(DndSettings_DndState_State)(0),                // 21: DndSettings.DndState_State
-	(ClientFeatureCapabilities_CapabilityLevel)(0), // 22: ClientFeatureCapabilities.CapabilityLevel
-	(RequestHeader_ClientType)(0),                  // 23: RequestHeader.ClientType
-	(JAddOnsFormattedText_TextAlign)(0),            // 24: JAddOnsFormattedText.TextAlign
-	(JAddOnsFormattedText_FormattedTextElement_StyledText_Style)(0),      // 25: JAddOnsFormattedText.FormattedTextElement.StyledText.Style
-	(JAddOnsFormattedText_FormattedTextElement_StyledText_FontWeight)(0), // 26: JAddOnsFormattedText.FormattedTextElement.StyledText.FontWeight
-	(JAddOnsImageCropStyle_ImageCropType)(0),                             // 27: JAddOnsImageCropStyle.ImageCropType
-	(JAddOnsOpenLink_OpenAs)(0),                                          // 28: JAddOnsOpenLink.OpenAs
-	(JAddOnsOpenLink_OnClose)(0),                                         // 29: JAddOnsOpenLink.OnClose
-	(JAddOnsOpenLink_LoadIndicator)(0),                                   // 30: JAddOnsOpenLink.LoadIndicator
-	(JAddOnsCardItem_DisplayStyle)(0),                                    // 31: JAddOnsCardItem.DisplayStyle
-	(JAddOnsGrid_GridItem_GridItemLayout)(0),                             // 32: JAddOnsGrid.GridItem.GridItemLayout
-	(JAddOnsBorderStyle_BorderType)(0),                                   // 33: JAddOnsBorderStyle.BorderType
-	(JAddOnsWidget_HorizontalAlign)(0),                                   // 34: JAddOnsWidget.HorizontalAlign
-	(JAddOnsWidget_KeyValue_SwitchWidget_ControlType)(0),                 // 35: JAddOnsWidget.KeyValue.SwitchWidget.ControlType
-	(JAddOnsWidget_TextField_TextFieldType)(0),                           // 36: JAddOnsWidget.TextField.TextFieldType
-	(JAddOnsWidget_TextField_LineType)(0),                                // 37: JAddOnsWidget.TextField.LineType
-	(JAddOnsWidget_SelectionControl_SelectionType)(0),                    // 38: JAddOnsWidget.SelectionControl.SelectionType
-	(JAddOnsWidget_DateTimePicker_DateTimePickerType)(0),                 // 39: JAddOnsWidget.DateTimePicker.DateTimePickerType
-	(JAddOnsWidget_TextButton_Style)(0),                                  // 40: JAddOnsWidget.TextButton.Style
-	(JAddOnsFormAction_LoadIndicator)(0),                                 // 41: JAddOnsFormAction.LoadIndicator
-	(Message_MessageState)(0),                                            // 42: Message.MessageState
-	(Message_MessageType)(0),                                             // 43: Message.MessageType
-	(FormatMetadata_FormatType)(0),                                       // 44: FormatMetadata.FormatType
-	(Annotation_ChipRenderType)(0),                                       // 45: Annotation.ChipRenderType
-	(Group_GroupType)(0),                                                 // 46: Group.GroupType
-	(GroupNotificationSettings_GroupNotificationState)(0),                // 47: GroupNotificationSettings.GroupNotificationState
-	(GroupNotificationSettings_RoomNotificationState)(0),                 // 48: GroupNotificationSettings.RoomNotificationState
-	(RetentionSettings_RetentionState)(0),                                // 49: RetentionSettings.RetentionState
-	(UpdateReactionRequest_ReactionUpdateType)(0),                        // 50: UpdateReactionRequest.ReactionUpdateType
-	(CreateDmRequest_FetchOptions)(0),                                    // 51: CreateDmRequest.FetchOptions
-	(ListTopicsRequest_FetchOptions)(0),                                  // 52: ListTopicsRequest.FetchOptions
-	(MessageReactionEvent_ReactionEventType)(0),                          // 53: MessageReactionEvent.ReactionEventType
-	(GroupUpdatedEvent_UpdateType)(0),                                    // 54: GroupUpdatedEvent.UpdateType
-	(WebPushNotificationEvent_DispatchApproachType)(0),                   // 55: WebPushNotificationEvent.DispatchApproachType
-	(WebPushNotificationEvent_EndpointType)(0),                           // 56: WebPushNotificationEvent.EndpointType
-	(ClientNotificationsState_DeviceNotificationSettingState)(0),         // 57: ClientNotificationsState.DeviceNotificationSettingState
-	(PingEvent_State)(0),                                                 // 58: PingEvent.State
-	(PingEvent_ApplicationFocusState)(0),                                 // 59: PingEvent.ApplicationFocusState
-	(PingEvent_ClientInteractiveState)(0),                                // 60: PingEvent.ClientInteractiveState
-	(PingEvent_DeviceActiveState)(0),                                     // 61: PingEvent.DeviceActiveState
-	(Event_EventType)(0),                                                 // 62: Event.EventType
-	(InviteType_Type)(0),                                                 // 63: InviteType.Type
-	(MeetingSpace_RecordingInfo_RecordingStatus)(0),                      // 64: MeetingSpace.RecordingInfo.RecordingStatus
-	(MeetingSpace_RecordingInfo_RecordingEvent_EventType)(0),             // 65: MeetingSpace.RecordingInfo.RecordingEvent.EventType
-	(MeetingSpace_StreamingSessionInfo_Status)(0),                        // 66: MeetingSpace.StreamingSessionInfo.Status
-	(MeetingSpace_StreamingSessionInfo_SessionEvent_EventType)(0),        // 67: MeetingSpace.StreamingSessionInfo.SessionEvent.EventType
-	(MembershipChangedMetadata_Type)(0),                                  // 68: MembershipChangedMetadata.Type
-	(UserMentionMetadata_Type)(0),                                        // 69: UserMentionMetadata.Type
-	(SlashCommandMetadata_Type)(0),                                       // 70: SlashCommandMetadata.Type
-	(GroupVisibility_VisibilityState)(0),                                 // 71: GroupVisibility.VisibilityState
-	(CatchUpResponse_ResponseStatus)(0),                                  // 72: CatchUpResponse.ResponseStatus
-	(GetGroupRequest_FetchOptions)(0),                                    // 73: GetGroupRequest.FetchOptions
-	(WorldSection_WorldSectionType)(0),                                   // 74: WorldSection.WorldSectionType
-	(WorldFilter_StarredState)(0),                                        // 75: WorldFilter.StarredState
-	(WorldFilter_VisibilityState)(0),                                     // 76: WorldFilter.VisibilityState
-	(WorldFilter_ReadState)(0),                                           // 77: WorldFilter.ReadState
-	(WorldFilter_BlockState)(0),                                          // 78: WorldFilter.BlockState
-	(WorldFilter_NamedState)(0),                                          // 79: WorldFilter.NamedState
-	(WorldFilter_MemberType)(0),                                          // 80: WorldFilter.MemberType
-	(WorldFilter_GroupType)(0),                                           // 81: WorldFilter.GroupType
-	(PaginatedWorldRequest_FetchOptions)(0),                              // 82: PaginatedWorldRequest.FetchOptions
-	(InviteNotificationSettings_NotificationOption)(0),                   // 83: InviteNotificationSettings.NotificationOption
-	(SetDndDurationRequest_State)(0),                                     // 84: SetDndDurationRequest.State
-	(UpdateGroupRequest_UpdateMask)(0),                                   // 85: UpdateGroupRequest.UpdateMask
-	(*UserId)(nil),                                                       // 86: UserId
-	(*User)(nil),                                                         // 87: User
-	(*UserBlockRelationship)(nil),                                        // 88: UserBlockRelationship
-	(*DndSettings)(nil),                                                  // 89: DndSettings
-	(*Emoji)(nil),                                                        // 90: Emoji
-	(*CustomStatus)(nil),                                                 // 91: CustomStatus
-	(*UserStatus)(nil),                                                   // 92: UserStatus
-	(*UserStatusUpdatedEvent)(nil),                                       // 93: UserStatusUpdatedEvent
-	(*GetUserStatusRequest)(nil),                                         // 94: GetUserStatusRequest
-	(*GetUserStatusResponse)(nil),                                        // 95: GetUserStatusResponse
-	(*GetSelfUserStatusRequest)(nil),                                     // 96: GetSelfUserStatusRequest
-	(*GetSelfUserStatusResponse)(nil),                                    // 97: GetSelfUserStatusResponse
-	(*ClientFeatureCapabilities)(nil),                                    // 98: ClientFeatureCapabilities
-	(*RequestHeader)(nil),                                                // 99: RequestHeader
-	(*Member)(nil),                                                       // 100: Member
-	(*MemberId)(nil),                                                     // 101: MemberId
-	(*MembershipId)(nil),                                                 // 102: MembershipId
-	(*Membership)(nil),                                                   // 103: Membership
-	(*MemberProfile)(nil),                                                // 104: MemberProfile
-	(*GetMembersRequest)(nil),                                            // 105: GetMembersRequest
-	(*GetMembersResponse)(nil),                                           // 106: GetMembersResponse
-	(*UserPresence)(nil),                                                 // 107: UserPresence
-	(*GetUserPresenceRequest)(nil),                                       // 108: GetUserPresenceRequest
-	(*GetUserPresenceResponse)(nil),                                      // 109: GetUserPresenceResponse
-	(*JAddOnsIdentifier)(nil),                                            // 110: JAddOnsIdentifier
-	(*JAddOnsFormattedText)(nil),                                         // 111: JAddOnsFormattedText
-	(*JAddOnsImageCropStyle)(nil),                                        // 112: JAddOnsImageCropStyle
-	(*JAddOnsThemeColors)(nil),                                           // 113: JAddOnsThemeColors
-	(*JAddOnsOpenLink)(nil),                                              // 114: JAddOnsOpenLink
-	(*JAddOnsCardItem)(nil),                                              // 115: JAddOnsCardItem
-	(*JAddOnsPushCard)(nil),                                              // 116: JAddOnsPushCard
-	(*JAddOnsOnClick)(nil),                                               // 117: JAddOnsOnClick
-	(*JAddOnsTextWidget)(nil),                                            // 118: JAddOnsTextWidget
-	(*JAddOnsImageComponent)(nil),                                        // 119: JAddOnsImageComponent
-	(*JAddOnsGrid)(nil),                                                  // 120: JAddOnsGrid
-	(*JAddOnsBorderStyle)(nil),                                           // 121: JAddOnsBorderStyle
-	(*JAddOnsLabelContentPair)(nil),                                      // 122: JAddOnsLabelContentPair
-	(*JAddOnsLabelContentPairWidget)(nil),                                // 123: JAddOnsLabelContentPairWidget
-	(*JAddOnsWidget)(nil),                                                // 124: JAddOnsWidget
-	(*JAddOnsFormAction)(nil),                                            // 125: JAddOnsFormAction
-	(*JAddOnsContextualAddOn)(nil),                                       // 126: JAddOnsContextualAddOn
-	(*Html)(nil),                                                         // 127: Html
-	(*HtmlAttachment)(nil),                                               // 128: HtmlAttachment
-	(*Attachment)(nil),                                                   // 129: Attachment
-	(*Reaction)(nil),                                                     // 130: Reaction
-	(*MessageParentId)(nil),                                              // 131: MessageParentId
-	(*MessageId)(nil),                                                    // 132: MessageId
-	(*Message)(nil),                                                      // 133: Message
-	(*ReplyToMessage)(nil),                                               // 134: ReplyToMessage
-	(*AppProfile)(nil),                                                   // 135: AppProfile
-	(*DriveMetadata)(nil),                                                // 136: DriveMetadata
-	(*Url)(nil),                                                          // 137: Url
-	(*TrustedResourceUrl)(nil),                                           // 138: TrustedResourceUrl
-	(*YoutubeMetadata)(nil),                                              // 139: YoutubeMetadata
-	(*UrlMetadata)(nil),                                                  // 140: UrlMetadata
-	(*UploadMetadata)(nil),                                               // 141: UploadMetadata
-	(*FormatMetadata)(nil),                                               // 142: FormatMetadata
-	(*Annotation)(nil),                                                   // 143: Annotation
-	(*TypingContext)(nil),                                                // 144: TypingContext
-	(*SetTypingStateRequest)(nil),                                        // 145: SetTypingStateRequest
-	(*SetTypingStateResponse)(nil),                                       // 146: SetTypingStateResponse
-	(*DmId)(nil),                                                         // 147: DmId
-	(*SpaceId)(nil),                                                      // 148: SpaceId
-	(*GroupId)(nil),                                                      // 149: GroupId
-	(*Group)(nil),                                                        // 150: Group
-	(*GroupReadStateId)(nil),                                             // 151: GroupReadStateId
-	(*InviteState)(nil),                                                  // 152: InviteState
-	(*GroupReadState)(nil),                                               // 153: GroupReadState
-	(*GroupNotificationSettings)(nil),                                    // 154: GroupNotificationSettings
-	(*RetentionSettings)(nil),                                            // 155: RetentionSettings
-	(*GroupData)(nil),                                                    // 156: GroupData
-	(*TopicId)(nil),                                                      // 157: TopicId
-	(*Topic)(nil),                                                        // 158: Topic
-	(*TopicReadState)(nil),                                               // 159: TopicReadState
-	(*SendReplyTarget)(nil),                                              // 160: SendReplyTarget
-	(*MessageInfo)(nil),                                                  // 161: MessageInfo
-	(*CreateTopicRequest)(nil),                                           // 162: CreateTopicRequest
-	(*CreateTopicResponse)(nil),                                          // 163: CreateTopicResponse
-	(*CreateMessageRequest)(nil),                                         // 164: CreateMessageRequest
-	(*CreateMessageResponse)(nil),                                        // 165: CreateMessageResponse
-	(*UpdateReactionRequest)(nil),                                        // 166: UpdateReactionRequest
-	(*UpdateReactionResponse)(nil),                                       // 167: UpdateReactionResponse
-	(*DeleteMessageRequest)(nil),                                         // 168: DeleteMessageRequest
-	(*DeleteMessageResponse)(nil),                                        // 169: DeleteMessageResponse
-	(*EditMessageRequest)(nil),                                           // 170: EditMessageRequest
-	(*EditMessageResponse)(nil),                                          // 171: EditMessageResponse
-	(*InviteeInfo)(nil),                                                  // 172: InviteeInfo
-	(*InviteeMemberInfo)(nil),                                            // 173: InviteeMemberInfo
-	(*SpaceCreationInfo)(nil),                                            // 174: SpaceCreationInfo
-	(*CreateGroupRequest)(nil),                                           // 175: CreateGroupRequest
-	(*CreateMembershipResult)(nil),                                       // 176: CreateMembershipResult
-	(*CreateGroupResponse)(nil),                                          // 177: CreateGroupResponse
-	(*CreateDmRequest)(nil),                                              // 178: CreateDmRequest
-	(*CreateDmResponse)(nil),                                             // 179: CreateDmResponse
-	(*ListTopicsResponse)(nil),                                           // 180: ListTopicsResponse
-	(*ListTopicsRequest)(nil),                                            // 181: ListTopicsRequest
-	(*ListMessagesRequest)(nil),                                          // 182: ListMessagesRequest
-	(*ListMessagesResponse)(nil),                                         // 183: ListMessagesResponse
-	(*ListMembersRequest)(nil),                                           // 184: ListMembersRequest
-	(*ListMembersResponse)(nil),                                          // 185: ListMembersResponse
-	(*ReadReceipt)(nil),                                                  // 186: ReadReceipt
-	(*ReadReceiptSet)(nil),                                               // 187: ReadReceiptSet
-	(*WebPushNotification)(nil),                                          // 188: WebPushNotification
-	(*AndroidLocalNotification)(nil),                                     // 189: AndroidLocalNotification
-	(*IosLocalNotification)(nil),                                         // 190: IosLocalNotification
-	(*MobileLocalNotification)(nil),                                      // 191: MobileLocalNotification
-	(*MessageEvent)(nil),                                                 // 192: MessageEvent
-	(*MessageReactionEvent)(nil),                                         // 193: MessageReactionEvent
-	(*MessageDeletedEvent)(nil),                                          // 194: MessageDeletedEvent
-	(*TypingStateChangedEvent)(nil),                                      // 195: TypingStateChangedEvent
-	(*MembershipChangedEvent)(nil),                                       // 196: MembershipChangedEvent
-	(*ReadReceiptChangedEvent)(nil),                                      // 197: ReadReceiptChangedEvent
-	(*GroupViewedEvent)(nil),                                             // 198: GroupViewedEvent
-	(*GroupUpdatedEvent)(nil),                                            // 199: GroupUpdatedEvent
-	(*WebPushNotificationEvent)(nil),                                     // 200: WebPushNotificationEvent
-	(*StreamEventsRequest)(nil),                                          // 201: StreamEventsRequest
-	(*ClientInfo)(nil),                                                   // 202: ClientInfo
-	(*ClientNotificationsState)(nil),                                     // 203: ClientNotificationsState
-	(*PingEvent)(nil),                                                    // 204: PingEvent
-	(*ClockSyncRequest)(nil),                                             // 205: ClockSyncRequest
-	(*ClockSyncResponse)(nil),                                            // 206: ClockSyncResponse
-	(*GroupSubscriptionEvent)(nil),                                       // 207: GroupSubscriptionEvent
-	(*StreamEventsResponse)(nil),                                         // 208: StreamEventsResponse
-	(*Event)(nil),                                                        // 209: Event
-	(*InviteType)(nil),                                                   // 210: InviteType
-	(*GroupDetails)(nil),                                                 // 211: GroupDetails
-	(*RoomUpdatedMetadata)(nil),                                          // 212: RoomUpdatedMetadata
-	(*MeetingSpace)(nil),                                                 // 213: MeetingSpace
-	(*VideoCallMetadata)(nil),                                            // 214: VideoCallMetadata
-	(*MembershipChangedMetadata)(nil),                                    // 215: MembershipChangedMetadata
-	(*UserMentionMetadata)(nil),                                          // 216: UserMentionMetadata
-	(*SlashCommandMetadata)(nil),                                         // 217: SlashCommandMetadata
-	(*GroupVisibility)(nil),                                              // 218: GroupVisibility
-	(*ComGoogleProtobufTimestamp)(nil),                                   // 219: ComGoogleProtobufTimestamp
-	(*GetServerTimeRequest)(nil),                                         // 220: GetServerTimeRequest
-	(*GetServerTimeResponse)(nil),                                        // 221: GetServerTimeResponse
-	(*CatchUpRange)(nil),                                                 // 222: CatchUpRange
-	(*CatchUpGroupRequest)(nil),                                          // 223: CatchUpGroupRequest
-	(*CatchUpUserRequest)(nil),                                           // 224: CatchUpUserRequest
-	(*CatchUpResponse)(nil),                                              // 225: CatchUpResponse
-	(*GetGroupRequest)(nil),                                              // 226: GetGroupRequest
-	(*GetGroupResponse)(nil),                                             // 227: GetGroupResponse
-	(*WorldSection)(nil),                                                 // 228: WorldSection
-	(*WorldFilter)(nil),                                                  // 229: WorldFilter
-	(*NameUsers)(nil),                                                    // 230: NameUsers
-	(*WorldItemLite)(nil),                                                // 231: WorldItemLite
-	(*WorldSectionRequest)(nil),                                          // 232: WorldSectionRequest
-	(*WorldSectionResponse)(nil),                                         // 233: WorldSectionResponse
-	(*PaginatedWorldRequest)(nil),                                        // 234: PaginatedWorldRequest
-	(*PaginatedWorldResponse)(nil),                                       // 235: PaginatedWorldResponse
-	(*RemoveMembershipsRequest)(nil),                                     // 236: RemoveMembershipsRequest
-	(*RemoveMembershipResult)(nil),                                       // 237: RemoveMembershipResult
-	(*RemoveMembershipsResponse)(nil),                                    // 238: RemoveMembershipsResponse
-	(*HideGroupRequest)(nil),                                             // 239: HideGroupRequest
-	(*HideGroupResponse)(nil),                                            // 240: HideGroupResponse
-	(*InviteNotificationSettings)(nil),                                   // 241: InviteNotificationSettings
-	(*CreateMembershipRequest)(nil),                                      // 242: CreateMembershipRequest
-	(*CreateMembershipResponse)(nil),                                     // 243: CreateMembershipResponse
-	(*MarkGroupReadstateRequest)(nil),                                    // 244: MarkGroupReadstateRequest
-	(*MarkGroupReadstateResponse)(nil),                                   // 245: MarkGroupReadstateResponse
-	(*SetPresenceSharedRequest)(nil),                                     // 246: SetPresenceSharedRequest
-	(*SetPresenceSharedResponse)(nil),                                    // 247: SetPresenceSharedResponse
-	(*SetDndDurationRequest)(nil),                                        // 248: SetDndDurationRequest
-	(*SetDndDurationResponse)(nil),                                       // 249: SetDndDurationResponse
-	(*UpdateGroupRequest)(nil),                                           // 250: UpdateGroupRequest
-	(*UpdateGroupResponse)(nil),                                          // 251: UpdateGroupResponse
-	(*BlockEntityRequest)(nil),                                           // 252: BlockEntityRequest
-	(*BlockEntityResponse)(nil),                                          // 253: BlockEntityResponse
-	(*SetCustomStatusRequest)(nil),                                       // 254: SetCustomStatusRequest
-	(*SetCustomStatusResponse)(nil),                                      // 255: SetCustomStatusResponse
-	(*WriteRevision)(nil),                                                // 256: WriteRevision
-	(*ReadRevision)(nil),                                                 // 257: ReadRevision
-	(*ReferenceRevision)(nil),                                            // 258: ReferenceRevision
-	(*JAddOnsFormattedText_FormattedTextElement)(nil),                    // 259: JAddOnsFormattedText.FormattedTextElement
-	(*JAddOnsFormattedText_FormattedTextElement_DateTime)(nil),           // 260: JAddOnsFormattedText.FormattedTextElement.DateTime
-	(*JAddOnsFormattedText_FormattedTextElement_StyledText)(nil),         // 261: JAddOnsFormattedText.FormattedTextElement.StyledText
-	(*JAddOnsFormattedText_FormattedTextElement_HyperLink)(nil),          // 262: JAddOnsFormattedText.FormattedTextElement.HyperLink
-	(*JAddOnsCardItem_CardItemHeader)(nil),                               // 263: JAddOnsCardItem.CardItemHeader
-	(*JAddOnsCardItem_CardItemSection)(nil),                              // 264: JAddOnsCardItem.CardItemSection
-	(*JAddOnsCardItem_CardItemAction)(nil),                               // 265: JAddOnsCardItem.CardItemAction
-	(*JAddOnsCardItem_CardItemFixedFooter)(nil),                          // 266: JAddOnsCardItem.CardItemFixedFooter
-	(*JAddOnsCardItem_CardItemRefreshAction)(nil),                        // 267: JAddOnsCardItem.CardItemRefreshAction
-	(*JAddOnsGrid_GridItem)(nil),                                         // 268: JAddOnsGrid.GridItem
-	(*JAddOnsWidget_TextParagraph)(nil),                                  // 269: JAddOnsWidget.TextParagraph
-	(*JAddOnsWidget_TextKeyValue)(nil),                                   // 270: JAddOnsWidget.TextKeyValue
-	(*JAddOnsWidget_ImageKeyValue)(nil),                                  // 271: JAddOnsWidget.ImageKeyValue
-	(*JAddOnsWidget_Image)(nil),                                          // 272: JAddOnsWidget.Image
-	(*JAddOnsWidget_Icon)(nil),                                           // 273: JAddOnsWidget.Icon
-	(*JAddOnsWidget_KeyValue)(nil),                                       // 274: JAddOnsWidget.KeyValue
-	(*JAddOnsWidget_Divider)(nil),                                        // 275: JAddOnsWidget.Divider
-	(*JAddOnsWidget_Menu)(nil),                                           // 276: JAddOnsWidget.Menu
-	(*JAddOnsWidget_AutoComplete)(nil),                                   // 277: JAddOnsWidget.AutoComplete
-	(*JAddOnsWidget_TextField)(nil),                                      // 278: JAddOnsWidget.TextField
-	(*JAddOnsWidget_SelectionControl)(nil),                               // 279: JAddOnsWidget.SelectionControl
-	(*JAddOnsWidget_DateTimePicker)(nil),                                 // 280: JAddOnsWidget.DateTimePicker
-	(*JAddOnsWidget_TextButton)(nil),                                     // 281: JAddOnsWidget.TextButton
-	(*JAddOnsWidget_ImageButton)(nil),                                    // 282: JAddOnsWidget.ImageButton
-	(*JAddOnsWidget_Button)(nil),                                         // 283: JAddOnsWidget.Button
-	(*JAddOnsWidget_KeyValue_SwitchWidget)(nil),                          // 284: JAddOnsWidget.KeyValue.SwitchWidget
-	(*JAddOnsWidget_Menu_MenuItem)(nil),                                  // 285: JAddOnsWidget.Menu.MenuItem
-	(*JAddOnsWidget_AutoComplete_AutoCompleteItem)(nil),                  // 286: JAddOnsWidget.AutoComplete.AutoCompleteItem
-	(*JAddOnsWidget_SelectionControl_SelectionItem)(nil),                 // 287: JAddOnsWidget.SelectionControl.SelectionItem
-	(*JAddOnsFormAction_ActionParameter)(nil),                            // 288: JAddOnsFormAction.ActionParameter
-	(*JAddOnsContextualAddOn_Toolbar)(nil),                               // 289: JAddOnsContextualAddOn.Toolbar
-	(*JAddOnsContextualAddOn_Card)(nil),                                  // 290: JAddOnsContextualAddOn.Card
-	(*JAddOnsContextualAddOn_Card_CardHeader)(nil),                       // 291: JAddOnsContextualAddOn.Card.CardHeader
-	(*JAddOnsContextualAddOn_Card_Section)(nil),                          // 292: JAddOnsContextualAddOn.Card.Section
-	(*JAddOnsContextualAddOn_Card_CardAction)(nil),                       // 293: JAddOnsContextualAddOn.Card.CardAction
-	(*JAddOnsContextualAddOn_Card_FixedFooter)(nil),                      // 294: JAddOnsContextualAddOn.Card.FixedFooter
-	(*JAddOnsContextualAddOn_Card_RefreshAction)(nil),                    // 295: JAddOnsContextualAddOn.Card.RefreshAction
-	(*Group_FlatGroup)(nil),                                              // 296: Group.FlatGroup
-	(*Group_ThreadedGroup)(nil),                                          // 297: Group.ThreadedGroup
-	(*SpaceCreationInfo_FlatGroup)(nil),                                  // 298: SpaceCreationInfo.FlatGroup
-	(*SpaceCreationInfo_ThreadedGroup)(nil),                              // 299: SpaceCreationInfo.ThreadedGroup
-	(*SpaceCreationInfo_SpaceType)(nil),                                  // 300: SpaceCreationInfo.SpaceType
-	(*Event_EventBody)(nil),                                              // 301: Event.EventBody
-	(*RoomUpdatedMetadata_RoomRenameMetadata)(nil),                       // 302: RoomUpdatedMetadata.RoomRenameMetadata
-	(*RoomUpdatedMetadata_GroupDetailsUpdatedMetadata)(nil),              // 303: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata
-	(*MeetingSpace_PhoneAccess)(nil),                                     // 304: MeetingSpace.PhoneAccess
-	(*MeetingSpace_UniversalPhoneAccess)(nil),                            // 305: MeetingSpace.UniversalPhoneAccess
-	(*MeetingSpace_Presenter)(nil),                                       // 306: MeetingSpace.Presenter
-	(*MeetingSpace_RecordingInfo)(nil),                                   // 307: MeetingSpace.RecordingInfo
-	(*MeetingSpace_StreamingSessionInfo)(nil),                            // 308: MeetingSpace.StreamingSessionInfo
-	(*MeetingSpace_CallInfo)(nil),                                        // 309: MeetingSpace.CallInfo
-	(*MeetingSpace_GatewayAccess)(nil),                                   // 310: MeetingSpace.GatewayAccess
-	(*MeetingSpace_GatewaySipAccess)(nil),                                // 311: MeetingSpace.GatewaySipAccess
-	(*MeetingSpace_BroadcastAccess)(nil),                                 // 312: MeetingSpace.BroadcastAccess
-	(*MeetingSpace_Settings)(nil),                                        // 313: MeetingSpace.Settings
-	(*MeetingSpace_RecordingInfo_RecordingEvent)(nil),                    // 314: MeetingSpace.RecordingInfo.RecordingEvent
-	(*MeetingSpace_StreamingSessionInfo_SessionEvent)(nil),               // 315: MeetingSpace.StreamingSessionInfo.SessionEvent
-	(*MeetingSpace_StreamingSessionInfo_StreamViewerStats)(nil),          // 316: MeetingSpace.StreamingSessionInfo.StreamViewerStats
-	(*MeetingSpace_CallInfo_CallSettings)(nil),                           // 317: MeetingSpace.CallInfo.CallSettings
-	(*MeetingSpace_CallInfo_PaygateInfo)(nil),                            // 318: MeetingSpace.CallInfo.PaygateInfo
-	(*MeetingSpace_CallInfo_CseInfo)(nil),                                // 319: MeetingSpace.CallInfo.CseInfo
-	(*MembershipChangedMetadata_AffectedMembership)(nil),                 // 320: MembershipChangedMetadata.AffectedMembership
-	(*WorldItemLite_MembershipLite)(nil),                                 // 321: WorldItemLite.MembershipLite
-	(*WorldItemLite_DmMembers)(nil),                                      // 322: WorldItemLite.DmMembers
-	(*WorldItemLite_GroupLite)(nil),                                      // 323: WorldItemLite.GroupLite
-	(*WorldItemLite_FlatGroup)(nil),                                      // 324: WorldItemLite.FlatGroup
-	(*WorldItemLite_ThreadedGroup)(nil),                                  // 325: WorldItemLite.ThreadedGroup
+	(BackendMetadataDimension)(0),                  // 9: BackendMetadataDimension
+	(Platform)(0),                                  // 10: Platform
+	(AnnotationType)(0),                            // 11: AnnotationType
+	(DialInNumberClass)(0),                         // 12: DialInNumberClass
+	(RecordingApplicationType)(0),                  // 13: RecordingApplicationType
+	(BroadcastAccessPolicy)(0),                     // 14: BroadcastAccessPolicy
+	(CallStatus)(0),                                // 15: CallStatus
+	(RingStatus)(0),                                // 16: RingStatus
+	(UserAccountState)(0),                          // 17: UserAccountState
+	(MembershipRole)(0),                            // 18: MembershipRole
+	(AppType)(0),                                   // 19: AppType
+	(MembershipState)(0),                           // 20: MembershipState
+	(SharedAttributeCheckerGroupType)(0),           // 21: SharedAttributeCheckerGroupType
+	(DndSettings_DndState_State)(0),                // 22: DndSettings.DndState_State
+	(ClientFeatureCapabilities_CapabilityLevel)(0), // 23: ClientFeatureCapabilities.CapabilityLevel
+	(RequestHeader_ClientType)(0),                  // 24: RequestHeader.ClientType
+	(JAddOnsFormattedText_TextAlign)(0),            // 25: JAddOnsFormattedText.TextAlign
+	(JAddOnsFormattedText_FormattedTextElement_StyledText_Style)(0),      // 26: JAddOnsFormattedText.FormattedTextElement.StyledText.Style
+	(JAddOnsFormattedText_FormattedTextElement_StyledText_FontWeight)(0), // 27: JAddOnsFormattedText.FormattedTextElement.StyledText.FontWeight
+	(JAddOnsImageCropStyle_ImageCropType)(0),                             // 28: JAddOnsImageCropStyle.ImageCropType
+	(JAddOnsOpenLink_OpenAs)(0),                                          // 29: JAddOnsOpenLink.OpenAs
+	(JAddOnsOpenLink_OnClose)(0),                                         // 30: JAddOnsOpenLink.OnClose
+	(JAddOnsOpenLink_LoadIndicator)(0),                                   // 31: JAddOnsOpenLink.LoadIndicator
+	(JAddOnsCardItem_DisplayStyle)(0),                                    // 32: JAddOnsCardItem.DisplayStyle
+	(JAddOnsGrid_GridItem_GridItemLayout)(0),                             // 33: JAddOnsGrid.GridItem.GridItemLayout
+	(JAddOnsBorderStyle_BorderType)(0),                                   // 34: JAddOnsBorderStyle.BorderType
+	(JAddOnsWidget_HorizontalAlign)(0),                                   // 35: JAddOnsWidget.HorizontalAlign
+	(JAddOnsWidget_KeyValue_SwitchWidget_ControlType)(0),                 // 36: JAddOnsWidget.KeyValue.SwitchWidget.ControlType
+	(JAddOnsWidget_TextField_TextFieldType)(0),                           // 37: JAddOnsWidget.TextField.TextFieldType
+	(JAddOnsWidget_TextField_LineType)(0),                                // 38: JAddOnsWidget.TextField.LineType
+	(JAddOnsWidget_SelectionControl_SelectionType)(0),                    // 39: JAddOnsWidget.SelectionControl.SelectionType
+	(JAddOnsWidget_DateTimePicker_DateTimePickerType)(0),                 // 40: JAddOnsWidget.DateTimePicker.DateTimePickerType
+	(JAddOnsWidget_TextButton_Style)(0),                                  // 41: JAddOnsWidget.TextButton.Style
+	(JAddOnsFormAction_LoadIndicator)(0),                                 // 42: JAddOnsFormAction.LoadIndicator
+	(Message_MessageState)(0),                                            // 43: Message.MessageState
+	(Message_MessagePermission)(0),                                       // 44: Message.MessagePermission
+	(Message_MessageType)(0),                                             // 45: Message.MessageType
+	(FormatMetadata_FormatType)(0),                                       // 46: FormatMetadata.FormatType
+	(Annotation_ChipRenderType)(0),                                       // 47: Annotation.ChipRenderType
+	(Group_GroupType)(0),                                                 // 48: Group.GroupType
+	(GroupNotificationSettings_GroupNotificationState)(0),                // 49: GroupNotificationSettings.GroupNotificationState
+	(GroupNotificationSettings_RoomNotificationState)(0),                 // 50: GroupNotificationSettings.RoomNotificationState
+	(RetentionSettings_RetentionState)(0),                                // 51: RetentionSettings.RetentionState
+	(UpdateReactionRequest_ReactionUpdateType)(0),                        // 52: UpdateReactionRequest.ReactionUpdateType
+	(CreateDmRequest_FetchOptions)(0),                                    // 53: CreateDmRequest.FetchOptions
+	(ListTopicsRequest_FetchOptions)(0),                                  // 54: ListTopicsRequest.FetchOptions
+	(MessageReactionEvent_ReactionEventType)(0),                          // 55: MessageReactionEvent.ReactionEventType
+	(GroupUpdatedEvent_UpdateType)(0),                                    // 56: GroupUpdatedEvent.UpdateType
+	(WebPushNotificationEvent_DispatchApproachType)(0),                   // 57: WebPushNotificationEvent.DispatchApproachType
+	(WebPushNotificationEvent_EndpointType)(0),                           // 58: WebPushNotificationEvent.EndpointType
+	(ClientNotificationsState_DeviceNotificationSettingState)(0),         // 59: ClientNotificationsState.DeviceNotificationSettingState
+	(PingEvent_State)(0),                                                 // 60: PingEvent.State
+	(PingEvent_ApplicationFocusState)(0),                                 // 61: PingEvent.ApplicationFocusState
+	(PingEvent_ClientInteractiveState)(0),                                // 62: PingEvent.ClientInteractiveState
+	(PingEvent_DeviceActiveState)(0),                                     // 63: PingEvent.DeviceActiveState
+	(LatencyData_Server)(0),                                              // 64: LatencyData.Server
+	(Event_EventType)(0),                                                 // 65: Event.EventType
+	(InviteType_Type)(0),                                                 // 66: InviteType.Type
+	(MeetingSpace_RecordingInfo_RecordingStatus)(0),                      // 67: MeetingSpace.RecordingInfo.RecordingStatus
+	(MeetingSpace_RecordingInfo_RecordingEvent_EventType)(0),             // 68: MeetingSpace.RecordingInfo.RecordingEvent.EventType
+	(MeetingSpace_StreamingSessionInfo_Status)(0),                        // 69: MeetingSpace.StreamingSessionInfo.Status
+	(MeetingSpace_StreamingSessionInfo_SessionEvent_EventType)(0),        // 70: MeetingSpace.StreamingSessionInfo.SessionEvent.EventType
+	(MembershipChangedMetadata_Type)(0),                                  // 71: MembershipChangedMetadata.Type
+	(UserMentionMetadata_Type)(0),                                        // 72: UserMentionMetadata.Type
+	(SlashCommandMetadata_Type)(0),                                       // 73: SlashCommandMetadata.Type
+	(GroupVisibility_VisibilityState)(0),                                 // 74: GroupVisibility.VisibilityState
+	(CatchUpResponse_ResponseStatus)(0),                                  // 75: CatchUpResponse.ResponseStatus
+	(GetGroupRequest_FetchOptions)(0),                                    // 76: GetGroupRequest.FetchOptions
+	(WorldSection_WorldSectionType)(0),                                   // 77: WorldSection.WorldSectionType
+	(WorldFilter_StarredState)(0),                                        // 78: WorldFilter.StarredState
+	(WorldFilter_VisibilityState)(0),                                     // 79: WorldFilter.VisibilityState
+	(WorldFilter_ReadState)(0),                                           // 80: WorldFilter.ReadState
+	(WorldFilter_BlockState)(0),                                          // 81: WorldFilter.BlockState
+	(WorldFilter_NamedState)(0),                                          // 82: WorldFilter.NamedState
+	(WorldFilter_MemberType)(0),                                          // 83: WorldFilter.MemberType
+	(WorldFilter_GroupType)(0),                                           // 84: WorldFilter.GroupType
+	(PaginatedWorldRequest_FetchOptions)(0),                              // 85: PaginatedWorldRequest.FetchOptions
+	(InviteNotificationSettings_NotificationOption)(0),                   // 86: InviteNotificationSettings.NotificationOption
+	(SetDndDurationRequest_State)(0),                                     // 87: SetDndDurationRequest.State
+	(UpdateGroupRequest_UpdateMask)(0),                                   // 88: UpdateGroupRequest.UpdateMask
+	(*UserId)(nil),                                                       // 89: UserId
+	(*User)(nil),                                                         // 90: User
+	(*UserBlockRelationship)(nil),                                        // 91: UserBlockRelationship
+	(*DndSettings)(nil),                                                  // 92: DndSettings
+	(*Emoji)(nil),                                                        // 93: Emoji
+	(*CustomStatus)(nil),                                                 // 94: CustomStatus
+	(*UserStatus)(nil),                                                   // 95: UserStatus
+	(*UserStatusUpdatedEvent)(nil),                                       // 96: UserStatusUpdatedEvent
+	(*GetUserStatusRequest)(nil),                                         // 97: GetUserStatusRequest
+	(*GetUserStatusResponse)(nil),                                        // 98: GetUserStatusResponse
+	(*GetSelfUserStatusRequest)(nil),                                     // 99: GetSelfUserStatusRequest
+	(*GetSelfUserStatusResponse)(nil),                                    // 100: GetSelfUserStatusResponse
+	(*ClientFeatureCapabilities)(nil),                                    // 101: ClientFeatureCapabilities
+	(*RequestHeader)(nil),                                                // 102: RequestHeader
+	(*Member)(nil),                                                       // 103: Member
+	(*MemberId)(nil),                                                     // 104: MemberId
+	(*MembershipId)(nil),                                                 // 105: MembershipId
+	(*Membership)(nil),                                                   // 106: Membership
+	(*MemberProfile)(nil),                                                // 107: MemberProfile
+	(*GetMembersRequest)(nil),                                            // 108: GetMembersRequest
+	(*GetMembersResponse)(nil),                                           // 109: GetMembersResponse
+	(*UserPresence)(nil),                                                 // 110: UserPresence
+	(*GetUserPresenceRequest)(nil),                                       // 111: GetUserPresenceRequest
+	(*GetUserPresenceResponse)(nil),                                      // 112: GetUserPresenceResponse
+	(*JAddOnsIdentifier)(nil),                                            // 113: JAddOnsIdentifier
+	(*JAddOnsFormattedText)(nil),                                         // 114: JAddOnsFormattedText
+	(*JAddOnsImageCropStyle)(nil),                                        // 115: JAddOnsImageCropStyle
+	(*JAddOnsThemeColors)(nil),                                           // 116: JAddOnsThemeColors
+	(*JAddOnsOpenLink)(nil),                                              // 117: JAddOnsOpenLink
+	(*JAddOnsCardItem)(nil),                                              // 118: JAddOnsCardItem
+	(*JAddOnsPushCard)(nil),                                              // 119: JAddOnsPushCard
+	(*JAddOnsOnClick)(nil),                                               // 120: JAddOnsOnClick
+	(*JAddOnsTextWidget)(nil),                                            // 121: JAddOnsTextWidget
+	(*JAddOnsImageComponent)(nil),                                        // 122: JAddOnsImageComponent
+	(*JAddOnsGrid)(nil),                                                  // 123: JAddOnsGrid
+	(*JAddOnsBorderStyle)(nil),                                           // 124: JAddOnsBorderStyle
+	(*JAddOnsLabelContentPair)(nil),                                      // 125: JAddOnsLabelContentPair
+	(*JAddOnsLabelContentPairWidget)(nil),                                // 126: JAddOnsLabelContentPairWidget
+	(*JAddOnsWidget)(nil),                                                // 127: JAddOnsWidget
+	(*JAddOnsFormAction)(nil),                                            // 128: JAddOnsFormAction
+	(*JAddOnsContextualAddOn)(nil),                                       // 129: JAddOnsContextualAddOn
+	(*Html)(nil),                                                         // 130: Html
+	(*HtmlAttachment)(nil),                                               // 131: HtmlAttachment
+	(*Attachment)(nil),                                                   // 132: Attachment
+	(*Reaction)(nil),                                                     // 133: Reaction
+	(*MessageParentId)(nil),                                              // 134: MessageParentId
+	(*MessageId)(nil),                                                    // 135: MessageId
+	(*Message)(nil),                                                      // 136: Message
+	(*ReplyToMessage)(nil),                                               // 137: ReplyToMessage
+	(*AppProfile)(nil),                                                   // 138: AppProfile
+	(*DriveMetadata)(nil),                                                // 139: DriveMetadata
+	(*Url)(nil),                                                          // 140: Url
+	(*TrustedResourceUrl)(nil),                                           // 141: TrustedResourceUrl
+	(*YoutubeMetadata)(nil),                                              // 142: YoutubeMetadata
+	(*UrlMetadata)(nil),                                                  // 143: UrlMetadata
+	(*UploadMetadata)(nil),                                               // 144: UploadMetadata
+	(*FormatMetadata)(nil),                                               // 145: FormatMetadata
+	(*Annotation)(nil),                                                   // 146: Annotation
+	(*TypingContext)(nil),                                                // 147: TypingContext
+	(*SetTypingStateRequest)(nil),                                        // 148: SetTypingStateRequest
+	(*SetTypingStateResponse)(nil),                                       // 149: SetTypingStateResponse
+	(*DmId)(nil),                                                         // 150: DmId
+	(*SpaceId)(nil),                                                      // 151: SpaceId
+	(*GroupId)(nil),                                                      // 152: GroupId
+	(*Group)(nil),                                                        // 153: Group
+	(*GroupReadStateId)(nil),                                             // 154: GroupReadStateId
+	(*InviteState)(nil),                                                  // 155: InviteState
+	(*GroupReadState)(nil),                                               // 156: GroupReadState
+	(*GroupNotificationSettings)(nil),                                    // 157: GroupNotificationSettings
+	(*RetentionSettings)(nil),                                            // 158: RetentionSettings
+	(*GroupData)(nil),                                                    // 159: GroupData
+	(*TopicId)(nil),                                                      // 160: TopicId
+	(*Topic)(nil),                                                        // 161: Topic
+	(*TopicReadState)(nil),                                               // 162: TopicReadState
+	(*SendReplyTarget)(nil),                                              // 163: SendReplyTarget
+	(*MessageInfo)(nil),                                                  // 164: MessageInfo
+	(*CreateTopicRequest)(nil),                                           // 165: CreateTopicRequest
+	(*CreateTopicResponse)(nil),                                          // 166: CreateTopicResponse
+	(*CreateMessageRequest)(nil),                                         // 167: CreateMessageRequest
+	(*CreateMessageResponse)(nil),                                        // 168: CreateMessageResponse
+	(*UpdateReactionRequest)(nil),                                        // 169: UpdateReactionRequest
+	(*UpdateReactionResponse)(nil),                                       // 170: UpdateReactionResponse
+	(*DeleteMessageRequest)(nil),                                         // 171: DeleteMessageRequest
+	(*DeleteMessageResponse)(nil),                                        // 172: DeleteMessageResponse
+	(*EditMessageRequest)(nil),                                           // 173: EditMessageRequest
+	(*EditMessageResponse)(nil),                                          // 174: EditMessageResponse
+	(*InviteeInfo)(nil),                                                  // 175: InviteeInfo
+	(*InviteeMemberInfo)(nil),                                            // 176: InviteeMemberInfo
+	(*SpaceCreationInfo)(nil),                                            // 177: SpaceCreationInfo
+	(*CreateGroupRequest)(nil),                                           // 178: CreateGroupRequest
+	(*CreateMembershipResult)(nil),                                       // 179: CreateMembershipResult
+	(*CreateGroupResponse)(nil),                                          // 180: CreateGroupResponse
+	(*CreateDmRequest)(nil),                                              // 181: CreateDmRequest
+	(*CreateDmResponse)(nil),                                             // 182: CreateDmResponse
+	(*ListTopicsResponse)(nil),                                           // 183: ListTopicsResponse
+	(*ListTopicsRequest)(nil),                                            // 184: ListTopicsRequest
+	(*ListMessagesRequest)(nil),                                          // 185: ListMessagesRequest
+	(*ListMessagesResponse)(nil),                                         // 186: ListMessagesResponse
+	(*ListMembersRequest)(nil),                                           // 187: ListMembersRequest
+	(*ListMembersResponse)(nil),                                          // 188: ListMembersResponse
+	(*ReadReceipt)(nil),                                                  // 189: ReadReceipt
+	(*ReadReceiptSet)(nil),                                               // 190: ReadReceiptSet
+	(*WebPushNotification)(nil),                                          // 191: WebPushNotification
+	(*AndroidLocalNotification)(nil),                                     // 192: AndroidLocalNotification
+	(*IosLocalNotification)(nil),                                         // 193: IosLocalNotification
+	(*MobileLocalNotification)(nil),                                      // 194: MobileLocalNotification
+	(*MessageEvent)(nil),                                                 // 195: MessageEvent
+	(*MessageReactionEvent)(nil),                                         // 196: MessageReactionEvent
+	(*MessageDeletedEvent)(nil),                                          // 197: MessageDeletedEvent
+	(*TypingStateChangedEvent)(nil),                                      // 198: TypingStateChangedEvent
+	(*MembershipChangedEvent)(nil),                                       // 199: MembershipChangedEvent
+	(*ReadReceiptChangedEvent)(nil),                                      // 200: ReadReceiptChangedEvent
+	(*GroupViewedEvent)(nil),                                             // 201: GroupViewedEvent
+	(*GroupUpdatedEvent)(nil),                                            // 202: GroupUpdatedEvent
+	(*WebPushNotificationEvent)(nil),                                     // 203: WebPushNotificationEvent
+	(*StreamEventsRequest)(nil),                                          // 204: StreamEventsRequest
+	(*ClientInfo)(nil),                                                   // 205: ClientInfo
+	(*ClientNotificationsState)(nil),                                     // 206: ClientNotificationsState
+	(*PingEvent)(nil),                                                    // 207: PingEvent
+	(*ClockSyncRequest)(nil),                                             // 208: ClockSyncRequest
+	(*ClockSyncResponse)(nil),                                            // 209: ClockSyncResponse
+	(*GroupSubscriptionEvent)(nil),                                       // 210: GroupSubscriptionEvent
+	(*StreamEventsResponse)(nil),                                         // 211: StreamEventsResponse
+	(*TopicMuteChangedEvent)(nil),                                        // 212: TopicMuteChangedEvent
+	(*GroupUnreadSubscribedTopicCountUpdatedEvent)(nil),                  // 213: GroupUnreadSubscribedTopicCountUpdatedEvent
+	(*TopicCreatedEvent)(nil),                                            // 214: TopicCreatedEvent
+	(*MessageSmartRepliesEvent)(nil),                                     // 215: MessageSmartRepliesEvent
+	(*GroupDefaultSortOrderUpdatedEvent)(nil),                            // 216: GroupDefaultSortOrderUpdatedEvent
+	(*GroupReadStateUpdatedEvent)(nil),                                   // 217: GroupReadStateUpdatedEvent
+	(*BackendMetadata)(nil),                                              // 218: BackendMetadata
+	(*Timestamp)(nil),                                                    // 219: Timestamp
+	(*Interval)(nil),                                                     // 220: Interval
+	(*LatencyData)(nil),                                                  // 221: LatencyData
+	(*Event)(nil),                                                        // 222: Event
+	(*InviteType)(nil),                                                   // 223: InviteType
+	(*GroupDetails)(nil),                                                 // 224: GroupDetails
+	(*RoomUpdatedMetadata)(nil),                                          // 225: RoomUpdatedMetadata
+	(*MeetingSpace)(nil),                                                 // 226: MeetingSpace
+	(*VideoCallMetadata)(nil),                                            // 227: VideoCallMetadata
+	(*MembershipChangedMetadata)(nil),                                    // 228: MembershipChangedMetadata
+	(*UserMentionMetadata)(nil),                                          // 229: UserMentionMetadata
+	(*SlashCommandMetadata)(nil),                                         // 230: SlashCommandMetadata
+	(*GroupVisibility)(nil),                                              // 231: GroupVisibility
+	(*ComGoogleProtobufTimestamp)(nil),                                   // 232: ComGoogleProtobufTimestamp
+	(*GetServerTimeRequest)(nil),                                         // 233: GetServerTimeRequest
+	(*GetServerTimeResponse)(nil),                                        // 234: GetServerTimeResponse
+	(*CatchUpRange)(nil),                                                 // 235: CatchUpRange
+	(*CatchUpGroupRequest)(nil),                                          // 236: CatchUpGroupRequest
+	(*CatchUpUserRequest)(nil),                                           // 237: CatchUpUserRequest
+	(*CatchUpResponse)(nil),                                              // 238: CatchUpResponse
+	(*GetGroupRequest)(nil),                                              // 239: GetGroupRequest
+	(*GetGroupResponse)(nil),                                             // 240: GetGroupResponse
+	(*WorldSection)(nil),                                                 // 241: WorldSection
+	(*WorldFilter)(nil),                                                  // 242: WorldFilter
+	(*NameUsers)(nil),                                                    // 243: NameUsers
+	(*WorldItemLite)(nil),                                                // 244: WorldItemLite
+	(*WorldSectionRequest)(nil),                                          // 245: WorldSectionRequest
+	(*WorldSectionResponse)(nil),                                         // 246: WorldSectionResponse
+	(*PaginatedWorldRequest)(nil),                                        // 247: PaginatedWorldRequest
+	(*PaginatedWorldResponse)(nil),                                       // 248: PaginatedWorldResponse
+	(*RemoveMembershipsRequest)(nil),                                     // 249: RemoveMembershipsRequest
+	(*RemoveMembershipResult)(nil),                                       // 250: RemoveMembershipResult
+	(*RemoveMembershipsResponse)(nil),                                    // 251: RemoveMembershipsResponse
+	(*HideGroupRequest)(nil),                                             // 252: HideGroupRequest
+	(*HideGroupResponse)(nil),                                            // 253: HideGroupResponse
+	(*InviteNotificationSettings)(nil),                                   // 254: InviteNotificationSettings
+	(*CreateMembershipRequest)(nil),                                      // 255: CreateMembershipRequest
+	(*CreateMembershipResponse)(nil),                                     // 256: CreateMembershipResponse
+	(*MarkGroupReadstateRequest)(nil),                                    // 257: MarkGroupReadstateRequest
+	(*MarkGroupReadstateResponse)(nil),                                   // 258: MarkGroupReadstateResponse
+	(*SetPresenceSharedRequest)(nil),                                     // 259: SetPresenceSharedRequest
+	(*SetPresenceSharedResponse)(nil),                                    // 260: SetPresenceSharedResponse
+	(*SetDndDurationRequest)(nil),                                        // 261: SetDndDurationRequest
+	(*SetDndDurationResponse)(nil),                                       // 262: SetDndDurationResponse
+	(*UpdateGroupRequest)(nil),                                           // 263: UpdateGroupRequest
+	(*UpdateGroupResponse)(nil),                                          // 264: UpdateGroupResponse
+	(*BlockEntityRequest)(nil),                                           // 265: BlockEntityRequest
+	(*BlockEntityResponse)(nil),                                          // 266: BlockEntityResponse
+	(*SetCustomStatusRequest)(nil),                                       // 267: SetCustomStatusRequest
+	(*SetCustomStatusResponse)(nil),                                      // 268: SetCustomStatusResponse
+	(*WriteRevision)(nil),                                                // 269: WriteRevision
+	(*ReadRevision)(nil),                                                 // 270: ReadRevision
+	(*ReferenceRevision)(nil),                                            // 271: ReferenceRevision
+	(*JAddOnsFormattedText_FormattedTextElement)(nil),                    // 272: JAddOnsFormattedText.FormattedTextElement
+	(*JAddOnsFormattedText_FormattedTextElement_DateTime)(nil),           // 273: JAddOnsFormattedText.FormattedTextElement.DateTime
+	(*JAddOnsFormattedText_FormattedTextElement_StyledText)(nil),         // 274: JAddOnsFormattedText.FormattedTextElement.StyledText
+	(*JAddOnsFormattedText_FormattedTextElement_HyperLink)(nil),          // 275: JAddOnsFormattedText.FormattedTextElement.HyperLink
+	(*JAddOnsCardItem_CardItemHeader)(nil),                               // 276: JAddOnsCardItem.CardItemHeader
+	(*JAddOnsCardItem_CardItemSection)(nil),                              // 277: JAddOnsCardItem.CardItemSection
+	(*JAddOnsCardItem_CardItemAction)(nil),                               // 278: JAddOnsCardItem.CardItemAction
+	(*JAddOnsCardItem_CardItemFixedFooter)(nil),                          // 279: JAddOnsCardItem.CardItemFixedFooter
+	(*JAddOnsCardItem_CardItemRefreshAction)(nil),                        // 280: JAddOnsCardItem.CardItemRefreshAction
+	(*JAddOnsGrid_GridItem)(nil),                                         // 281: JAddOnsGrid.GridItem
+	(*JAddOnsWidget_TextParagraph)(nil),                                  // 282: JAddOnsWidget.TextParagraph
+	(*JAddOnsWidget_TextKeyValue)(nil),                                   // 283: JAddOnsWidget.TextKeyValue
+	(*JAddOnsWidget_ImageKeyValue)(nil),                                  // 284: JAddOnsWidget.ImageKeyValue
+	(*JAddOnsWidget_Image)(nil),                                          // 285: JAddOnsWidget.Image
+	(*JAddOnsWidget_Icon)(nil),                                           // 286: JAddOnsWidget.Icon
+	(*JAddOnsWidget_KeyValue)(nil),                                       // 287: JAddOnsWidget.KeyValue
+	(*JAddOnsWidget_Divider)(nil),                                        // 288: JAddOnsWidget.Divider
+	(*JAddOnsWidget_Menu)(nil),                                           // 289: JAddOnsWidget.Menu
+	(*JAddOnsWidget_AutoComplete)(nil),                                   // 290: JAddOnsWidget.AutoComplete
+	(*JAddOnsWidget_TextField)(nil),                                      // 291: JAddOnsWidget.TextField
+	(*JAddOnsWidget_SelectionControl)(nil),                               // 292: JAddOnsWidget.SelectionControl
+	(*JAddOnsWidget_DateTimePicker)(nil),                                 // 293: JAddOnsWidget.DateTimePicker
+	(*JAddOnsWidget_TextButton)(nil),                                     // 294: JAddOnsWidget.TextButton
+	(*JAddOnsWidget_ImageButton)(nil),                                    // 295: JAddOnsWidget.ImageButton
+	(*JAddOnsWidget_Button)(nil),                                         // 296: JAddOnsWidget.Button
+	(*JAddOnsWidget_KeyValue_SwitchWidget)(nil),                          // 297: JAddOnsWidget.KeyValue.SwitchWidget
+	(*JAddOnsWidget_Menu_MenuItem)(nil),                                  // 298: JAddOnsWidget.Menu.MenuItem
+	(*JAddOnsWidget_AutoComplete_AutoCompleteItem)(nil),                  // 299: JAddOnsWidget.AutoComplete.AutoCompleteItem
+	(*JAddOnsWidget_SelectionControl_SelectionItem)(nil),                 // 300: JAddOnsWidget.SelectionControl.SelectionItem
+	(*JAddOnsFormAction_ActionParameter)(nil),                            // 301: JAddOnsFormAction.ActionParameter
+	(*JAddOnsContextualAddOn_Toolbar)(nil),                               // 302: JAddOnsContextualAddOn.Toolbar
+	(*JAddOnsContextualAddOn_Card)(nil),                                  // 303: JAddOnsContextualAddOn.Card
+	(*JAddOnsContextualAddOn_Card_CardHeader)(nil),                       // 304: JAddOnsContextualAddOn.Card.CardHeader
+	(*JAddOnsContextualAddOn_Card_Section)(nil),                          // 305: JAddOnsContextualAddOn.Card.Section
+	(*JAddOnsContextualAddOn_Card_CardAction)(nil),                       // 306: JAddOnsContextualAddOn.Card.CardAction
+	(*JAddOnsContextualAddOn_Card_FixedFooter)(nil),                      // 307: JAddOnsContextualAddOn.Card.FixedFooter
+	(*JAddOnsContextualAddOn_Card_RefreshAction)(nil),                    // 308: JAddOnsContextualAddOn.Card.RefreshAction
+	(*Group_FlatGroup)(nil),                                              // 309: Group.FlatGroup
+	(*Group_ThreadedGroup)(nil),                                          // 310: Group.ThreadedGroup
+	(*SpaceCreationInfo_FlatGroup)(nil),                                  // 311: SpaceCreationInfo.FlatGroup
+	(*SpaceCreationInfo_ThreadedGroup)(nil),                              // 312: SpaceCreationInfo.ThreadedGroup
+	(*SpaceCreationInfo_SpaceType)(nil),                                  // 313: SpaceCreationInfo.SpaceType
+	(*Event_EventBody)(nil),                                              // 314: Event.EventBody
+	(*RoomUpdatedMetadata_RoomRenameMetadata)(nil),                       // 315: RoomUpdatedMetadata.RoomRenameMetadata
+	(*RoomUpdatedMetadata_GroupDetailsUpdatedMetadata)(nil),              // 316: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata
+	(*MeetingSpace_PhoneAccess)(nil),                                     // 317: MeetingSpace.PhoneAccess
+	(*MeetingSpace_UniversalPhoneAccess)(nil),                            // 318: MeetingSpace.UniversalPhoneAccess
+	(*MeetingSpace_Presenter)(nil),                                       // 319: MeetingSpace.Presenter
+	(*MeetingSpace_RecordingInfo)(nil),                                   // 320: MeetingSpace.RecordingInfo
+	(*MeetingSpace_StreamingSessionInfo)(nil),                            // 321: MeetingSpace.StreamingSessionInfo
+	(*MeetingSpace_CallInfo)(nil),                                        // 322: MeetingSpace.CallInfo
+	(*MeetingSpace_GatewayAccess)(nil),                                   // 323: MeetingSpace.GatewayAccess
+	(*MeetingSpace_GatewaySipAccess)(nil),                                // 324: MeetingSpace.GatewaySipAccess
+	(*MeetingSpace_BroadcastAccess)(nil),                                 // 325: MeetingSpace.BroadcastAccess
+	(*MeetingSpace_Settings)(nil),                                        // 326: MeetingSpace.Settings
+	(*MeetingSpace_RecordingInfo_RecordingEvent)(nil),                    // 327: MeetingSpace.RecordingInfo.RecordingEvent
+	(*MeetingSpace_StreamingSessionInfo_SessionEvent)(nil),               // 328: MeetingSpace.StreamingSessionInfo.SessionEvent
+	(*MeetingSpace_StreamingSessionInfo_StreamViewerStats)(nil),          // 329: MeetingSpace.StreamingSessionInfo.StreamViewerStats
+	(*MeetingSpace_CallInfo_CallSettings)(nil),                           // 330: MeetingSpace.CallInfo.CallSettings
+	(*MeetingSpace_CallInfo_PaygateInfo)(nil),                            // 331: MeetingSpace.CallInfo.PaygateInfo
+	(*MeetingSpace_CallInfo_CseInfo)(nil),                                // 332: MeetingSpace.CallInfo.CseInfo
+	(*MembershipChangedMetadata_AffectedMembership)(nil),                 // 333: MembershipChangedMetadata.AffectedMembership
+	(*WorldItemLite_MembershipLite)(nil),                                 // 334: WorldItemLite.MembershipLite
+	(*WorldItemLite_DmMembers)(nil),                                      // 335: WorldItemLite.DmMembers
+	(*WorldItemLite_GroupLite)(nil),                                      // 336: WorldItemLite.GroupLite
+	(*WorldItemLite_FlatGroup)(nil),                                      // 337: WorldItemLite.FlatGroup
+	(*WorldItemLite_ThreadedGroup)(nil),                                  // 338: WorldItemLite.ThreadedGroup
 }
 var file_googlechat_proto_depIdxs = []int32{
 	0,   // 0: UserId.type:type_name -> UserType
-	86,  // 1: User.user_id:type_name -> UserId
-	88,  // 2: User.block_relationship:type_name -> UserBlockRelationship
-	21,  // 3: DndSettings.dnd_state:type_name -> DndSettings.DndState_State
-	90,  // 4: CustomStatus.emoji:type_name -> Emoji
-	86,  // 5: UserStatus.user_id:type_name -> UserId
-	89,  // 6: UserStatus.dnd_settings:type_name -> DndSettings
-	91,  // 7: UserStatus.custom_status:type_name -> CustomStatus
-	92,  // 8: UserStatusUpdatedEvent.user_status:type_name -> UserStatus
-	86,  // 9: GetUserStatusRequest.user_ids:type_name -> UserId
-	99,  // 10: GetUserStatusRequest.request_header:type_name -> RequestHeader
-	92,  // 11: GetUserStatusResponse.user_statuses:type_name -> UserStatus
-	99,  // 12: GetSelfUserStatusRequest.request_header:type_name -> RequestHeader
-	92,  // 13: GetSelfUserStatusResponse.user_status:type_name -> UserStatus
-	257, // 14: GetSelfUserStatusResponse.user_revision:type_name -> ReadRevision
-	22,  // 15: ClientFeatureCapabilities.spaces_level_for_testing:type_name -> ClientFeatureCapabilities.CapabilityLevel
-	22,  // 16: ClientFeatureCapabilities.dms_level_for_testing:type_name -> ClientFeatureCapabilities.CapabilityLevel
-	22,  // 17: ClientFeatureCapabilities.post_rooms_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
-	22,  // 18: ClientFeatureCapabilities.spam_room_invites_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
-	22,  // 19: ClientFeatureCapabilities.tombstone_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
-	22,  // 20: ClientFeatureCapabilities.rich_text_viewing_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
-	23,  // 21: RequestHeader.client_type:type_name -> RequestHeader.ClientType
-	98,  // 22: RequestHeader.client_feature_capabilities:type_name -> ClientFeatureCapabilities
-	87,  // 23: Member.user:type_name -> User
-	86,  // 24: MemberId.user_id:type_name -> UserId
-	101, // 25: MembershipId.member_id:type_name -> MemberId
-	148, // 26: MembershipId.space_id:type_name -> SpaceId
-	149, // 27: MembershipId.group_id:type_name -> GroupId
-	102, // 28: Membership.id:type_name -> MembershipId
-	19,  // 29: Membership.membership_state:type_name -> MembershipState
+	89,  // 1: User.user_id:type_name -> UserId
+	91,  // 2: User.block_relationship:type_name -> UserBlockRelationship
+	22,  // 3: DndSettings.dnd_state:type_name -> DndSettings.DndState_State
+	93,  // 4: CustomStatus.emoji:type_name -> Emoji
+	89,  // 5: UserStatus.user_id:type_name -> UserId
+	92,  // 6: UserStatus.dnd_settings:type_name -> DndSettings
+	94,  // 7: UserStatus.custom_status:type_name -> CustomStatus
+	95,  // 8: UserStatusUpdatedEvent.user_status:type_name -> UserStatus
+	89,  // 9: GetUserStatusRequest.user_ids:type_name -> UserId
+	102, // 10: GetUserStatusRequest.request_header:type_name -> RequestHeader
+	95,  // 11: GetUserStatusResponse.user_statuses:type_name -> UserStatus
+	102, // 12: GetSelfUserStatusRequest.request_header:type_name -> RequestHeader
+	95,  // 13: GetSelfUserStatusResponse.user_status:type_name -> UserStatus
+	270, // 14: GetSelfUserStatusResponse.user_revision:type_name -> ReadRevision
+	23,  // 15: ClientFeatureCapabilities.spaces_level_for_testing:type_name -> ClientFeatureCapabilities.CapabilityLevel
+	23,  // 16: ClientFeatureCapabilities.dms_level_for_testing:type_name -> ClientFeatureCapabilities.CapabilityLevel
+	23,  // 17: ClientFeatureCapabilities.post_rooms_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
+	23,  // 18: ClientFeatureCapabilities.spam_room_invites_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
+	23,  // 19: ClientFeatureCapabilities.tombstone_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
+	23,  // 20: ClientFeatureCapabilities.rich_text_viewing_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
+	24,  // 21: RequestHeader.client_type:type_name -> RequestHeader.ClientType
+	101, // 22: RequestHeader.client_feature_capabilities:type_name -> ClientFeatureCapabilities
+	90,  // 23: Member.user:type_name -> User
+	89,  // 24: MemberId.user_id:type_name -> UserId
+	104, // 25: MembershipId.member_id:type_name -> MemberId
+	151, // 26: MembershipId.space_id:type_name -> SpaceId
+	152, // 27: MembershipId.group_id:type_name -> GroupId
+	105, // 28: Membership.id:type_name -> MembershipId
+	20,  // 29: Membership.membership_state:type_name -> MembershipState
 	1,   // 30: Membership.invite_category:type_name -> InviteCategory
-	17,  // 31: Membership.membership_role:type_name -> MembershipRole
-	102, // 32: MemberProfile.id:type_name -> MembershipId
-	100, // 33: MemberProfile.member:type_name -> Member
-	99,  // 34: GetMembersRequest.request_header:type_name -> RequestHeader
-	101, // 35: GetMembersRequest.member_ids:type_name -> MemberId
-	102, // 36: GetMembersRequest.membership_ids:type_name -> MembershipId
-	100, // 37: GetMembersResponse.members:type_name -> Member
-	104, // 38: GetMembersResponse.member_profiles:type_name -> MemberProfile
-	86,  // 39: UserPresence.user_id:type_name -> UserId
+	18,  // 31: Membership.membership_role:type_name -> MembershipRole
+	105, // 32: MemberProfile.id:type_name -> MembershipId
+	103, // 33: MemberProfile.member:type_name -> Member
+	102, // 34: GetMembersRequest.request_header:type_name -> RequestHeader
+	104, // 35: GetMembersRequest.member_ids:type_name -> MemberId
+	105, // 36: GetMembersRequest.membership_ids:type_name -> MembershipId
+	103, // 37: GetMembersResponse.members:type_name -> Member
+	107, // 38: GetMembersResponse.member_profiles:type_name -> MemberProfile
+	89,  // 39: UserPresence.user_id:type_name -> UserId
 	2,   // 40: UserPresence.presence:type_name -> Presence
 	3,   // 41: UserPresence.dnd_state:type_name -> DndState_State
-	92,  // 42: UserPresence.user_status:type_name -> UserStatus
-	99,  // 43: GetUserPresenceRequest.request_header:type_name -> RequestHeader
-	86,  // 44: GetUserPresenceRequest.user_ids:type_name -> UserId
-	107, // 45: GetUserPresenceResponse.user_presences:type_name -> UserPresence
-	110, // 46: JAddOnsFormattedText.id:type_name -> JAddOnsIdentifier
-	259, // 47: JAddOnsFormattedText.formatted_text_elements:type_name -> JAddOnsFormattedText.FormattedTextElement
-	24,  // 48: JAddOnsFormattedText.text_align:type_name -> JAddOnsFormattedText.TextAlign
-	27,  // 49: JAddOnsImageCropStyle.type:type_name -> JAddOnsImageCropStyle.ImageCropType
-	28,  // 50: JAddOnsOpenLink.open_as:type_name -> JAddOnsOpenLink.OpenAs
-	29,  // 51: JAddOnsOpenLink.on_close:type_name -> JAddOnsOpenLink.OnClose
-	30,  // 52: JAddOnsOpenLink.load_indicator:type_name -> JAddOnsOpenLink.LoadIndicator
-	263, // 53: JAddOnsCardItem.header:type_name -> JAddOnsCardItem.CardItemHeader
-	264, // 54: JAddOnsCardItem.sections:type_name -> JAddOnsCardItem.CardItemSection
-	265, // 55: JAddOnsCardItem.card_actions:type_name -> JAddOnsCardItem.CardItemAction
-	266, // 56: JAddOnsCardItem.fixed_footer:type_name -> JAddOnsCardItem.CardItemFixedFooter
-	267, // 57: JAddOnsCardItem.refresh_action:type_name -> JAddOnsCardItem.CardItemRefreshAction
-	31,  // 58: JAddOnsCardItem.display_style:type_name -> JAddOnsCardItem.DisplayStyle
-	263, // 59: JAddOnsCardItem.peek_card_header:type_name -> JAddOnsCardItem.CardItemHeader
-	113, // 60: JAddOnsCardItem.background_theme_colors:type_name -> JAddOnsThemeColors
-	115, // 61: JAddOnsPushCard.card:type_name -> JAddOnsCardItem
-	125, // 62: JAddOnsOnClick.action:type_name -> JAddOnsFormAction
-	114, // 63: JAddOnsOnClick.open_link:type_name -> JAddOnsOpenLink
-	125, // 64: JAddOnsOnClick.open_link_action:type_name -> JAddOnsFormAction
-	116, // 65: JAddOnsOnClick.push_card:type_name -> JAddOnsPushCard
-	112, // 66: JAddOnsImageComponent.crop_style:type_name -> JAddOnsImageCropStyle
-	121, // 67: JAddOnsImageComponent.border_style:type_name -> JAddOnsBorderStyle
-	110, // 68: JAddOnsGrid.id:type_name -> JAddOnsIdentifier
-	268, // 69: JAddOnsGrid.items:type_name -> JAddOnsGrid.GridItem
-	121, // 70: JAddOnsGrid.border_style:type_name -> JAddOnsBorderStyle
-	117, // 71: JAddOnsGrid.on_click:type_name -> JAddOnsOnClick
-	33,  // 72: JAddOnsBorderStyle.type:type_name -> JAddOnsBorderStyle.BorderType
-	113, // 73: JAddOnsBorderStyle.stroke_color:type_name -> JAddOnsThemeColors
-	122, // 74: JAddOnsLabelContentPairWidget.label_content_pair:type_name -> JAddOnsLabelContentPair
-	118, // 75: JAddOnsWidget.text_widget:type_name -> JAddOnsTextWidget
-	123, // 76: JAddOnsWidget.label_content_pair_widget:type_name -> JAddOnsLabelContentPairWidget
-	269, // 77: JAddOnsWidget.text_paragraph:type_name -> JAddOnsWidget.TextParagraph
-	270, // 78: JAddOnsWidget.text_key_value:type_name -> JAddOnsWidget.TextKeyValue
-	271, // 79: JAddOnsWidget.image_key_value:type_name -> JAddOnsWidget.ImageKeyValue
-	272, // 80: JAddOnsWidget.image:type_name -> JAddOnsWidget.Image
-	274, // 81: JAddOnsWidget.key_value:type_name -> JAddOnsWidget.KeyValue
-	275, // 82: JAddOnsWidget.divider:type_name -> JAddOnsWidget.Divider
-	120, // 83: JAddOnsWidget.grid:type_name -> JAddOnsGrid
-	276, // 84: JAddOnsWidget.menu:type_name -> JAddOnsWidget.Menu
-	278, // 85: JAddOnsWidget.text_field:type_name -> JAddOnsWidget.TextField
-	279, // 86: JAddOnsWidget.selection_control:type_name -> JAddOnsWidget.SelectionControl
-	280, // 87: JAddOnsWidget.date_time_picker:type_name -> JAddOnsWidget.DateTimePicker
-	283, // 88: JAddOnsWidget.buttons:type_name -> JAddOnsWidget.Button
-	34,  // 89: JAddOnsWidget.horizontal_align:type_name -> JAddOnsWidget.HorizontalAlign
-	288, // 90: JAddOnsFormAction.parameters:type_name -> JAddOnsFormAction.ActionParameter
-	41,  // 91: JAddOnsFormAction.load_indicator:type_name -> JAddOnsFormAction.LoadIndicator
-	289, // 92: JAddOnsContextualAddOn.toolbar:type_name -> JAddOnsContextualAddOn.Toolbar
-	290, // 93: JAddOnsContextualAddOn.cards:type_name -> JAddOnsContextualAddOn.Card
-	127, // 94: HtmlAttachment.html:type_name -> Html
-	128, // 95: Attachment.html:type_name -> HtmlAttachment
-	126, // 96: Attachment.add_on_data:type_name -> JAddOnsContextualAddOn
-	86,  // 97: Attachment.app_id:type_name -> UserId
-	87,  // 98: Attachment.app_user:type_name -> User
-	90,  // 99: Reaction.emoji:type_name -> Emoji
-	157, // 100: MessageParentId.topic_id:type_name -> TopicId
-	131, // 101: MessageId.parent_id:type_name -> MessageParentId
-	132, // 102: Message.id:type_name -> MessageId
-	42,  // 103: Message.message_state:type_name -> Message.MessageState
-	87,  // 104: Message.creator:type_name -> User
-	143, // 105: Message.annotations:type_name -> Annotation
-	129, // 106: Message.attachments:type_name -> Attachment
-	135, // 107: Message.app_profile:type_name -> AppProfile
-	155, // 108: Message.retention_settings:type_name -> RetentionSettings
-	130, // 109: Message.reactions:type_name -> Reaction
-	133, // 110: Message.last_reply:type_name -> Message
-	43,  // 111: Message.message_type:type_name -> Message.MessageType
-	103, // 112: Message.creator_membership:type_name -> Membership
-	134, // 113: Message.reply_to:type_name -> ReplyToMessage
-	132, // 114: ReplyToMessage.id:type_name -> MessageId
-	86,  // 115: ReplyToMessage.sender_id:type_name -> UserId
-	87,  // 116: ReplyToMessage.sender:type_name -> User
-	87,  // 117: ReplyToMessage.sender_again:type_name -> User
-	138, // 118: DriveMetadata.embed_url:type_name -> TrustedResourceUrl
-	137, // 119: UrlMetadata.url:type_name -> Url
-	137, // 120: UrlMetadata.gws_url:type_name -> Url
-	137, // 121: UrlMetadata.redirect_url:type_name -> Url
-	44,  // 122: FormatMetadata.format_type:type_name -> FormatMetadata.FormatType
-	10,  // 123: Annotation.type:type_name -> AnnotationType
-	45,  // 124: Annotation.chip_render_type:type_name -> Annotation.ChipRenderType
-	216, // 125: Annotation.user_mention_metadata:type_name -> UserMentionMetadata
-	142, // 126: Annotation.format_metadata:type_name -> FormatMetadata
-	217, // 127: Annotation.slash_command_metadata:type_name -> SlashCommandMetadata
-	136, // 128: Annotation.drive_metadata:type_name -> DriveMetadata
-	139, // 129: Annotation.youtube_metadata:type_name -> YoutubeMetadata
-	140, // 130: Annotation.url_metadata:type_name -> UrlMetadata
-	141, // 131: Annotation.upload_metadata:type_name -> UploadMetadata
-	215, // 132: Annotation.membership_changed:type_name -> MembershipChangedMetadata
-	214, // 133: Annotation.video_call_metadata:type_name -> VideoCallMetadata
-	212, // 134: Annotation.room_updated:type_name -> RoomUpdatedMetadata
-	149, // 135: TypingContext.group_id:type_name -> GroupId
-	157, // 136: TypingContext.topic_id:type_name -> TopicId
-	99,  // 137: SetTypingStateRequest.request_header:type_name -> RequestHeader
-	4,   // 138: SetTypingStateRequest.state:type_name -> TypingState
-	144, // 139: SetTypingStateRequest.context:type_name -> TypingContext
-	148, // 140: GroupId.space_id:type_name -> SpaceId
-	147, // 141: GroupId.dm_id:type_name -> DmId
-	149, // 142: Group.group_id:type_name -> GroupId
-	87,  // 143: Group.creator:type_name -> User
-	153, // 144: Group.group_read_state:type_name -> GroupReadState
-	155, // 145: Group.retention_settings:type_name -> RetentionSettings
-	46,  // 146: Group.group_type:type_name -> Group.GroupType
-	218, // 147: Group.visibility:type_name -> GroupVisibility
-	296, // 148: Group.flat_group:type_name -> Group.FlatGroup
-	297, // 149: Group.threaded_group:type_name -> Group.ThreadedGroup
-	20,  // 150: Group.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
-	230, // 151: Group.name_users:type_name -> NameUsers
-	211, // 152: Group.group_details:type_name -> GroupDetails
-	6,   // 153: Group.group_support_level:type_name -> GroupSupportLevel
-	5,   // 154: Group.group_unsupported_reason:type_name -> GroupUnsupportedReason
-	86,  // 155: GroupReadStateId.user_id:type_name -> UserId
-	149, // 156: GroupReadStateId.group_id:type_name -> GroupId
-	86,  // 157: InviteState.inviter_user_id:type_name -> UserId
-	132, // 158: InviteState.invitation_message_id:type_name -> MessageId
-	210, // 159: InviteState.invite_type:type_name -> InviteType
-	151, // 160: GroupReadState.id:type_name -> GroupReadStateId
-	157, // 161: GroupReadState.unread_subscribed_topics:type_name -> TopicId
-	152, // 162: GroupReadState.invite_state:type_name -> InviteState
-	154, // 163: GroupReadState.notification_settings:type_name -> GroupNotificationSettings
-	155, // 164: GroupReadState.retention_settings:type_name -> RetentionSettings
-	17,  // 165: GroupReadState.membership_role:type_name -> MembershipRole
-	19,  // 166: GroupReadState.membership_state:type_name -> MembershipState
-	1,   // 167: GroupReadState.invite_category:type_name -> InviteCategory
-	86,  // 168: GroupReadState.joined_users:type_name -> UserId
-	47,  // 169: GroupNotificationSettings.state:type_name -> GroupNotificationSettings.GroupNotificationState
-	48,  // 170: GroupNotificationSettings.room_state:type_name -> GroupNotificationSettings.RoomNotificationState
-	49,  // 171: RetentionSettings.state:type_name -> RetentionSettings.RetentionState
-	49,  // 172: GroupData.retention_state:type_name -> RetentionSettings.RetentionState
-	149, // 173: TopicId.group_id:type_name -> GroupId
-	157, // 174: Topic.id:type_name -> TopicId
-	133, // 175: Topic.replies:type_name -> Message
-	159, // 176: Topic.topic_read_state:type_name -> TopicReadState
-	155, // 177: Topic.retention_settings:type_name -> RetentionSettings
-	132, // 178: SendReplyTarget.id:type_name -> MessageId
-	160, // 179: MessageInfo.reply_to:type_name -> SendReplyTarget
-	99,  // 180: CreateTopicRequest.request_header:type_name -> RequestHeader
-	149, // 181: CreateTopicRequest.group_id:type_name -> GroupId
-	143, // 182: CreateTopicRequest.annotations:type_name -> Annotation
-	155, // 183: CreateTopicRequest.retention_settings:type_name -> RetentionSettings
-	161, // 184: CreateTopicRequest.message_info:type_name -> MessageInfo
-	158, // 185: CreateTopicResponse.topic:type_name -> Topic
-	256, // 186: CreateTopicResponse.group_revision:type_name -> WriteRevision
-	257, // 187: CreateTopicResponse.current_group_revision:type_name -> ReadRevision
-	99,  // 188: CreateMessageRequest.request_header:type_name -> RequestHeader
-	131, // 189: CreateMessageRequest.parent_id:type_name -> MessageParentId
-	143, // 190: CreateMessageRequest.annotations:type_name -> Annotation
-	161, // 191: CreateMessageRequest.message_info:type_name -> MessageInfo
-	133, // 192: CreateMessageResponse.message:type_name -> Message
-	256, // 193: CreateMessageResponse.group_revision:type_name -> WriteRevision
-	257, // 194: CreateMessageResponse.current_group_revision:type_name -> ReadRevision
-	99,  // 195: UpdateReactionRequest.request_header:type_name -> RequestHeader
-	132, // 196: UpdateReactionRequest.message_id:type_name -> MessageId
-	90,  // 197: UpdateReactionRequest.emoji:type_name -> Emoji
-	50,  // 198: UpdateReactionRequest.type:type_name -> UpdateReactionRequest.ReactionUpdateType
-	256, // 199: UpdateReactionResponse.group_revision:type_name -> WriteRevision
-	99,  // 200: DeleteMessageRequest.request_header:type_name -> RequestHeader
-	132, // 201: DeleteMessageRequest.message_id:type_name -> MessageId
-	256, // 202: DeleteMessageResponse.group_revision:type_name -> WriteRevision
-	99,  // 203: EditMessageRequest.request_header:type_name -> RequestHeader
-	132, // 204: EditMessageRequest.message_id:type_name -> MessageId
-	143, // 205: EditMessageRequest.annotations:type_name -> Annotation
-	161, // 206: EditMessageRequest.message_info:type_name -> MessageInfo
-	133, // 207: EditMessageResponse.message:type_name -> Message
-	256, // 208: EditMessageResponse.group_revision:type_name -> WriteRevision
-	86,  // 209: InviteeInfo.user_id:type_name -> UserId
-	172, // 210: InviteeMemberInfo.invitee_info:type_name -> InviteeInfo
-	218, // 211: SpaceCreationInfo.visibility:type_name -> GroupVisibility
-	298, // 212: SpaceCreationInfo.flat_group:type_name -> SpaceCreationInfo.FlatGroup
-	299, // 213: SpaceCreationInfo.threaded_group:type_name -> SpaceCreationInfo.ThreadedGroup
-	173, // 214: SpaceCreationInfo.invitee_member_infos:type_name -> InviteeMemberInfo
-	300, // 215: SpaceCreationInfo.space_type:type_name -> SpaceCreationInfo.SpaceType
-	20,  // 216: SpaceCreationInfo.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
-	99,  // 217: CreateGroupRequest.request_header:type_name -> RequestHeader
-	174, // 218: CreateGroupRequest.space:type_name -> SpaceCreationInfo
-	103, // 219: CreateMembershipResult.membership:type_name -> Membership
-	150, // 220: CreateGroupResponse.group:type_name -> Group
-	256, // 221: CreateGroupResponse.group_revision:type_name -> WriteRevision
-	256, // 222: CreateGroupResponse.user_revision:type_name -> WriteRevision
-	176, // 223: CreateGroupResponse.results:type_name -> CreateMembershipResult
-	99,  // 224: CreateDmRequest.request_header:type_name -> RequestHeader
-	51,  // 225: CreateDmRequest.fetch_options:type_name -> CreateDmRequest.FetchOptions
-	86,  // 226: CreateDmRequest.members:type_name -> UserId
-	172, // 227: CreateDmRequest.invitees:type_name -> InviteeInfo
-	155, // 228: CreateDmRequest.retention_settings:type_name -> RetentionSettings
-	150, // 229: CreateDmResponse.dm:type_name -> Group
-	158, // 230: CreateDmResponse.topic:type_name -> Topic
-	256, // 231: CreateDmResponse.group_revision:type_name -> WriteRevision
-	103, // 232: CreateDmResponse.memberships:type_name -> Membership
-	158, // 233: ListTopicsResponse.topics:type_name -> Topic
-	257, // 234: ListTopicsResponse.user_revision:type_name -> ReadRevision
-	257, // 235: ListTopicsResponse.group_revision:type_name -> ReadRevision
-	187, // 236: ListTopicsResponse.read_receipt_set:type_name -> ReadReceiptSet
-	99,  // 237: ListTopicsRequest.request_header:type_name -> RequestHeader
-	149, // 238: ListTopicsRequest.group_id:type_name -> GroupId
-	52,  // 239: ListTopicsRequest.fetch_options:type_name -> ListTopicsRequest.FetchOptions
-	258, // 240: ListTopicsRequest.user_not_older_than:type_name -> ReferenceRevision
-	258, // 241: ListTopicsRequest.group_not_older_than:type_name -> ReferenceRevision
-	99,  // 242: ListMessagesRequest.request_header:type_name -> RequestHeader
-	131, // 243: ListMessagesRequest.parent_id:type_name -> MessageParentId
-	133, // 244: ListMessagesResponse.messages:type_name -> Message
-	257, // 245: ListMessagesResponse.group_revision:type_name -> ReadRevision
-	99,  // 246: ListMembersRequest.request_header:type_name -> RequestHeader
-	148, // 247: ListMembersRequest.space_id:type_name -> SpaceId
-	149, // 248: ListMembersRequest.group_id:type_name -> GroupId
-	258, // 249: ListMembersRequest.not_older_than:type_name -> ReferenceRevision
-	103, // 250: ListMembersResponse.memberships:type_name -> Membership
-	100, // 251: ListMembersResponse.members:type_name -> Member
-	101, // 252: ListMembersResponse.member_ids:type_name -> MemberId
-	257, // 253: ListMembersResponse.group_revision:type_name -> ReadRevision
-	101, // 254: ListMembersResponse.invited_member_ids:type_name -> MemberId
-	87,  // 255: ReadReceipt.user:type_name -> User
-	186, // 256: ReadReceiptSet.read_receipts:type_name -> ReadReceipt
-	133, // 257: WebPushNotification.message:type_name -> Message
-	7,   // 258: WebPushNotification.cause:type_name -> NotificationCause
-	20,  // 259: IosLocalNotification.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
-	189, // 260: MobileLocalNotification.android_local_notification:type_name -> AndroidLocalNotification
-	190, // 261: MobileLocalNotification.ios_local_notification:type_name -> IosLocalNotification
-	133, // 262: MessageEvent.message:type_name -> Message
-	132, // 263: MessageReactionEvent.message_id:type_name -> MessageId
-	90,  // 264: MessageReactionEvent.emoji:type_name -> Emoji
-	86,  // 265: MessageReactionEvent.user_id:type_name -> UserId
-	53,  // 266: MessageReactionEvent.type:type_name -> MessageReactionEvent.ReactionEventType
-	132, // 267: MessageDeletedEvent.message_id:type_name -> MessageId
-	4,   // 268: TypingStateChangedEvent.state:type_name -> TypingState
-	86,  // 269: TypingStateChangedEvent.user_id:type_name -> UserId
-	144, // 270: TypingStateChangedEvent.context:type_name -> TypingContext
-	103, // 271: MembershipChangedEvent.new_membership:type_name -> Membership
-	19,  // 272: MembershipChangedEvent.prior_membership_state:type_name -> MembershipState
-	17,  // 273: MembershipChangedEvent.prior_membership_role:type_name -> MembershipRole
-	149, // 274: ReadReceiptChangedEvent.group_id:type_name -> GroupId
-	187, // 275: ReadReceiptChangedEvent.read_receipt_set:type_name -> ReadReceiptSet
-	149, // 276: GroupViewedEvent.group_id:type_name -> GroupId
-	150, // 277: GroupUpdatedEvent.new:type_name -> Group
-	150, // 278: GroupUpdatedEvent.old:type_name -> Group
-	54,  // 279: GroupUpdatedEvent.update_type:type_name -> GroupUpdatedEvent.UpdateType
-	188, // 280: WebPushNotificationEvent.notification:type_name -> WebPushNotification
-	55,  // 281: WebPushNotificationEvent.dispatch_approach_type:type_name -> WebPushNotificationEvent.DispatchApproachType
-	191, // 282: WebPushNotificationEvent.mobile_local_notification:type_name -> MobileLocalNotification
-	56,  // 283: WebPushNotificationEvent.endpoint_types:type_name -> WebPushNotificationEvent.EndpointType
-	9,   // 284: StreamEventsRequest.platform:type_name -> Platform
-	202, // 285: StreamEventsRequest.client_info:type_name -> ClientInfo
-	204, // 286: StreamEventsRequest.ping_event:type_name -> PingEvent
-	205, // 287: StreamEventsRequest.clock_sync_request:type_name -> ClockSyncRequest
-	207, // 288: StreamEventsRequest.group_subscription_event:type_name -> GroupSubscriptionEvent
-	9,   // 289: ClientInfo.platform:type_name -> Platform
-	8,   // 290: ClientInfo.origin:type_name -> EventOrigin
-	57,  // 291: ClientNotificationsState.device_setting_state:type_name -> ClientNotificationsState.DeviceNotificationSettingState
-	58,  // 292: PingEvent.state:type_name -> PingEvent.State
-	59,  // 293: PingEvent.application_focus_state:type_name -> PingEvent.ApplicationFocusState
-	60,  // 294: PingEvent.client_interactive_state:type_name -> PingEvent.ClientInteractiveState
-	203, // 295: PingEvent.notifications_state:type_name -> ClientNotificationsState
-	61,  // 296: PingEvent.device_active_state:type_name -> PingEvent.DeviceActiveState
-	149, // 297: GroupSubscriptionEvent.group_ids:type_name -> GroupId
-	209, // 298: StreamEventsResponse.event:type_name -> Event
-	206, // 299: StreamEventsResponse.clock_sync_response:type_name -> ClockSyncResponse
-	149, // 300: Event.group_id:type_name -> GroupId
-	62,  // 301: Event.type:type_name -> Event.EventType
-	301, // 302: Event.body:type_name -> Event.EventBody
-	86,  // 303: Event.user_id:type_name -> UserId
-	256, // 304: Event.user_revision:type_name -> WriteRevision
-	256, // 305: Event.group_revision:type_name -> WriteRevision
-	301, // 306: Event.bodies:type_name -> Event.EventBody
-	218, // 307: RoomUpdatedMetadata.visibility:type_name -> GroupVisibility
-	302, // 308: RoomUpdatedMetadata.rename_metadata:type_name -> RoomUpdatedMetadata.RoomRenameMetadata
-	303, // 309: RoomUpdatedMetadata.group_details_metadata:type_name -> RoomUpdatedMetadata.GroupDetailsUpdatedMetadata
-	87,  // 310: RoomUpdatedMetadata.initiator:type_name -> User
-	304, // 311: MeetingSpace.phone_access:type_name -> MeetingSpace.PhoneAccess
-	305, // 312: MeetingSpace.universal_phone_access:type_name -> MeetingSpace.UniversalPhoneAccess
-	309, // 313: MeetingSpace.call_info:type_name -> MeetingSpace.CallInfo
-	310, // 314: MeetingSpace.gateway_access:type_name -> MeetingSpace.GatewayAccess
-	11,  // 315: MeetingSpace.accepted_number_class:type_name -> DialInNumberClass
-	311, // 316: MeetingSpace.gateway_sip_access:type_name -> MeetingSpace.GatewaySipAccess
-	312, // 317: MeetingSpace.broadcast_access:type_name -> MeetingSpace.BroadcastAccess
-	313, // 318: MeetingSpace.settings:type_name -> MeetingSpace.Settings
-	213, // 319: VideoCallMetadata.meeting_space:type_name -> MeetingSpace
-	68,  // 320: MembershipChangedMetadata.type:type_name -> MembershipChangedMetadata.Type
-	320, // 321: MembershipChangedMetadata.affected_memberships:type_name -> MembershipChangedMetadata.AffectedMembership
-	86,  // 322: MembershipChangedMetadata.initiator:type_name -> UserId
-	101, // 323: MembershipChangedMetadata.affected_members:type_name -> MemberId
-	87,  // 324: MembershipChangedMetadata.initiator_profile:type_name -> User
-	100, // 325: MembershipChangedMetadata.affected_member_profiles:type_name -> Member
-	86,  // 326: UserMentionMetadata.id:type_name -> UserId
-	172, // 327: UserMentionMetadata.invitee_info:type_name -> InviteeInfo
-	69,  // 328: UserMentionMetadata.type:type_name -> UserMentionMetadata.Type
-	86,  // 329: SlashCommandMetadata.id:type_name -> UserId
-	70,  // 330: SlashCommandMetadata.type:type_name -> SlashCommandMetadata.Type
-	99,  // 331: GetServerTimeRequest.request_header:type_name -> RequestHeader
-	219, // 332: GetServerTimeResponse.timestamp:type_name -> ComGoogleProtobufTimestamp
-	99,  // 333: CatchUpGroupRequest.request_header:type_name -> RequestHeader
-	149, // 334: CatchUpGroupRequest.group_id:type_name -> GroupId
-	222, // 335: CatchUpGroupRequest.range:type_name -> CatchUpRange
-	99,  // 336: CatchUpUserRequest.request_header:type_name -> RequestHeader
-	222, // 337: CatchUpUserRequest.range:type_name -> CatchUpRange
-	209, // 338: CatchUpResponse.events:type_name -> Event
-	72,  // 339: CatchUpResponse.status:type_name -> CatchUpResponse.ResponseStatus
-	156, // 340: CatchUpResponse.group_data:type_name -> GroupData
-	99,  // 341: GetGroupRequest.request_header:type_name -> RequestHeader
-	149, // 342: GetGroupRequest.group_id:type_name -> GroupId
-	73,  // 343: GetGroupRequest.fetch_options:type_name -> GetGroupRequest.FetchOptions
-	258, // 344: GetGroupRequest.user_not_older_than:type_name -> ReferenceRevision
-	258, // 345: GetGroupRequest.group_not_older_than:type_name -> ReferenceRevision
-	150, // 346: GetGroupResponse.group:type_name -> Group
-	103, // 347: GetGroupResponse.memberships:type_name -> Membership
-	257, // 348: GetGroupResponse.user_revision:type_name -> ReadRevision
-	257, // 349: GetGroupResponse.group_revision:type_name -> ReadRevision
-	19,  // 350: GetGroupResponse.membership_state:type_name -> MembershipState
-	101, // 351: GetGroupResponse.joined_member_ids:type_name -> MemberId
-	101, // 352: GetGroupResponse.invited_member_ids:type_name -> MemberId
-	187, // 353: GetGroupResponse.read_receipt_set:type_name -> ReadReceiptSet
-	133, // 354: GetGroupResponse.snippet:type_name -> Message
-	74,  // 355: WorldSection.world_section_type:type_name -> WorldSection.WorldSectionType
-	75,  // 356: WorldFilter.starred_state:type_name -> WorldFilter.StarredState
-	76,  // 357: WorldFilter.visibility_state:type_name -> WorldFilter.VisibilityState
-	77,  // 358: WorldFilter.read_state:type_name -> WorldFilter.ReadState
-	78,  // 359: WorldFilter.block_state:type_name -> WorldFilter.BlockState
-	79,  // 360: WorldFilter.named_state:type_name -> WorldFilter.NamedState
-	19,  // 361: WorldFilter.membership_state:type_name -> MembershipState
-	1,   // 362: WorldFilter.invite_category:type_name -> InviteCategory
-	80,  // 363: WorldFilter.member_type:type_name -> WorldFilter.MemberType
-	81,  // 364: WorldFilter.group_type:type_name -> WorldFilter.GroupType
-	86,  // 365: NameUsers.name_user_ids:type_name -> UserId
-	149, // 366: WorldItemLite.group_id:type_name -> GroupId
-	257, // 367: WorldItemLite.group_revision:type_name -> ReadRevision
-	153, // 368: WorldItemLite.read_state:type_name -> GroupReadState
-	322, // 369: WorldItemLite.dm_members:type_name -> WorldItemLite.DmMembers
-	230, // 370: WorldItemLite.name_users:type_name -> NameUsers
-	323, // 371: WorldItemLite.group_lite:type_name -> WorldItemLite.GroupLite
-	133, // 372: WorldItemLite.message:type_name -> Message
-	324, // 373: WorldItemLite.flat_group:type_name -> WorldItemLite.FlatGroup
-	325, // 374: WorldItemLite.threaded_group:type_name -> WorldItemLite.ThreadedGroup
-	20,  // 375: WorldItemLite.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
-	6,   // 376: WorldItemLite.group_support_level:type_name -> GroupSupportLevel
-	5,   // 377: WorldItemLite.group_unsupported_reason:type_name -> GroupUnsupportedReason
-	228, // 378: WorldSectionRequest.world_section:type_name -> WorldSection
-	229, // 379: WorldSectionRequest.world_filter:type_name -> WorldFilter
-	228, // 380: WorldSectionResponse.world_section:type_name -> WorldSection
-	229, // 381: WorldSectionResponse.world_filter:type_name -> WorldFilter
-	231, // 382: WorldSectionResponse.world_items:type_name -> WorldItemLite
-	99,  // 383: PaginatedWorldRequest.request_header:type_name -> RequestHeader
-	232, // 384: PaginatedWorldRequest.world_section_requests:type_name -> WorldSectionRequest
-	82,  // 385: PaginatedWorldRequest.fetch_options:type_name -> PaginatedWorldRequest.FetchOptions
-	233, // 386: PaginatedWorldResponse.world_section_responses:type_name -> WorldSectionResponse
-	257, // 387: PaginatedWorldResponse.user_revision:type_name -> ReadRevision
-	231, // 388: PaginatedWorldResponse.world_items:type_name -> WorldItemLite
-	99,  // 389: RemoveMembershipsRequest.request_header:type_name -> RequestHeader
-	101, // 390: RemoveMembershipsRequest.member_ids:type_name -> MemberId
-	149, // 391: RemoveMembershipsRequest.group_id:type_name -> GroupId
-	19,  // 392: RemoveMembershipsRequest.membership_state:type_name -> MembershipState
-	99,  // 393: RemoveMembershipResult.request_header:type_name -> RequestHeader
-	101, // 394: RemoveMembershipResult.member_id:type_name -> MemberId
-	237, // 395: RemoveMembershipsResponse.results:type_name -> RemoveMembershipResult
-	155, // 396: RemoveMembershipsResponse.retention_settings:type_name -> RetentionSettings
-	256, // 397: RemoveMembershipsResponse.retention_settings_group_revision:type_name -> WriteRevision
-	99,  // 398: HideGroupRequest.request_header:type_name -> RequestHeader
-	149, // 399: HideGroupRequest.id:type_name -> GroupId
-	153, // 400: HideGroupResponse.read_state:type_name -> GroupReadState
-	256, // 401: HideGroupResponse.user_revision:type_name -> WriteRevision
-	83,  // 402: InviteNotificationSettings.option:type_name -> InviteNotificationSettings.NotificationOption
-	99,  // 403: CreateMembershipRequest.request_header:type_name -> RequestHeader
-	101, // 404: CreateMembershipRequest.member_ids:type_name -> MemberId
-	173, // 405: CreateMembershipRequest.invitee_member_infos:type_name -> InviteeMemberInfo
-	19,  // 406: CreateMembershipRequest.membership_state:type_name -> MembershipState
-	149, // 407: CreateMembershipRequest.group_id:type_name -> GroupId
-	241, // 408: CreateMembershipRequest.notification_settings:type_name -> InviteNotificationSettings
-	176, // 409: CreateMembershipResponse.results:type_name -> CreateMembershipResult
-	256, // 410: CreateMembershipResponse.group_revision:type_name -> WriteRevision
-	155, // 411: CreateMembershipResponse.retention_settings:type_name -> RetentionSettings
-	256, // 412: CreateMembershipResponse.retention_settings_group_revision:type_name -> WriteRevision
-	99,  // 413: MarkGroupReadstateRequest.request_header:type_name -> RequestHeader
-	149, // 414: MarkGroupReadstateRequest.id:type_name -> GroupId
-	153, // 415: MarkGroupReadstateResponse.read_state:type_name -> GroupReadState
-	256, // 416: MarkGroupReadstateResponse.user_revision:type_name -> WriteRevision
-	99,  // 417: SetPresenceSharedRequest.request_header:type_name -> RequestHeader
-	92,  // 418: SetPresenceSharedResponse.user_status:type_name -> UserStatus
-	256, // 419: SetPresenceSharedResponse.user_revision:type_name -> WriteRevision
-	99,  // 420: SetDndDurationRequest.request_header:type_name -> RequestHeader
-	84,  // 421: SetDndDurationRequest.current_dnd_state:type_name -> SetDndDurationRequest.State
-	92,  // 422: SetDndDurationResponse.user_status:type_name -> UserStatus
-	256, // 423: SetDndDurationResponse.user_revision:type_name -> WriteRevision
-	99,  // 424: UpdateGroupRequest.request_header:type_name -> RequestHeader
-	148, // 425: UpdateGroupRequest.space_id:type_name -> SpaceId
-	85,  // 426: UpdateGroupRequest.update_masks:type_name -> UpdateGroupRequest.UpdateMask
-	218, // 427: UpdateGroupRequest.visibility:type_name -> GroupVisibility
-	150, // 428: UpdateGroupResponse.group:type_name -> Group
-	256, // 429: UpdateGroupResponse.group_revision:type_name -> WriteRevision
-	99,  // 430: BlockEntityRequest.request_header:type_name -> RequestHeader
-	86,  // 431: BlockEntityRequest.user_id:type_name -> UserId
-	149, // 432: BlockEntityRequest.group_id:type_name -> GroupId
-	153, // 433: BlockEntityResponse.read_state:type_name -> GroupReadState
-	256, // 434: BlockEntityResponse.user_revision:type_name -> WriteRevision
-	99,  // 435: SetCustomStatusRequest.request_header:type_name -> RequestHeader
-	91,  // 436: SetCustomStatusRequest.custom_status:type_name -> CustomStatus
-	92,  // 437: SetCustomStatusResponse.user_status:type_name -> UserStatus
-	256, // 438: SetCustomStatusResponse.user_revision:type_name -> WriteRevision
-	261, // 439: JAddOnsFormattedText.FormattedTextElement.styled_text:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText
-	262, // 440: JAddOnsFormattedText.FormattedTextElement.hyperlink:type_name -> JAddOnsFormattedText.FormattedTextElement.HyperLink
-	260, // 441: JAddOnsFormattedText.FormattedTextElement.StyledText.datetime:type_name -> JAddOnsFormattedText.FormattedTextElement.DateTime
-	25,  // 442: JAddOnsFormattedText.FormattedTextElement.StyledText.styles:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.Style
-	26,  // 443: JAddOnsFormattedText.FormattedTextElement.StyledText.font_weight:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.FontWeight
-	113, // 444: JAddOnsFormattedText.FormattedTextElement.StyledText.theme_colors:type_name -> JAddOnsThemeColors
-	111, // 445: JAddOnsCardItem.CardItemHeader.title:type_name -> JAddOnsFormattedText
-	111, // 446: JAddOnsCardItem.CardItemHeader.subtitle:type_name -> JAddOnsFormattedText
-	27,  // 447: JAddOnsCardItem.CardItemHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	110, // 448: JAddOnsCardItem.CardItemSection.id:type_name -> JAddOnsIdentifier
-	111, // 449: JAddOnsCardItem.CardItemSection.header:type_name -> JAddOnsFormattedText
-	124, // 450: JAddOnsCardItem.CardItemSection.widgets:type_name -> JAddOnsWidget
-	117, // 451: JAddOnsCardItem.CardItemAction.on_click:type_name -> JAddOnsOnClick
-	283, // 452: JAddOnsCardItem.CardItemFixedFooter.buttons:type_name -> JAddOnsWidget.Button
-	281, // 453: JAddOnsCardItem.CardItemFixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
-	281, // 454: JAddOnsCardItem.CardItemFixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
-	125, // 455: JAddOnsCardItem.CardItemRefreshAction.method:type_name -> JAddOnsFormAction
-	119, // 456: JAddOnsGrid.GridItem.image:type_name -> JAddOnsImageComponent
-	34,  // 457: JAddOnsGrid.GridItem.text_alignment:type_name -> JAddOnsWidget.HorizontalAlign
-	32,  // 458: JAddOnsGrid.GridItem.layout:type_name -> JAddOnsGrid.GridItem.GridItemLayout
-	117, // 459: JAddOnsGrid.GridItem.on_click:type_name -> JAddOnsOnClick
-	111, // 460: JAddOnsWidget.TextParagraph.text:type_name -> JAddOnsFormattedText
-	111, // 461: JAddOnsWidget.TextKeyValue.key:type_name -> JAddOnsFormattedText
-	111, // 462: JAddOnsWidget.TextKeyValue.text:type_name -> JAddOnsFormattedText
-	117, // 463: JAddOnsWidget.TextKeyValue.on_click:type_name -> JAddOnsOnClick
-	111, // 464: JAddOnsWidget.ImageKeyValue.text:type_name -> JAddOnsFormattedText
-	117, // 465: JAddOnsWidget.ImageKeyValue.on_click:type_name -> JAddOnsOnClick
-	110, // 466: JAddOnsWidget.Image.id:type_name -> JAddOnsIdentifier
-	117, // 467: JAddOnsWidget.Image.on_click:type_name -> JAddOnsOnClick
-	27,  // 468: JAddOnsWidget.Icon.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	27,  // 469: JAddOnsWidget.KeyValue.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	273, // 470: JAddOnsWidget.KeyValue.start_icon:type_name -> JAddOnsWidget.Icon
-	111, // 471: JAddOnsWidget.KeyValue.top_label:type_name -> JAddOnsFormattedText
-	111, // 472: JAddOnsWidget.KeyValue.content:type_name -> JAddOnsFormattedText
-	111, // 473: JAddOnsWidget.KeyValue.bottom_label:type_name -> JAddOnsFormattedText
-	117, // 474: JAddOnsWidget.KeyValue.on_click:type_name -> JAddOnsOnClick
-	283, // 475: JAddOnsWidget.KeyValue.button:type_name -> JAddOnsWidget.Button
-	284, // 476: JAddOnsWidget.KeyValue.switch_widget:type_name -> JAddOnsWidget.KeyValue.SwitchWidget
-	273, // 477: JAddOnsWidget.KeyValue.end_icon:type_name -> JAddOnsWidget.Icon
-	285, // 478: JAddOnsWidget.Menu.items:type_name -> JAddOnsWidget.Menu.MenuItem
-	125, // 479: JAddOnsWidget.Menu.on_change:type_name -> JAddOnsFormAction
-	286, // 480: JAddOnsWidget.AutoComplete.items:type_name -> JAddOnsWidget.AutoComplete.AutoCompleteItem
-	110, // 481: JAddOnsWidget.TextField.id:type_name -> JAddOnsIdentifier
-	36,  // 482: JAddOnsWidget.TextField.type:type_name -> JAddOnsWidget.TextField.TextFieldType
-	37,  // 483: JAddOnsWidget.TextField.line_type:type_name -> JAddOnsWidget.TextField.LineType
-	125, // 484: JAddOnsWidget.TextField.on_change:type_name -> JAddOnsFormAction
-	277, // 485: JAddOnsWidget.TextField.auto_complete:type_name -> JAddOnsWidget.AutoComplete
-	125, // 486: JAddOnsWidget.TextField.auto_complete_callback:type_name -> JAddOnsFormAction
-	110, // 487: JAddOnsWidget.SelectionControl.id:type_name -> JAddOnsIdentifier
-	38,  // 488: JAddOnsWidget.SelectionControl.type:type_name -> JAddOnsWidget.SelectionControl.SelectionType
-	287, // 489: JAddOnsWidget.SelectionControl.items:type_name -> JAddOnsWidget.SelectionControl.SelectionItem
-	125, // 490: JAddOnsWidget.SelectionControl.on_change:type_name -> JAddOnsFormAction
-	39,  // 491: JAddOnsWidget.DateTimePicker.type:type_name -> JAddOnsWidget.DateTimePicker.DateTimePickerType
-	125, // 492: JAddOnsWidget.DateTimePicker.on_change:type_name -> JAddOnsFormAction
-	113, // 493: JAddOnsWidget.DateTimePicker.theme_colors:type_name -> JAddOnsThemeColors
-	110, // 494: JAddOnsWidget.TextButton.id:type_name -> JAddOnsIdentifier
-	111, // 495: JAddOnsWidget.TextButton.text:type_name -> JAddOnsFormattedText
-	117, // 496: JAddOnsWidget.TextButton.on_click:type_name -> JAddOnsOnClick
-	40,  // 497: JAddOnsWidget.TextButton.style:type_name -> JAddOnsWidget.TextButton.Style
-	113, // 498: JAddOnsWidget.TextButton.background_theme_colors:type_name -> JAddOnsThemeColors
-	110, // 499: JAddOnsWidget.ImageButton.id:type_name -> JAddOnsIdentifier
-	117, // 500: JAddOnsWidget.ImageButton.on_click:type_name -> JAddOnsOnClick
-	281, // 501: JAddOnsWidget.Button.text_button:type_name -> JAddOnsWidget.TextButton
-	282, // 502: JAddOnsWidget.Button.image_button:type_name -> JAddOnsWidget.ImageButton
-	110, // 503: JAddOnsWidget.KeyValue.SwitchWidget.id:type_name -> JAddOnsIdentifier
-	125, // 504: JAddOnsWidget.KeyValue.SwitchWidget.on_change:type_name -> JAddOnsFormAction
-	35,  // 505: JAddOnsWidget.KeyValue.SwitchWidget.control_type:type_name -> JAddOnsWidget.KeyValue.SwitchWidget.ControlType
-	110, // 506: JAddOnsWidget.SelectionControl.SelectionItem.id:type_name -> JAddOnsIdentifier
-	111, // 507: JAddOnsContextualAddOn.Toolbar.name:type_name -> JAddOnsFormattedText
-	113, // 508: JAddOnsContextualAddOn.Toolbar.theme_colors:type_name -> JAddOnsThemeColors
-	291, // 509: JAddOnsContextualAddOn.Card.header:type_name -> JAddOnsContextualAddOn.Card.CardHeader
-	292, // 510: JAddOnsContextualAddOn.Card.sections:type_name -> JAddOnsContextualAddOn.Card.Section
-	293, // 511: JAddOnsContextualAddOn.Card.card_actions:type_name -> JAddOnsContextualAddOn.Card.CardAction
-	294, // 512: JAddOnsContextualAddOn.Card.fixed_footer:type_name -> JAddOnsContextualAddOn.Card.FixedFooter
-	295, // 513: JAddOnsContextualAddOn.Card.refresh_action:type_name -> JAddOnsContextualAddOn.Card.RefreshAction
-	113, // 514: JAddOnsContextualAddOn.Card.background_theme_colors:type_name -> JAddOnsThemeColors
-	111, // 515: JAddOnsContextualAddOn.Card.CardHeader.title:type_name -> JAddOnsFormattedText
-	111, // 516: JAddOnsContextualAddOn.Card.CardHeader.subtitle:type_name -> JAddOnsFormattedText
-	27,  // 517: JAddOnsContextualAddOn.Card.CardHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	110, // 518: JAddOnsContextualAddOn.Card.Section.id:type_name -> JAddOnsIdentifier
-	111, // 519: JAddOnsContextualAddOn.Card.Section.header:type_name -> JAddOnsFormattedText
-	124, // 520: JAddOnsContextualAddOn.Card.Section.widgets:type_name -> JAddOnsWidget
-	117, // 521: JAddOnsContextualAddOn.Card.CardAction.on_click:type_name -> JAddOnsOnClick
-	283, // 522: JAddOnsContextualAddOn.Card.FixedFooter.buttons:type_name -> JAddOnsWidget.Button
-	281, // 523: JAddOnsContextualAddOn.Card.FixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
-	281, // 524: JAddOnsContextualAddOn.Card.FixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
-	125, // 525: JAddOnsContextualAddOn.Card.RefreshAction.method:type_name -> JAddOnsFormAction
-	198, // 526: Event.EventBody.group_viewed:type_name -> GroupViewedEvent
-	199, // 527: Event.EventBody.group_updated:type_name -> GroupUpdatedEvent
-	192, // 528: Event.EventBody.message_posted:type_name -> MessageEvent
-	200, // 529: Event.EventBody.web_push_notification:type_name -> WebPushNotificationEvent
-	196, // 530: Event.EventBody.membership_changed:type_name -> MembershipChangedEvent
-	194, // 531: Event.EventBody.message_deleted:type_name -> MessageDeletedEvent
-	193, // 532: Event.EventBody.message_reaction:type_name -> MessageReactionEvent
-	93,  // 533: Event.EventBody.user_status_updated:type_name -> UserStatusUpdatedEvent
-	195, // 534: Event.EventBody.typing_state_changed:type_name -> TypingStateChangedEvent
-	197, // 535: Event.EventBody.read_receipt_changed:type_name -> ReadReceiptChangedEvent
-	62,  // 536: Event.EventBody.event_type:type_name -> Event.EventType
-	211, // 537: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.new_group_details:type_name -> GroupDetails
-	211, // 538: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.prev_group_details:type_name -> GroupDetails
-	64,  // 539: MeetingSpace.RecordingInfo.recording_status:type_name -> MeetingSpace.RecordingInfo.RecordingStatus
-	314, // 540: MeetingSpace.RecordingInfo.latest_recording_event:type_name -> MeetingSpace.RecordingInfo.RecordingEvent
-	12,  // 541: MeetingSpace.RecordingInfo.recording_application_type:type_name -> RecordingApplicationType
-	66,  // 542: MeetingSpace.StreamingSessionInfo.status:type_name -> MeetingSpace.StreamingSessionInfo.Status
-	12,  // 543: MeetingSpace.StreamingSessionInfo.application_type:type_name -> RecordingApplicationType
-	315, // 544: MeetingSpace.StreamingSessionInfo.latest_session_event:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent
-	13,  // 545: MeetingSpace.StreamingSessionInfo.viewer_access_policy:type_name -> BroadcastAccessPolicy
-	316, // 546: MeetingSpace.StreamingSessionInfo.viewer_stats:type_name -> MeetingSpace.StreamingSessionInfo.StreamViewerStats
-	306, // 547: MeetingSpace.CallInfo.presenter:type_name -> MeetingSpace.Presenter
-	307, // 548: MeetingSpace.CallInfo.recording_info:type_name -> MeetingSpace.RecordingInfo
-	308, // 549: MeetingSpace.CallInfo.streaming_sessions:type_name -> MeetingSpace.StreamingSessionInfo
-	317, // 550: MeetingSpace.CallInfo.settings:type_name -> MeetingSpace.CallInfo.CallSettings
-	318, // 551: MeetingSpace.CallInfo.paygate_info:type_name -> MeetingSpace.CallInfo.PaygateInfo
-	319, // 552: MeetingSpace.CallInfo.cse_info:type_name -> MeetingSpace.CallInfo.CseInfo
-	65,  // 553: MeetingSpace.RecordingInfo.RecordingEvent.type:type_name -> MeetingSpace.RecordingInfo.RecordingEvent.EventType
-	67,  // 554: MeetingSpace.StreamingSessionInfo.SessionEvent.type:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent.EventType
-	219, // 555: MeetingSpace.CallInfo.PaygateInfo.call_ending_soon_warning_time:type_name -> ComGoogleProtobufTimestamp
-	219, // 556: MeetingSpace.CallInfo.PaygateInfo.call_ending_time:type_name -> ComGoogleProtobufTimestamp
-	101, // 557: MembershipChangedMetadata.AffectedMembership.affected_member:type_name -> MemberId
-	19,  // 558: MembershipChangedMetadata.AffectedMembership.prior_membership_state:type_name -> MembershipState
-	17,  // 559: MembershipChangedMetadata.AffectedMembership.prior_membership_role:type_name -> MembershipRole
-	17,  // 560: MembershipChangedMetadata.AffectedMembership.target_membership_role:type_name -> MembershipRole
-	86,  // 561: WorldItemLite.MembershipLite.user_id:type_name -> UserId
-	19,  // 562: WorldItemLite.MembershipLite.membership_state:type_name -> MembershipState
-	86,  // 563: WorldItemLite.DmMembers.members:type_name -> UserId
-	321, // 564: WorldItemLite.DmMembers.memberships:type_name -> WorldItemLite.MembershipLite
-	86,  // 565: WorldItemLite.GroupLite.creator_id:type_name -> UserId
-	155, // 566: WorldItemLite.GroupLite.retention_settings:type_name -> RetentionSettings
-	211, // 567: WorldItemLite.GroupLite.group_details:type_name -> GroupDetails
-	568, // [568:568] is the sub-list for method output_type
-	568, // [568:568] is the sub-list for method input_type
-	568, // [568:568] is the sub-list for extension type_name
-	568, // [568:568] is the sub-list for extension extendee
-	0,   // [0:568] is the sub-list for field type_name
+	95,  // 42: UserPresence.user_status:type_name -> UserStatus
+	102, // 43: GetUserPresenceRequest.request_header:type_name -> RequestHeader
+	89,  // 44: GetUserPresenceRequest.user_ids:type_name -> UserId
+	110, // 45: GetUserPresenceResponse.user_presences:type_name -> UserPresence
+	113, // 46: JAddOnsFormattedText.id:type_name -> JAddOnsIdentifier
+	272, // 47: JAddOnsFormattedText.formatted_text_elements:type_name -> JAddOnsFormattedText.FormattedTextElement
+	25,  // 48: JAddOnsFormattedText.text_align:type_name -> JAddOnsFormattedText.TextAlign
+	28,  // 49: JAddOnsImageCropStyle.type:type_name -> JAddOnsImageCropStyle.ImageCropType
+	29,  // 50: JAddOnsOpenLink.open_as:type_name -> JAddOnsOpenLink.OpenAs
+	30,  // 51: JAddOnsOpenLink.on_close:type_name -> JAddOnsOpenLink.OnClose
+	31,  // 52: JAddOnsOpenLink.load_indicator:type_name -> JAddOnsOpenLink.LoadIndicator
+	276, // 53: JAddOnsCardItem.header:type_name -> JAddOnsCardItem.CardItemHeader
+	277, // 54: JAddOnsCardItem.sections:type_name -> JAddOnsCardItem.CardItemSection
+	278, // 55: JAddOnsCardItem.card_actions:type_name -> JAddOnsCardItem.CardItemAction
+	279, // 56: JAddOnsCardItem.fixed_footer:type_name -> JAddOnsCardItem.CardItemFixedFooter
+	280, // 57: JAddOnsCardItem.refresh_action:type_name -> JAddOnsCardItem.CardItemRefreshAction
+	32,  // 58: JAddOnsCardItem.display_style:type_name -> JAddOnsCardItem.DisplayStyle
+	276, // 59: JAddOnsCardItem.peek_card_header:type_name -> JAddOnsCardItem.CardItemHeader
+	116, // 60: JAddOnsCardItem.background_theme_colors:type_name -> JAddOnsThemeColors
+	118, // 61: JAddOnsPushCard.card:type_name -> JAddOnsCardItem
+	128, // 62: JAddOnsOnClick.action:type_name -> JAddOnsFormAction
+	117, // 63: JAddOnsOnClick.open_link:type_name -> JAddOnsOpenLink
+	128, // 64: JAddOnsOnClick.open_link_action:type_name -> JAddOnsFormAction
+	119, // 65: JAddOnsOnClick.push_card:type_name -> JAddOnsPushCard
+	115, // 66: JAddOnsImageComponent.crop_style:type_name -> JAddOnsImageCropStyle
+	124, // 67: JAddOnsImageComponent.border_style:type_name -> JAddOnsBorderStyle
+	113, // 68: JAddOnsGrid.id:type_name -> JAddOnsIdentifier
+	281, // 69: JAddOnsGrid.items:type_name -> JAddOnsGrid.GridItem
+	124, // 70: JAddOnsGrid.border_style:type_name -> JAddOnsBorderStyle
+	120, // 71: JAddOnsGrid.on_click:type_name -> JAddOnsOnClick
+	34,  // 72: JAddOnsBorderStyle.type:type_name -> JAddOnsBorderStyle.BorderType
+	116, // 73: JAddOnsBorderStyle.stroke_color:type_name -> JAddOnsThemeColors
+	125, // 74: JAddOnsLabelContentPairWidget.label_content_pair:type_name -> JAddOnsLabelContentPair
+	121, // 75: JAddOnsWidget.text_widget:type_name -> JAddOnsTextWidget
+	126, // 76: JAddOnsWidget.label_content_pair_widget:type_name -> JAddOnsLabelContentPairWidget
+	282, // 77: JAddOnsWidget.text_paragraph:type_name -> JAddOnsWidget.TextParagraph
+	283, // 78: JAddOnsWidget.text_key_value:type_name -> JAddOnsWidget.TextKeyValue
+	284, // 79: JAddOnsWidget.image_key_value:type_name -> JAddOnsWidget.ImageKeyValue
+	285, // 80: JAddOnsWidget.image:type_name -> JAddOnsWidget.Image
+	287, // 81: JAddOnsWidget.key_value:type_name -> JAddOnsWidget.KeyValue
+	288, // 82: JAddOnsWidget.divider:type_name -> JAddOnsWidget.Divider
+	123, // 83: JAddOnsWidget.grid:type_name -> JAddOnsGrid
+	289, // 84: JAddOnsWidget.menu:type_name -> JAddOnsWidget.Menu
+	291, // 85: JAddOnsWidget.text_field:type_name -> JAddOnsWidget.TextField
+	292, // 86: JAddOnsWidget.selection_control:type_name -> JAddOnsWidget.SelectionControl
+	293, // 87: JAddOnsWidget.date_time_picker:type_name -> JAddOnsWidget.DateTimePicker
+	296, // 88: JAddOnsWidget.buttons:type_name -> JAddOnsWidget.Button
+	35,  // 89: JAddOnsWidget.horizontal_align:type_name -> JAddOnsWidget.HorizontalAlign
+	301, // 90: JAddOnsFormAction.parameters:type_name -> JAddOnsFormAction.ActionParameter
+	42,  // 91: JAddOnsFormAction.load_indicator:type_name -> JAddOnsFormAction.LoadIndicator
+	302, // 92: JAddOnsContextualAddOn.toolbar:type_name -> JAddOnsContextualAddOn.Toolbar
+	303, // 93: JAddOnsContextualAddOn.cards:type_name -> JAddOnsContextualAddOn.Card
+	130, // 94: HtmlAttachment.html:type_name -> Html
+	131, // 95: Attachment.html:type_name -> HtmlAttachment
+	129, // 96: Attachment.add_on_data:type_name -> JAddOnsContextualAddOn
+	89,  // 97: Attachment.app_id:type_name -> UserId
+	90,  // 98: Attachment.app_user:type_name -> User
+	93,  // 99: Reaction.emoji:type_name -> Emoji
+	160, // 100: MessageParentId.topic_id:type_name -> TopicId
+	134, // 101: MessageId.parent_id:type_name -> MessageParentId
+	135, // 102: Message.id:type_name -> MessageId
+	43,  // 103: Message.message_state:type_name -> Message.MessageState
+	90,  // 104: Message.creator:type_name -> User
+	146, // 105: Message.annotations:type_name -> Annotation
+	132, // 106: Message.attachments:type_name -> Attachment
+	138, // 107: Message.app_profile:type_name -> AppProfile
+	158, // 108: Message.retention_settings:type_name -> RetentionSettings
+	133, // 109: Message.reactions:type_name -> Reaction
+	44,  // 110: Message.editable_by:type_name -> Message.MessagePermission
+	44,  // 111: Message.deletable_by:type_name -> Message.MessagePermission
+	136, // 112: Message.last_reply:type_name -> Message
+	45,  // 113: Message.message_type:type_name -> Message.MessageType
+	106, // 114: Message.creator_membership:type_name -> Membership
+	137, // 115: Message.reply_to:type_name -> ReplyToMessage
+	135, // 116: ReplyToMessage.id:type_name -> MessageId
+	89,  // 117: ReplyToMessage.sender_id:type_name -> UserId
+	90,  // 118: ReplyToMessage.sender:type_name -> User
+	90,  // 119: ReplyToMessage.sender_again:type_name -> User
+	141, // 120: DriveMetadata.embed_url:type_name -> TrustedResourceUrl
+	140, // 121: UrlMetadata.url:type_name -> Url
+	140, // 122: UrlMetadata.gws_url:type_name -> Url
+	140, // 123: UrlMetadata.redirect_url:type_name -> Url
+	46,  // 124: FormatMetadata.format_type:type_name -> FormatMetadata.FormatType
+	11,  // 125: Annotation.type:type_name -> AnnotationType
+	47,  // 126: Annotation.chip_render_type:type_name -> Annotation.ChipRenderType
+	229, // 127: Annotation.user_mention_metadata:type_name -> UserMentionMetadata
+	145, // 128: Annotation.format_metadata:type_name -> FormatMetadata
+	230, // 129: Annotation.slash_command_metadata:type_name -> SlashCommandMetadata
+	139, // 130: Annotation.drive_metadata:type_name -> DriveMetadata
+	142, // 131: Annotation.youtube_metadata:type_name -> YoutubeMetadata
+	143, // 132: Annotation.url_metadata:type_name -> UrlMetadata
+	144, // 133: Annotation.upload_metadata:type_name -> UploadMetadata
+	228, // 134: Annotation.membership_changed:type_name -> MembershipChangedMetadata
+	227, // 135: Annotation.video_call_metadata:type_name -> VideoCallMetadata
+	225, // 136: Annotation.room_updated:type_name -> RoomUpdatedMetadata
+	152, // 137: TypingContext.group_id:type_name -> GroupId
+	160, // 138: TypingContext.topic_id:type_name -> TopicId
+	102, // 139: SetTypingStateRequest.request_header:type_name -> RequestHeader
+	4,   // 140: SetTypingStateRequest.state:type_name -> TypingState
+	147, // 141: SetTypingStateRequest.context:type_name -> TypingContext
+	151, // 142: GroupId.space_id:type_name -> SpaceId
+	150, // 143: GroupId.dm_id:type_name -> DmId
+	152, // 144: Group.group_id:type_name -> GroupId
+	90,  // 145: Group.creator:type_name -> User
+	156, // 146: Group.group_read_state:type_name -> GroupReadState
+	158, // 147: Group.retention_settings:type_name -> RetentionSettings
+	48,  // 148: Group.group_type:type_name -> Group.GroupType
+	231, // 149: Group.visibility:type_name -> GroupVisibility
+	309, // 150: Group.flat_group:type_name -> Group.FlatGroup
+	310, // 151: Group.threaded_group:type_name -> Group.ThreadedGroup
+	21,  // 152: Group.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
+	243, // 153: Group.name_users:type_name -> NameUsers
+	224, // 154: Group.group_details:type_name -> GroupDetails
+	6,   // 155: Group.group_support_level:type_name -> GroupSupportLevel
+	5,   // 156: Group.group_unsupported_reason:type_name -> GroupUnsupportedReason
+	89,  // 157: GroupReadStateId.user_id:type_name -> UserId
+	152, // 158: GroupReadStateId.group_id:type_name -> GroupId
+	89,  // 159: InviteState.inviter_user_id:type_name -> UserId
+	135, // 160: InviteState.invitation_message_id:type_name -> MessageId
+	223, // 161: InviteState.invite_type:type_name -> InviteType
+	154, // 162: GroupReadState.id:type_name -> GroupReadStateId
+	160, // 163: GroupReadState.unread_subscribed_topics:type_name -> TopicId
+	155, // 164: GroupReadState.invite_state:type_name -> InviteState
+	157, // 165: GroupReadState.notification_settings:type_name -> GroupNotificationSettings
+	158, // 166: GroupReadState.retention_settings:type_name -> RetentionSettings
+	18,  // 167: GroupReadState.membership_role:type_name -> MembershipRole
+	20,  // 168: GroupReadState.membership_state:type_name -> MembershipState
+	1,   // 169: GroupReadState.invite_category:type_name -> InviteCategory
+	89,  // 170: GroupReadState.joined_users:type_name -> UserId
+	49,  // 171: GroupNotificationSettings.state:type_name -> GroupNotificationSettings.GroupNotificationState
+	50,  // 172: GroupNotificationSettings.room_state:type_name -> GroupNotificationSettings.RoomNotificationState
+	51,  // 173: RetentionSettings.state:type_name -> RetentionSettings.RetentionState
+	51,  // 174: GroupData.retention_state:type_name -> RetentionSettings.RetentionState
+	152, // 175: TopicId.group_id:type_name -> GroupId
+	160, // 176: Topic.id:type_name -> TopicId
+	136, // 177: Topic.replies:type_name -> Message
+	162, // 178: Topic.topic_read_state:type_name -> TopicReadState
+	158, // 179: Topic.retention_settings:type_name -> RetentionSettings
+	135, // 180: SendReplyTarget.id:type_name -> MessageId
+	163, // 181: MessageInfo.reply_to:type_name -> SendReplyTarget
+	102, // 182: CreateTopicRequest.request_header:type_name -> RequestHeader
+	152, // 183: CreateTopicRequest.group_id:type_name -> GroupId
+	146, // 184: CreateTopicRequest.annotations:type_name -> Annotation
+	158, // 185: CreateTopicRequest.retention_settings:type_name -> RetentionSettings
+	164, // 186: CreateTopicRequest.message_info:type_name -> MessageInfo
+	161, // 187: CreateTopicResponse.topic:type_name -> Topic
+	269, // 188: CreateTopicResponse.group_revision:type_name -> WriteRevision
+	270, // 189: CreateTopicResponse.current_group_revision:type_name -> ReadRevision
+	102, // 190: CreateMessageRequest.request_header:type_name -> RequestHeader
+	134, // 191: CreateMessageRequest.parent_id:type_name -> MessageParentId
+	146, // 192: CreateMessageRequest.annotations:type_name -> Annotation
+	164, // 193: CreateMessageRequest.message_info:type_name -> MessageInfo
+	136, // 194: CreateMessageResponse.message:type_name -> Message
+	269, // 195: CreateMessageResponse.group_revision:type_name -> WriteRevision
+	270, // 196: CreateMessageResponse.current_group_revision:type_name -> ReadRevision
+	102, // 197: UpdateReactionRequest.request_header:type_name -> RequestHeader
+	135, // 198: UpdateReactionRequest.message_id:type_name -> MessageId
+	93,  // 199: UpdateReactionRequest.emoji:type_name -> Emoji
+	52,  // 200: UpdateReactionRequest.type:type_name -> UpdateReactionRequest.ReactionUpdateType
+	269, // 201: UpdateReactionResponse.group_revision:type_name -> WriteRevision
+	102, // 202: DeleteMessageRequest.request_header:type_name -> RequestHeader
+	135, // 203: DeleteMessageRequest.message_id:type_name -> MessageId
+	269, // 204: DeleteMessageResponse.group_revision:type_name -> WriteRevision
+	102, // 205: EditMessageRequest.request_header:type_name -> RequestHeader
+	135, // 206: EditMessageRequest.message_id:type_name -> MessageId
+	146, // 207: EditMessageRequest.annotations:type_name -> Annotation
+	164, // 208: EditMessageRequest.message_info:type_name -> MessageInfo
+	136, // 209: EditMessageResponse.message:type_name -> Message
+	269, // 210: EditMessageResponse.group_revision:type_name -> WriteRevision
+	89,  // 211: InviteeInfo.user_id:type_name -> UserId
+	175, // 212: InviteeMemberInfo.invitee_info:type_name -> InviteeInfo
+	231, // 213: SpaceCreationInfo.visibility:type_name -> GroupVisibility
+	311, // 214: SpaceCreationInfo.flat_group:type_name -> SpaceCreationInfo.FlatGroup
+	312, // 215: SpaceCreationInfo.threaded_group:type_name -> SpaceCreationInfo.ThreadedGroup
+	176, // 216: SpaceCreationInfo.invitee_member_infos:type_name -> InviteeMemberInfo
+	313, // 217: SpaceCreationInfo.space_type:type_name -> SpaceCreationInfo.SpaceType
+	21,  // 218: SpaceCreationInfo.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
+	102, // 219: CreateGroupRequest.request_header:type_name -> RequestHeader
+	177, // 220: CreateGroupRequest.space:type_name -> SpaceCreationInfo
+	106, // 221: CreateMembershipResult.membership:type_name -> Membership
+	153, // 222: CreateGroupResponse.group:type_name -> Group
+	269, // 223: CreateGroupResponse.group_revision:type_name -> WriteRevision
+	269, // 224: CreateGroupResponse.user_revision:type_name -> WriteRevision
+	179, // 225: CreateGroupResponse.results:type_name -> CreateMembershipResult
+	102, // 226: CreateDmRequest.request_header:type_name -> RequestHeader
+	53,  // 227: CreateDmRequest.fetch_options:type_name -> CreateDmRequest.FetchOptions
+	89,  // 228: CreateDmRequest.members:type_name -> UserId
+	175, // 229: CreateDmRequest.invitees:type_name -> InviteeInfo
+	158, // 230: CreateDmRequest.retention_settings:type_name -> RetentionSettings
+	153, // 231: CreateDmResponse.dm:type_name -> Group
+	161, // 232: CreateDmResponse.topic:type_name -> Topic
+	269, // 233: CreateDmResponse.group_revision:type_name -> WriteRevision
+	106, // 234: CreateDmResponse.memberships:type_name -> Membership
+	161, // 235: ListTopicsResponse.topics:type_name -> Topic
+	270, // 236: ListTopicsResponse.user_revision:type_name -> ReadRevision
+	270, // 237: ListTopicsResponse.group_revision:type_name -> ReadRevision
+	190, // 238: ListTopicsResponse.read_receipt_set:type_name -> ReadReceiptSet
+	102, // 239: ListTopicsRequest.request_header:type_name -> RequestHeader
+	152, // 240: ListTopicsRequest.group_id:type_name -> GroupId
+	54,  // 241: ListTopicsRequest.fetch_options:type_name -> ListTopicsRequest.FetchOptions
+	271, // 242: ListTopicsRequest.user_not_older_than:type_name -> ReferenceRevision
+	271, // 243: ListTopicsRequest.group_not_older_than:type_name -> ReferenceRevision
+	102, // 244: ListMessagesRequest.request_header:type_name -> RequestHeader
+	134, // 245: ListMessagesRequest.parent_id:type_name -> MessageParentId
+	136, // 246: ListMessagesResponse.messages:type_name -> Message
+	270, // 247: ListMessagesResponse.group_revision:type_name -> ReadRevision
+	102, // 248: ListMembersRequest.request_header:type_name -> RequestHeader
+	151, // 249: ListMembersRequest.space_id:type_name -> SpaceId
+	152, // 250: ListMembersRequest.group_id:type_name -> GroupId
+	271, // 251: ListMembersRequest.not_older_than:type_name -> ReferenceRevision
+	106, // 252: ListMembersResponse.memberships:type_name -> Membership
+	103, // 253: ListMembersResponse.members:type_name -> Member
+	104, // 254: ListMembersResponse.member_ids:type_name -> MemberId
+	270, // 255: ListMembersResponse.group_revision:type_name -> ReadRevision
+	104, // 256: ListMembersResponse.invited_member_ids:type_name -> MemberId
+	90,  // 257: ReadReceipt.user:type_name -> User
+	189, // 258: ReadReceiptSet.read_receipts:type_name -> ReadReceipt
+	136, // 259: WebPushNotification.message:type_name -> Message
+	7,   // 260: WebPushNotification.cause:type_name -> NotificationCause
+	21,  // 261: IosLocalNotification.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
+	192, // 262: MobileLocalNotification.android_local_notification:type_name -> AndroidLocalNotification
+	193, // 263: MobileLocalNotification.ios_local_notification:type_name -> IosLocalNotification
+	136, // 264: MessageEvent.message:type_name -> Message
+	135, // 265: MessageReactionEvent.message_id:type_name -> MessageId
+	93,  // 266: MessageReactionEvent.emoji:type_name -> Emoji
+	89,  // 267: MessageReactionEvent.user_id:type_name -> UserId
+	55,  // 268: MessageReactionEvent.type:type_name -> MessageReactionEvent.ReactionEventType
+	135, // 269: MessageDeletedEvent.message_id:type_name -> MessageId
+	4,   // 270: TypingStateChangedEvent.state:type_name -> TypingState
+	89,  // 271: TypingStateChangedEvent.user_id:type_name -> UserId
+	147, // 272: TypingStateChangedEvent.context:type_name -> TypingContext
+	106, // 273: MembershipChangedEvent.new_membership:type_name -> Membership
+	20,  // 274: MembershipChangedEvent.prior_membership_state:type_name -> MembershipState
+	18,  // 275: MembershipChangedEvent.prior_membership_role:type_name -> MembershipRole
+	152, // 276: ReadReceiptChangedEvent.group_id:type_name -> GroupId
+	190, // 277: ReadReceiptChangedEvent.read_receipt_set:type_name -> ReadReceiptSet
+	152, // 278: GroupViewedEvent.group_id:type_name -> GroupId
+	153, // 279: GroupUpdatedEvent.new:type_name -> Group
+	153, // 280: GroupUpdatedEvent.old:type_name -> Group
+	56,  // 281: GroupUpdatedEvent.update_type:type_name -> GroupUpdatedEvent.UpdateType
+	191, // 282: WebPushNotificationEvent.notification:type_name -> WebPushNotification
+	57,  // 283: WebPushNotificationEvent.dispatch_approach_type:type_name -> WebPushNotificationEvent.DispatchApproachType
+	194, // 284: WebPushNotificationEvent.mobile_local_notification:type_name -> MobileLocalNotification
+	58,  // 285: WebPushNotificationEvent.endpoint_types:type_name -> WebPushNotificationEvent.EndpointType
+	10,  // 286: StreamEventsRequest.platform:type_name -> Platform
+	205, // 287: StreamEventsRequest.client_info:type_name -> ClientInfo
+	207, // 288: StreamEventsRequest.ping_event:type_name -> PingEvent
+	208, // 289: StreamEventsRequest.clock_sync_request:type_name -> ClockSyncRequest
+	210, // 290: StreamEventsRequest.group_subscription_event:type_name -> GroupSubscriptionEvent
+	10,  // 291: ClientInfo.platform:type_name -> Platform
+	8,   // 292: ClientInfo.origin:type_name -> EventOrigin
+	59,  // 293: ClientNotificationsState.device_setting_state:type_name -> ClientNotificationsState.DeviceNotificationSettingState
+	60,  // 294: PingEvent.state:type_name -> PingEvent.State
+	61,  // 295: PingEvent.application_focus_state:type_name -> PingEvent.ApplicationFocusState
+	62,  // 296: PingEvent.client_interactive_state:type_name -> PingEvent.ClientInteractiveState
+	206, // 297: PingEvent.notifications_state:type_name -> ClientNotificationsState
+	63,  // 298: PingEvent.device_active_state:type_name -> PingEvent.DeviceActiveState
+	152, // 299: GroupSubscriptionEvent.group_ids:type_name -> GroupId
+	222, // 300: StreamEventsResponse.event:type_name -> Event
+	209, // 301: StreamEventsResponse.clock_sync_response:type_name -> ClockSyncResponse
+	160, // 302: TopicMuteChangedEvent.topic_id:type_name -> TopicId
+	152, // 303: GroupUnreadSubscribedTopicCountUpdatedEvent.group_id:type_name -> GroupId
+	161, // 304: TopicCreatedEvent.topic:type_name -> Topic
+	152, // 305: MessageSmartRepliesEvent.group_id:type_name -> GroupId
+	152, // 306: GroupDefaultSortOrderUpdatedEvent.group_id:type_name -> GroupId
+	152, // 307: GroupReadStateUpdatedEvent.group_id:type_name -> GroupId
+	9,   // 308: BackendMetadata.dimensions:type_name -> BackendMetadataDimension
+	219, // 309: Interval.start:type_name -> Timestamp
+	219, // 310: Interval.end:type_name -> Timestamp
+	64,  // 311: LatencyData.server:type_name -> LatencyData.Server
+	220, // 312: LatencyData.interval:type_name -> Interval
+	152, // 313: Event.group_id:type_name -> GroupId
+	65,  // 314: Event.type:type_name -> Event.EventType
+	314, // 315: Event.body:type_name -> Event.EventBody
+	89,  // 316: Event.user_id:type_name -> UserId
+	269, // 317: Event.user_revision:type_name -> WriteRevision
+	269, // 318: Event.group_revision:type_name -> WriteRevision
+	314, // 319: Event.bodies:type_name -> Event.EventBody
+	218, // 320: Event.backend_metadata:type_name -> BackendMetadata
+	221, // 321: Event.latency_data:type_name -> LatencyData
+	231, // 322: RoomUpdatedMetadata.visibility:type_name -> GroupVisibility
+	315, // 323: RoomUpdatedMetadata.rename_metadata:type_name -> RoomUpdatedMetadata.RoomRenameMetadata
+	316, // 324: RoomUpdatedMetadata.group_details_metadata:type_name -> RoomUpdatedMetadata.GroupDetailsUpdatedMetadata
+	90,  // 325: RoomUpdatedMetadata.initiator:type_name -> User
+	317, // 326: MeetingSpace.phone_access:type_name -> MeetingSpace.PhoneAccess
+	318, // 327: MeetingSpace.universal_phone_access:type_name -> MeetingSpace.UniversalPhoneAccess
+	322, // 328: MeetingSpace.call_info:type_name -> MeetingSpace.CallInfo
+	323, // 329: MeetingSpace.gateway_access:type_name -> MeetingSpace.GatewayAccess
+	12,  // 330: MeetingSpace.accepted_number_class:type_name -> DialInNumberClass
+	324, // 331: MeetingSpace.gateway_sip_access:type_name -> MeetingSpace.GatewaySipAccess
+	325, // 332: MeetingSpace.broadcast_access:type_name -> MeetingSpace.BroadcastAccess
+	326, // 333: MeetingSpace.settings:type_name -> MeetingSpace.Settings
+	226, // 334: VideoCallMetadata.meeting_space:type_name -> MeetingSpace
+	71,  // 335: MembershipChangedMetadata.type:type_name -> MembershipChangedMetadata.Type
+	333, // 336: MembershipChangedMetadata.affected_memberships:type_name -> MembershipChangedMetadata.AffectedMembership
+	89,  // 337: MembershipChangedMetadata.initiator:type_name -> UserId
+	104, // 338: MembershipChangedMetadata.affected_members:type_name -> MemberId
+	90,  // 339: MembershipChangedMetadata.initiator_profile:type_name -> User
+	103, // 340: MembershipChangedMetadata.affected_member_profiles:type_name -> Member
+	89,  // 341: UserMentionMetadata.id:type_name -> UserId
+	175, // 342: UserMentionMetadata.invitee_info:type_name -> InviteeInfo
+	72,  // 343: UserMentionMetadata.type:type_name -> UserMentionMetadata.Type
+	89,  // 344: SlashCommandMetadata.id:type_name -> UserId
+	73,  // 345: SlashCommandMetadata.type:type_name -> SlashCommandMetadata.Type
+	102, // 346: GetServerTimeRequest.request_header:type_name -> RequestHeader
+	232, // 347: GetServerTimeResponse.timestamp:type_name -> ComGoogleProtobufTimestamp
+	102, // 348: CatchUpGroupRequest.request_header:type_name -> RequestHeader
+	152, // 349: CatchUpGroupRequest.group_id:type_name -> GroupId
+	235, // 350: CatchUpGroupRequest.range:type_name -> CatchUpRange
+	102, // 351: CatchUpUserRequest.request_header:type_name -> RequestHeader
+	235, // 352: CatchUpUserRequest.range:type_name -> CatchUpRange
+	222, // 353: CatchUpResponse.events:type_name -> Event
+	75,  // 354: CatchUpResponse.status:type_name -> CatchUpResponse.ResponseStatus
+	159, // 355: CatchUpResponse.group_data:type_name -> GroupData
+	102, // 356: GetGroupRequest.request_header:type_name -> RequestHeader
+	152, // 357: GetGroupRequest.group_id:type_name -> GroupId
+	76,  // 358: GetGroupRequest.fetch_options:type_name -> GetGroupRequest.FetchOptions
+	271, // 359: GetGroupRequest.user_not_older_than:type_name -> ReferenceRevision
+	271, // 360: GetGroupRequest.group_not_older_than:type_name -> ReferenceRevision
+	153, // 361: GetGroupResponse.group:type_name -> Group
+	106, // 362: GetGroupResponse.memberships:type_name -> Membership
+	270, // 363: GetGroupResponse.user_revision:type_name -> ReadRevision
+	270, // 364: GetGroupResponse.group_revision:type_name -> ReadRevision
+	20,  // 365: GetGroupResponse.membership_state:type_name -> MembershipState
+	104, // 366: GetGroupResponse.joined_member_ids:type_name -> MemberId
+	104, // 367: GetGroupResponse.invited_member_ids:type_name -> MemberId
+	190, // 368: GetGroupResponse.read_receipt_set:type_name -> ReadReceiptSet
+	136, // 369: GetGroupResponse.snippet:type_name -> Message
+	77,  // 370: WorldSection.world_section_type:type_name -> WorldSection.WorldSectionType
+	78,  // 371: WorldFilter.starred_state:type_name -> WorldFilter.StarredState
+	79,  // 372: WorldFilter.visibility_state:type_name -> WorldFilter.VisibilityState
+	80,  // 373: WorldFilter.read_state:type_name -> WorldFilter.ReadState
+	81,  // 374: WorldFilter.block_state:type_name -> WorldFilter.BlockState
+	82,  // 375: WorldFilter.named_state:type_name -> WorldFilter.NamedState
+	20,  // 376: WorldFilter.membership_state:type_name -> MembershipState
+	1,   // 377: WorldFilter.invite_category:type_name -> InviteCategory
+	83,  // 378: WorldFilter.member_type:type_name -> WorldFilter.MemberType
+	84,  // 379: WorldFilter.group_type:type_name -> WorldFilter.GroupType
+	89,  // 380: NameUsers.name_user_ids:type_name -> UserId
+	152, // 381: WorldItemLite.group_id:type_name -> GroupId
+	270, // 382: WorldItemLite.group_revision:type_name -> ReadRevision
+	156, // 383: WorldItemLite.read_state:type_name -> GroupReadState
+	335, // 384: WorldItemLite.dm_members:type_name -> WorldItemLite.DmMembers
+	243, // 385: WorldItemLite.name_users:type_name -> NameUsers
+	336, // 386: WorldItemLite.group_lite:type_name -> WorldItemLite.GroupLite
+	136, // 387: WorldItemLite.message:type_name -> Message
+	337, // 388: WorldItemLite.flat_group:type_name -> WorldItemLite.FlatGroup
+	338, // 389: WorldItemLite.threaded_group:type_name -> WorldItemLite.ThreadedGroup
+	21,  // 390: WorldItemLite.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
+	6,   // 391: WorldItemLite.group_support_level:type_name -> GroupSupportLevel
+	5,   // 392: WorldItemLite.group_unsupported_reason:type_name -> GroupUnsupportedReason
+	241, // 393: WorldSectionRequest.world_section:type_name -> WorldSection
+	242, // 394: WorldSectionRequest.world_filter:type_name -> WorldFilter
+	241, // 395: WorldSectionResponse.world_section:type_name -> WorldSection
+	242, // 396: WorldSectionResponse.world_filter:type_name -> WorldFilter
+	244, // 397: WorldSectionResponse.world_items:type_name -> WorldItemLite
+	102, // 398: PaginatedWorldRequest.request_header:type_name -> RequestHeader
+	245, // 399: PaginatedWorldRequest.world_section_requests:type_name -> WorldSectionRequest
+	85,  // 400: PaginatedWorldRequest.fetch_options:type_name -> PaginatedWorldRequest.FetchOptions
+	246, // 401: PaginatedWorldResponse.world_section_responses:type_name -> WorldSectionResponse
+	270, // 402: PaginatedWorldResponse.user_revision:type_name -> ReadRevision
+	244, // 403: PaginatedWorldResponse.world_items:type_name -> WorldItemLite
+	102, // 404: RemoveMembershipsRequest.request_header:type_name -> RequestHeader
+	104, // 405: RemoveMembershipsRequest.member_ids:type_name -> MemberId
+	152, // 406: RemoveMembershipsRequest.group_id:type_name -> GroupId
+	20,  // 407: RemoveMembershipsRequest.membership_state:type_name -> MembershipState
+	102, // 408: RemoveMembershipResult.request_header:type_name -> RequestHeader
+	104, // 409: RemoveMembershipResult.member_id:type_name -> MemberId
+	250, // 410: RemoveMembershipsResponse.results:type_name -> RemoveMembershipResult
+	158, // 411: RemoveMembershipsResponse.retention_settings:type_name -> RetentionSettings
+	269, // 412: RemoveMembershipsResponse.retention_settings_group_revision:type_name -> WriteRevision
+	102, // 413: HideGroupRequest.request_header:type_name -> RequestHeader
+	152, // 414: HideGroupRequest.id:type_name -> GroupId
+	156, // 415: HideGroupResponse.read_state:type_name -> GroupReadState
+	269, // 416: HideGroupResponse.user_revision:type_name -> WriteRevision
+	86,  // 417: InviteNotificationSettings.option:type_name -> InviteNotificationSettings.NotificationOption
+	102, // 418: CreateMembershipRequest.request_header:type_name -> RequestHeader
+	104, // 419: CreateMembershipRequest.member_ids:type_name -> MemberId
+	176, // 420: CreateMembershipRequest.invitee_member_infos:type_name -> InviteeMemberInfo
+	20,  // 421: CreateMembershipRequest.membership_state:type_name -> MembershipState
+	152, // 422: CreateMembershipRequest.group_id:type_name -> GroupId
+	254, // 423: CreateMembershipRequest.notification_settings:type_name -> InviteNotificationSettings
+	179, // 424: CreateMembershipResponse.results:type_name -> CreateMembershipResult
+	269, // 425: CreateMembershipResponse.group_revision:type_name -> WriteRevision
+	158, // 426: CreateMembershipResponse.retention_settings:type_name -> RetentionSettings
+	269, // 427: CreateMembershipResponse.retention_settings_group_revision:type_name -> WriteRevision
+	102, // 428: MarkGroupReadstateRequest.request_header:type_name -> RequestHeader
+	152, // 429: MarkGroupReadstateRequest.id:type_name -> GroupId
+	156, // 430: MarkGroupReadstateResponse.read_state:type_name -> GroupReadState
+	269, // 431: MarkGroupReadstateResponse.user_revision:type_name -> WriteRevision
+	102, // 432: SetPresenceSharedRequest.request_header:type_name -> RequestHeader
+	95,  // 433: SetPresenceSharedResponse.user_status:type_name -> UserStatus
+	269, // 434: SetPresenceSharedResponse.user_revision:type_name -> WriteRevision
+	102, // 435: SetDndDurationRequest.request_header:type_name -> RequestHeader
+	87,  // 436: SetDndDurationRequest.current_dnd_state:type_name -> SetDndDurationRequest.State
+	95,  // 437: SetDndDurationResponse.user_status:type_name -> UserStatus
+	269, // 438: SetDndDurationResponse.user_revision:type_name -> WriteRevision
+	102, // 439: UpdateGroupRequest.request_header:type_name -> RequestHeader
+	151, // 440: UpdateGroupRequest.space_id:type_name -> SpaceId
+	88,  // 441: UpdateGroupRequest.update_masks:type_name -> UpdateGroupRequest.UpdateMask
+	231, // 442: UpdateGroupRequest.visibility:type_name -> GroupVisibility
+	153, // 443: UpdateGroupResponse.group:type_name -> Group
+	269, // 444: UpdateGroupResponse.group_revision:type_name -> WriteRevision
+	102, // 445: BlockEntityRequest.request_header:type_name -> RequestHeader
+	89,  // 446: BlockEntityRequest.user_id:type_name -> UserId
+	152, // 447: BlockEntityRequest.group_id:type_name -> GroupId
+	156, // 448: BlockEntityResponse.read_state:type_name -> GroupReadState
+	269, // 449: BlockEntityResponse.user_revision:type_name -> WriteRevision
+	102, // 450: SetCustomStatusRequest.request_header:type_name -> RequestHeader
+	94,  // 451: SetCustomStatusRequest.custom_status:type_name -> CustomStatus
+	95,  // 452: SetCustomStatusResponse.user_status:type_name -> UserStatus
+	269, // 453: SetCustomStatusResponse.user_revision:type_name -> WriteRevision
+	274, // 454: JAddOnsFormattedText.FormattedTextElement.styled_text:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText
+	275, // 455: JAddOnsFormattedText.FormattedTextElement.hyperlink:type_name -> JAddOnsFormattedText.FormattedTextElement.HyperLink
+	273, // 456: JAddOnsFormattedText.FormattedTextElement.StyledText.datetime:type_name -> JAddOnsFormattedText.FormattedTextElement.DateTime
+	26,  // 457: JAddOnsFormattedText.FormattedTextElement.StyledText.styles:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.Style
+	27,  // 458: JAddOnsFormattedText.FormattedTextElement.StyledText.font_weight:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.FontWeight
+	116, // 459: JAddOnsFormattedText.FormattedTextElement.StyledText.theme_colors:type_name -> JAddOnsThemeColors
+	114, // 460: JAddOnsCardItem.CardItemHeader.title:type_name -> JAddOnsFormattedText
+	114, // 461: JAddOnsCardItem.CardItemHeader.subtitle:type_name -> JAddOnsFormattedText
+	28,  // 462: JAddOnsCardItem.CardItemHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	113, // 463: JAddOnsCardItem.CardItemSection.id:type_name -> JAddOnsIdentifier
+	114, // 464: JAddOnsCardItem.CardItemSection.header:type_name -> JAddOnsFormattedText
+	127, // 465: JAddOnsCardItem.CardItemSection.widgets:type_name -> JAddOnsWidget
+	120, // 466: JAddOnsCardItem.CardItemAction.on_click:type_name -> JAddOnsOnClick
+	296, // 467: JAddOnsCardItem.CardItemFixedFooter.buttons:type_name -> JAddOnsWidget.Button
+	294, // 468: JAddOnsCardItem.CardItemFixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
+	294, // 469: JAddOnsCardItem.CardItemFixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
+	128, // 470: JAddOnsCardItem.CardItemRefreshAction.method:type_name -> JAddOnsFormAction
+	122, // 471: JAddOnsGrid.GridItem.image:type_name -> JAddOnsImageComponent
+	35,  // 472: JAddOnsGrid.GridItem.text_alignment:type_name -> JAddOnsWidget.HorizontalAlign
+	33,  // 473: JAddOnsGrid.GridItem.layout:type_name -> JAddOnsGrid.GridItem.GridItemLayout
+	120, // 474: JAddOnsGrid.GridItem.on_click:type_name -> JAddOnsOnClick
+	114, // 475: JAddOnsWidget.TextParagraph.text:type_name -> JAddOnsFormattedText
+	114, // 476: JAddOnsWidget.TextKeyValue.key:type_name -> JAddOnsFormattedText
+	114, // 477: JAddOnsWidget.TextKeyValue.text:type_name -> JAddOnsFormattedText
+	120, // 478: JAddOnsWidget.TextKeyValue.on_click:type_name -> JAddOnsOnClick
+	114, // 479: JAddOnsWidget.ImageKeyValue.text:type_name -> JAddOnsFormattedText
+	120, // 480: JAddOnsWidget.ImageKeyValue.on_click:type_name -> JAddOnsOnClick
+	113, // 481: JAddOnsWidget.Image.id:type_name -> JAddOnsIdentifier
+	120, // 482: JAddOnsWidget.Image.on_click:type_name -> JAddOnsOnClick
+	28,  // 483: JAddOnsWidget.Icon.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	28,  // 484: JAddOnsWidget.KeyValue.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	286, // 485: JAddOnsWidget.KeyValue.start_icon:type_name -> JAddOnsWidget.Icon
+	114, // 486: JAddOnsWidget.KeyValue.top_label:type_name -> JAddOnsFormattedText
+	114, // 487: JAddOnsWidget.KeyValue.content:type_name -> JAddOnsFormattedText
+	114, // 488: JAddOnsWidget.KeyValue.bottom_label:type_name -> JAddOnsFormattedText
+	120, // 489: JAddOnsWidget.KeyValue.on_click:type_name -> JAddOnsOnClick
+	296, // 490: JAddOnsWidget.KeyValue.button:type_name -> JAddOnsWidget.Button
+	297, // 491: JAddOnsWidget.KeyValue.switch_widget:type_name -> JAddOnsWidget.KeyValue.SwitchWidget
+	286, // 492: JAddOnsWidget.KeyValue.end_icon:type_name -> JAddOnsWidget.Icon
+	298, // 493: JAddOnsWidget.Menu.items:type_name -> JAddOnsWidget.Menu.MenuItem
+	128, // 494: JAddOnsWidget.Menu.on_change:type_name -> JAddOnsFormAction
+	299, // 495: JAddOnsWidget.AutoComplete.items:type_name -> JAddOnsWidget.AutoComplete.AutoCompleteItem
+	113, // 496: JAddOnsWidget.TextField.id:type_name -> JAddOnsIdentifier
+	37,  // 497: JAddOnsWidget.TextField.type:type_name -> JAddOnsWidget.TextField.TextFieldType
+	38,  // 498: JAddOnsWidget.TextField.line_type:type_name -> JAddOnsWidget.TextField.LineType
+	128, // 499: JAddOnsWidget.TextField.on_change:type_name -> JAddOnsFormAction
+	290, // 500: JAddOnsWidget.TextField.auto_complete:type_name -> JAddOnsWidget.AutoComplete
+	128, // 501: JAddOnsWidget.TextField.auto_complete_callback:type_name -> JAddOnsFormAction
+	113, // 502: JAddOnsWidget.SelectionControl.id:type_name -> JAddOnsIdentifier
+	39,  // 503: JAddOnsWidget.SelectionControl.type:type_name -> JAddOnsWidget.SelectionControl.SelectionType
+	300, // 504: JAddOnsWidget.SelectionControl.items:type_name -> JAddOnsWidget.SelectionControl.SelectionItem
+	128, // 505: JAddOnsWidget.SelectionControl.on_change:type_name -> JAddOnsFormAction
+	40,  // 506: JAddOnsWidget.DateTimePicker.type:type_name -> JAddOnsWidget.DateTimePicker.DateTimePickerType
+	128, // 507: JAddOnsWidget.DateTimePicker.on_change:type_name -> JAddOnsFormAction
+	116, // 508: JAddOnsWidget.DateTimePicker.theme_colors:type_name -> JAddOnsThemeColors
+	113, // 509: JAddOnsWidget.TextButton.id:type_name -> JAddOnsIdentifier
+	114, // 510: JAddOnsWidget.TextButton.text:type_name -> JAddOnsFormattedText
+	120, // 511: JAddOnsWidget.TextButton.on_click:type_name -> JAddOnsOnClick
+	41,  // 512: JAddOnsWidget.TextButton.style:type_name -> JAddOnsWidget.TextButton.Style
+	116, // 513: JAddOnsWidget.TextButton.background_theme_colors:type_name -> JAddOnsThemeColors
+	113, // 514: JAddOnsWidget.ImageButton.id:type_name -> JAddOnsIdentifier
+	120, // 515: JAddOnsWidget.ImageButton.on_click:type_name -> JAddOnsOnClick
+	294, // 516: JAddOnsWidget.Button.text_button:type_name -> JAddOnsWidget.TextButton
+	295, // 517: JAddOnsWidget.Button.image_button:type_name -> JAddOnsWidget.ImageButton
+	113, // 518: JAddOnsWidget.KeyValue.SwitchWidget.id:type_name -> JAddOnsIdentifier
+	128, // 519: JAddOnsWidget.KeyValue.SwitchWidget.on_change:type_name -> JAddOnsFormAction
+	36,  // 520: JAddOnsWidget.KeyValue.SwitchWidget.control_type:type_name -> JAddOnsWidget.KeyValue.SwitchWidget.ControlType
+	113, // 521: JAddOnsWidget.SelectionControl.SelectionItem.id:type_name -> JAddOnsIdentifier
+	114, // 522: JAddOnsContextualAddOn.Toolbar.name:type_name -> JAddOnsFormattedText
+	116, // 523: JAddOnsContextualAddOn.Toolbar.theme_colors:type_name -> JAddOnsThemeColors
+	304, // 524: JAddOnsContextualAddOn.Card.header:type_name -> JAddOnsContextualAddOn.Card.CardHeader
+	305, // 525: JAddOnsContextualAddOn.Card.sections:type_name -> JAddOnsContextualAddOn.Card.Section
+	306, // 526: JAddOnsContextualAddOn.Card.card_actions:type_name -> JAddOnsContextualAddOn.Card.CardAction
+	307, // 527: JAddOnsContextualAddOn.Card.fixed_footer:type_name -> JAddOnsContextualAddOn.Card.FixedFooter
+	308, // 528: JAddOnsContextualAddOn.Card.refresh_action:type_name -> JAddOnsContextualAddOn.Card.RefreshAction
+	116, // 529: JAddOnsContextualAddOn.Card.background_theme_colors:type_name -> JAddOnsThemeColors
+	114, // 530: JAddOnsContextualAddOn.Card.CardHeader.title:type_name -> JAddOnsFormattedText
+	114, // 531: JAddOnsContextualAddOn.Card.CardHeader.subtitle:type_name -> JAddOnsFormattedText
+	28,  // 532: JAddOnsContextualAddOn.Card.CardHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	113, // 533: JAddOnsContextualAddOn.Card.Section.id:type_name -> JAddOnsIdentifier
+	114, // 534: JAddOnsContextualAddOn.Card.Section.header:type_name -> JAddOnsFormattedText
+	127, // 535: JAddOnsContextualAddOn.Card.Section.widgets:type_name -> JAddOnsWidget
+	120, // 536: JAddOnsContextualAddOn.Card.CardAction.on_click:type_name -> JAddOnsOnClick
+	296, // 537: JAddOnsContextualAddOn.Card.FixedFooter.buttons:type_name -> JAddOnsWidget.Button
+	294, // 538: JAddOnsContextualAddOn.Card.FixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
+	294, // 539: JAddOnsContextualAddOn.Card.FixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
+	128, // 540: JAddOnsContextualAddOn.Card.RefreshAction.method:type_name -> JAddOnsFormAction
+	201, // 541: Event.EventBody.group_viewed:type_name -> GroupViewedEvent
+	202, // 542: Event.EventBody.group_updated:type_name -> GroupUpdatedEvent
+	195, // 543: Event.EventBody.message_posted:type_name -> MessageEvent
+	212, // 544: Event.EventBody.topic_mute_changed:type_name -> TopicMuteChangedEvent
+	203, // 545: Event.EventBody.web_push_notification:type_name -> WebPushNotificationEvent
+	213, // 546: Event.EventBody.group_unread_subscribed_topic_count_updated_event:type_name -> GroupUnreadSubscribedTopicCountUpdatedEvent
+	199, // 547: Event.EventBody.membership_changed:type_name -> MembershipChangedEvent
+	197, // 548: Event.EventBody.message_deleted:type_name -> MessageDeletedEvent
+	214, // 549: Event.EventBody.topic_created:type_name -> TopicCreatedEvent
+	196, // 550: Event.EventBody.message_reaction:type_name -> MessageReactionEvent
+	96,  // 551: Event.EventBody.user_status_updated:type_name -> UserStatusUpdatedEvent
+	215, // 552: Event.EventBody.message_smart_replies_event:type_name -> MessageSmartRepliesEvent
+	198, // 553: Event.EventBody.typing_state_changed:type_name -> TypingStateChangedEvent
+	200, // 554: Event.EventBody.read_receipt_changed:type_name -> ReadReceiptChangedEvent
+	216, // 555: Event.EventBody.group_default_sort_order_updated_event:type_name -> GroupDefaultSortOrderUpdatedEvent
+	217, // 556: Event.EventBody.group_read_state_updated_event:type_name -> GroupReadStateUpdatedEvent
+	65,  // 557: Event.EventBody.event_type:type_name -> Event.EventType
+	224, // 558: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.new_group_details:type_name -> GroupDetails
+	224, // 559: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.prev_group_details:type_name -> GroupDetails
+	67,  // 560: MeetingSpace.RecordingInfo.recording_status:type_name -> MeetingSpace.RecordingInfo.RecordingStatus
+	327, // 561: MeetingSpace.RecordingInfo.latest_recording_event:type_name -> MeetingSpace.RecordingInfo.RecordingEvent
+	13,  // 562: MeetingSpace.RecordingInfo.recording_application_type:type_name -> RecordingApplicationType
+	69,  // 563: MeetingSpace.StreamingSessionInfo.status:type_name -> MeetingSpace.StreamingSessionInfo.Status
+	13,  // 564: MeetingSpace.StreamingSessionInfo.application_type:type_name -> RecordingApplicationType
+	328, // 565: MeetingSpace.StreamingSessionInfo.latest_session_event:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent
+	14,  // 566: MeetingSpace.StreamingSessionInfo.viewer_access_policy:type_name -> BroadcastAccessPolicy
+	329, // 567: MeetingSpace.StreamingSessionInfo.viewer_stats:type_name -> MeetingSpace.StreamingSessionInfo.StreamViewerStats
+	319, // 568: MeetingSpace.CallInfo.presenter:type_name -> MeetingSpace.Presenter
+	320, // 569: MeetingSpace.CallInfo.recording_info:type_name -> MeetingSpace.RecordingInfo
+	321, // 570: MeetingSpace.CallInfo.streaming_sessions:type_name -> MeetingSpace.StreamingSessionInfo
+	330, // 571: MeetingSpace.CallInfo.settings:type_name -> MeetingSpace.CallInfo.CallSettings
+	331, // 572: MeetingSpace.CallInfo.paygate_info:type_name -> MeetingSpace.CallInfo.PaygateInfo
+	332, // 573: MeetingSpace.CallInfo.cse_info:type_name -> MeetingSpace.CallInfo.CseInfo
+	68,  // 574: MeetingSpace.RecordingInfo.RecordingEvent.type:type_name -> MeetingSpace.RecordingInfo.RecordingEvent.EventType
+	70,  // 575: MeetingSpace.StreamingSessionInfo.SessionEvent.type:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent.EventType
+	232, // 576: MeetingSpace.CallInfo.PaygateInfo.call_ending_soon_warning_time:type_name -> ComGoogleProtobufTimestamp
+	232, // 577: MeetingSpace.CallInfo.PaygateInfo.call_ending_time:type_name -> ComGoogleProtobufTimestamp
+	104, // 578: MembershipChangedMetadata.AffectedMembership.affected_member:type_name -> MemberId
+	20,  // 579: MembershipChangedMetadata.AffectedMembership.prior_membership_state:type_name -> MembershipState
+	18,  // 580: MembershipChangedMetadata.AffectedMembership.prior_membership_role:type_name -> MembershipRole
+	18,  // 581: MembershipChangedMetadata.AffectedMembership.target_membership_role:type_name -> MembershipRole
+	89,  // 582: WorldItemLite.MembershipLite.user_id:type_name -> UserId
+	20,  // 583: WorldItemLite.MembershipLite.membership_state:type_name -> MembershipState
+	89,  // 584: WorldItemLite.DmMembers.members:type_name -> UserId
+	334, // 585: WorldItemLite.DmMembers.memberships:type_name -> WorldItemLite.MembershipLite
+	89,  // 586: WorldItemLite.GroupLite.creator_id:type_name -> UserId
+	158, // 587: WorldItemLite.GroupLite.retention_settings:type_name -> RetentionSettings
+	224, // 588: WorldItemLite.GroupLite.group_details:type_name -> GroupDetails
+	589, // [589:589] is the sub-list for method output_type
+	589, // [589:589] is the sub-list for method input_type
+	589, // [589:589] is the sub-list for extension type_name
+	589, // [589:589] is the sub-list for extension extendee
+	0,   // [0:589] is the sub-list for field type_name
 }
 
 func init() { file_googlechat_proto_init() }
@@ -26017,57 +27147,63 @@ func file_googlechat_proto_init() {
 	file_googlechat_proto_msgTypes[89].OneofWrappers = []any{
 		(*CreateGroupRequest_Space)(nil),
 	}
-	file_googlechat_proto_msgTypes[123].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[133].OneofWrappers = []any{
 		(*Event_UserRevision)(nil),
 		(*Event_GroupRevision)(nil),
 	}
-	file_googlechat_proto_msgTypes[146].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[156].OneofWrappers = []any{
 		(*WorldSectionRequest_PaginationToken)(nil),
 	}
-	file_googlechat_proto_msgTypes[162].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[172].OneofWrappers = []any{
 		(*SetDndDurationRequest_NewDndDurationUsec)(nil),
 		(*SetDndDurationRequest_DndExpiryTimestampUsec)(nil),
 	}
-	file_googlechat_proto_msgTypes[166].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[176].OneofWrappers = []any{
 		(*BlockEntityRequest_UserId)(nil),
 		(*BlockEntityRequest_GroupId)(nil),
 	}
-	file_googlechat_proto_msgTypes[168].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[178].OneofWrappers = []any{
 		(*SetCustomStatusRequest_CustomStatusExpiryTimestampUsec)(nil),
 		(*SetCustomStatusRequest_CustomStatusRemainingDurationUsec)(nil),
 	}
-	file_googlechat_proto_msgTypes[173].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[183].OneofWrappers = []any{
 		(*JAddOnsFormattedText_FormattedTextElement_StyledText_)(nil),
 		(*JAddOnsFormattedText_FormattedTextElement_Hyperlink)(nil),
 	}
-	file_googlechat_proto_msgTypes[188].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[198].OneofWrappers = []any{
 		(*JAddOnsWidget_KeyValue_Button)(nil),
 		(*JAddOnsWidget_KeyValue_SwitchWidget_)(nil),
 		(*JAddOnsWidget_KeyValue_EndIcon)(nil),
 	}
-	file_googlechat_proto_msgTypes[197].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[207].OneofWrappers = []any{
 		(*JAddOnsWidget_Button_TextButton)(nil),
 		(*JAddOnsWidget_Button_ImageButton)(nil),
 	}
-	file_googlechat_proto_msgTypes[215].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[225].OneofWrappers = []any{
 		(*Event_EventBody_GroupViewed)(nil),
 		(*Event_EventBody_GroupUpdated)(nil),
 		(*Event_EventBody_MessagePosted)(nil),
+		(*Event_EventBody_TopicMuteChanged)(nil),
 		(*Event_EventBody_WebPushNotification)(nil),
+		(*Event_EventBody_GroupUnreadSubscribedTopicCountUpdatedEvent)(nil),
 		(*Event_EventBody_MembershipChanged)(nil),
 		(*Event_EventBody_MessageDeleted)(nil),
+		(*Event_EventBody_TopicCreated)(nil),
 		(*Event_EventBody_MessageReaction)(nil),
 		(*Event_EventBody_UserStatusUpdated)(nil),
+		(*Event_EventBody_MessageSmartRepliesEvent)(nil),
 		(*Event_EventBody_TypingStateChanged)(nil),
 		(*Event_EventBody_ReadReceiptChanged)(nil),
+		(*Event_EventBody_GroupDefaultSortOrderUpdatedEvent)(nil),
+		(*Event_EventBody_GroupReadStateUpdatedEvent)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_googlechat_proto_rawDesc), len(file_googlechat_proto_rawDesc)),
-			NumEnums:      86,
-			NumMessages:   240,
+			NumEnums:      89,
+			NumMessages:   250,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
