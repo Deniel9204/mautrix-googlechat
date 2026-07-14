@@ -117,10 +117,12 @@ type Session struct {
 	pollClient *http.Client
 
 	// allowedHostSuffixes gates both directions: cookies are only attached
-	// to outgoing requests, and only absorbed from responses, when the
-	// request host matches one of these suffixes (http_utils.py:249-255).
-	// Defaults to defaultAllowedHostSuffixes; unexported so only this
-	// package's own tests can override it.
+	// to outgoing requests whose target host matches one of these suffixes
+	// (buildRequest), and only absorbed from responses whose FINAL,
+	// post-redirect origin matches (absorbCookies) -- see http_utils.py:
+	// 249-255 for the Python safety rail this ports. Defaults to
+	// defaultAllowedHostSuffixes; unexported so only this package's own
+	// tests can override it.
 	allowedHostSuffixes []string
 }
 
@@ -223,13 +225,13 @@ func (s *Session) hostAllowed(u *url.URL) bool {
 // "Connection: Keep-Alive" (http_utils.py:254-255, unconditionally
 // overwritten same as Python), and -- only if the target host matches
 // allowedHostSuffixes -- a hand-built, unquoted Cookie header
-// (http_utils.py:61-62; see cookieJar's doc comment). It reports whether
-// the host was allowed, so the caller can decide whether to also absorb
-// Set-Cookie from the response.
-func (s *Session) buildRequest(ctx context.Context, method, rawURL string, headers http.Header, body io.Reader) (*http.Request, bool, error) {
+// (http_utils.py:61-62; see cookieJar's doc comment). This gates only the
+// SEND direction; the absorb direction is gated separately, against the
+// post-redirect response origin, in absorbCookies.
+func (s *Session) buildRequest(ctx context.Context, method, rawURL string, headers http.Header, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	for k, vv := range headers {
 		for _, v := range vv {
@@ -245,13 +247,33 @@ func (s *Session) buildRequest(ctx context.Context, method, rawURL string, heade
 	// Forced unconditionally, matching http_utils.py:254-255 (headers["Connection"] = "Keep-Alive").
 	req.Header.Set("Connection", "Keep-Alive")
 
-	allowed := s.hostAllowed(req.URL)
-	if allowed {
+	if s.hostAllowed(req.URL) {
 		if cookieHeader := s.jar.header(); cookieHeader != "" {
 			req.Header.Set("Cookie", cookieHeader)
 		}
 	}
-	return req, allowed, nil
+	return req, nil
+}
+
+// absorbCookies ingests Set-Cookie values from resp into the jar, but only
+// when the response's ACTUAL origin is allowlisted. That origin is
+// resp.Request.URL -- Go's http.Client follows redirects internally and
+// sets resp.Request to the FINAL, post-redirect request on the response it
+// returns -- NOT the URL the caller originally asked for. Gating on the
+// pre-redirect URL would let an allowlisted origin 302 to a
+// non-allowlisted host whose Set-Cookie would then be absorbed into the
+// shared flat jar (e.g. an attachment redirect chain poisoning SID, which
+// Cookies() would then persist and every later request replay to Google).
+// Python needed no explicit check here because aiohttp's cookie jar is
+// RFC 6265 domain-scoped -- a Set-Cookie from evil.example can never be
+// attached to a chat.google.com request; this port's deliberately-flat jar
+// (see cookieJar's doc comment) moves that protection to this gate
+// instead.
+func (s *Session) absorbCookies(resp *http.Response) {
+	if resp.Request == nil || !s.hostAllowed(resp.Request.URL) {
+		return
+	}
+	s.jar.absorb(resp)
 }
 
 // Fetch performs a request with auth cookies, retrying transient failures
@@ -285,7 +307,7 @@ func (s *Session) Fetch(ctx context.Context, method, urlStr string, headers http
 		if body != nil {
 			bodyReader = bytes.NewReader(body)
 		}
-		req, allowed, err := s.buildRequest(ctx, method, urlStr, headers, bodyReader)
+		req, err := s.buildRequest(ctx, method, urlStr, headers, bodyReader)
 		if err != nil {
 			// Request construction (e.g. a malformed method/URL) fails the
 			// same way on every attempt, so unlike a transport error it is
@@ -306,9 +328,7 @@ func (s *Session) Fetch(ctx context.Context, method, urlStr string, headers http
 			continue
 		}
 
-		if allowed {
-			s.jar.absorb(resp)
-		}
+		s.absorbCookies(resp)
 
 		respBody, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -360,7 +380,7 @@ func (s *Session) FetchRaw(ctx context.Context, method, urlStr string, headers h
 		}
 	}
 
-	req, allowed, err := s.buildRequest(ctx, method, urlStr, headers, bodyReader)
+	req, err := s.buildRequest(ctx, method, urlStr, headers, bodyReader)
 	if err != nil {
 		return nil, err
 	}
@@ -370,9 +390,7 @@ func (s *Session) FetchRaw(ctx context.Context, method, urlStr string, headers h
 		return nil, err
 	}
 
-	if allowed {
-		s.jar.absorb(resp)
-	}
+	s.absorbCookies(resp)
 	return resp, nil
 }
 
@@ -414,6 +432,15 @@ func sleepOrDone(ctx context.Context, d time.Duration) error {
 // status code in the final error
 // (docs/research/08c-megabridge-clientlib.md §3, "Retries" paragraph) --
 // not replicated here.
+//
+// WARNING (double-send risk, for Task 5's API layer): all 5xx are retried
+// uniformly, but a 500/502 can be returned AFTER the origin already
+// processed the request -- so retrying a non-idempotent POST (create_topic,
+// create_message, ...) through Fetch may double-send the message. This
+// matches the brief's mandate (502 must be retried) and is acceptable for
+// idempotent/safe RPCs, but send-path callers may eventually need a way to
+// opt out of 5xx retry (or supply an idempotency signal, like the protocol's
+// local_id echo-dedup) rather than relying on this blanket policy.
 func isRetryableStatus(status int) bool {
 	return status >= 500 && status <= 599
 }

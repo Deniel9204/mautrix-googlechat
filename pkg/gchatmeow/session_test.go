@@ -458,6 +458,85 @@ func TestDefaultAllowedHostSuffixes(t *testing.T) {
 	}
 }
 
+// TestRedirectSetCookieNotAbsorbed verifies cookie absorption is gated on
+// the FINAL, post-redirect response origin, not the URL originally
+// requested: an allowlisted host that 302-redirects to a non-allowlisted
+// host must not cause that host's Set-Cookie to be absorbed into the jar.
+// Go's http.Client follows redirects internally and returns only the final
+// response (with resp.Request set to the final request), so gating on the
+// pre-redirect URL would absorb the attacker's cookie. Python was immune
+// without an explicit check because aiohttp's jar is RFC 6265
+// domain-scoped; this port's flat jar needs the explicit origin gate in
+// absorbCookies. Covers both Fetch (apiClient) and FetchRaw (pollClient).
+func TestRedirectSetCookieNotAbsorbed(t *testing.T) {
+	var evilCookieHeader string
+	var evilHits int32
+	evilSrv := newLoopbackServer(t, "127.0.0.2", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&evilHits, 1)
+		evilCookieHeader = r.Header.Get("Cookie")
+		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "attacker", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer evilSrv.Close()
+
+	allowedSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, evilSrv.URL+"/landing", http.StatusFound)
+	}))
+	defer allowedSrv.Close()
+
+	run := func(t *testing.T, do func(sess *Session) error) {
+		sess, err := NewSession(map[string]string{"SID": "secret"}, "")
+		if err != nil {
+			t.Fatalf("NewSession: %v", err)
+		}
+		// Only the redirect SOURCE is allowlisted; the target is not.
+		sess.allowedHostSuffixes = []string{testServerHost(t, allowedSrv.URL)}
+
+		if err := do(sess); err != nil {
+			t.Fatalf("request: %v", err)
+		}
+		if atomic.LoadInt32(&evilHits) == 0 {
+			t.Fatal("redirect target was never hit")
+		}
+		if got := sess.Cookies()["SID"]; got != "secret" {
+			t.Errorf(`Cookies()["SID"] = %q, want "secret" (Set-Cookie from post-redirect non-allowlisted host must not be absorbed)`, got)
+		}
+		// Defense in depth: Go's http.Client also strips the Cookie header
+		// on the cross-host redirect hop (net/http shouldCopyHeaderOnRedirect),
+		// so the attacker host must not see the auth cookies either.
+		if evilCookieHeader != "" {
+			t.Errorf("redirect target received Cookie = %q, want none", evilCookieHeader)
+		}
+	}
+
+	t.Run("Fetch", func(t *testing.T) {
+		run(t, func(sess *Session) error {
+			resp, err := sess.Fetch(context.Background(), http.MethodGet, allowedSrv.URL, nil, nil)
+			if err != nil {
+				return err
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("StatusCode = %d, want 200 (final response after redirect)", resp.StatusCode)
+			}
+			return nil
+		})
+	})
+
+	t.Run("FetchRaw", func(t *testing.T) {
+		run(t, func(sess *Session) error {
+			resp, err := sess.FetchRaw(context.Background(), http.MethodGet, allowedSrv.URL, nil, nil)
+			if err != nil {
+				return err
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("StatusCode = %d, want 200 (final response after redirect)", resp.StatusCode)
+			}
+			return nil
+		})
+	})
+}
+
 // TestGoogleusercontentGetsNoCookies drives a real HTTP request to a
 // literal googleusercontent.com URL (dial redirected to a local httptest
 // server, DEFAULT allowlist untouched) and asserts both directions of the
