@@ -174,6 +174,26 @@ func (ch *Channel) setCsessionid(v string) {
 	ch.mu.Unlock()
 }
 
+// The Set* methods below let Task 8's Client wire its callbacks through the
+// unexported channelListener interface (client.go) rather than by touching the
+// exported fields directly. They exist ONLY so a test fake can satisfy the
+// same interface; each is a plain field assignment, always called before
+// Listen (single-goroutine setup), so no locking is needed.
+
+// SetOnReceiveArray sets the per-data-array callback (see OnReceiveArray).
+func (ch *Channel) SetOnReceiveArray(f func(ctx context.Context, arr []byte) error) {
+	ch.OnReceiveArray = f
+}
+
+// SetOnConnect sets the first-connect callback (see OnConnect).
+func (ch *Channel) SetOnConnect(f func(ctx context.Context)) { ch.OnConnect = f }
+
+// SetOnReconnect sets the reconnect callback (see OnReconnect).
+func (ch *Channel) SetOnReconnect(f func(ctx context.Context)) { ch.OnReconnect = f }
+
+// SetOnDisconnect sets the disconnect callback (see OnDisconnect).
+func (ch *Channel) SetOnDisconnect(f func(ctx context.Context)) { ch.OnDisconnect = f }
+
 // Listen registers and runs the long-poll loop until ctx is cancelled or a
 // terminal error occurs, returning that error to the caller (client.go
 // supervision). Ports channel.py:205-258 (listen).

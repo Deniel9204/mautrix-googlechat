@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -64,6 +66,45 @@ type Client struct {
 	// baseURL overrides apiBaseURL when non-empty, so tests can point a
 	// Client at an httptest server instead of the real Google Chat host.
 	baseURL string
+
+	// --- Task 8 orchestration state (methods live in client.go) ---
+	//
+	// OnStreamEvent is called once per flattened event body, synchronously and
+	// in order, from the Connect goroutine (see client.go's goroutine model).
+	// Set before Connect; read-only afterwards.
+	OnStreamEvent func(ctx context.Context, ev *pb.Event)
+	// OnConnectionState reports connection-state transitions
+	// (CONNECTED/TRANSIENT/BAD_CREDENTIALS/FATAL), synchronously from the
+	// Connect goroutine. Set before Connect; read-only afterwards.
+	OnConnectionState func(state ConnState, err error)
+
+	// newChannel builds a fresh channel per (re)connect. Defaults to a real
+	// *Channel bound to session; overridable in tests to inject a fake
+	// (channelListener). Never mutated after construction.
+	newChannel func() channelListener
+
+	// channel is the live channel for the current connect cycle, guarded by
+	// mu: the Connect goroutine swaps it each iteration while an external
+	// SendStreamEvent caller reads it.
+	channel channelListener
+
+	// cancel cancels the Connect loop's derived context; Disconnect calls it.
+	// Guarded by mu.
+	cancel context.CancelFunc
+
+	// Supervision tunables (defaults from NewClient; overridable in tests).
+	maxRetries          int           // passed to Channel.Listen (Python max_retries=3)
+	retryBackoffBase    time.Duration // passed to Channel.Listen (Python retry_backoff_base=2)
+	reconnectBackoffMin time.Duration // supervision-loop transient backoff floor (Python 4s)
+	reconnectBackoffMax time.Duration // supervision-loop transient backoff ceiling (Python 60s)
+
+	// XSRF refresh scheduling (client.py:147-149's 24h staleness check plus
+	// the brief's 401-triggered refresh). lastTokenRefresh is guarded by mu;
+	// refreshMu serializes the fetch itself so concurrent 401s don't stampede
+	// /mole/world.
+	xsrfRefreshInterval time.Duration
+	lastTokenRefresh    time.Time
+	refreshMu           sync.Mutex
 }
 
 // XSRFToken returns the token currently sent as x-framework-xsrf-token on
@@ -100,7 +141,35 @@ func newRequestHeader() *pb.RequestHeader {
 	}
 }
 
-// doRequest implements Client._gc_request (client.py:582-615): marshal
+// doRequest wraps doRequestOnce with the brief's 401-triggered XSRF refresh:
+// a stale x-framework-xsrf-token surfaces as HTTP 401, so on that (and only
+// that) status we re-fetch the token via /mole/world (client.go's
+// refreshXSRFToken) and retry the RPC exactly once. Any other error -- and a
+// second 401 after the refresh -- propagates to the caller unchanged. This
+// covers every /api/* RPC uniformly, not just the ones issued from Connect.
+func (c *Client) doRequest(ctx context.Context, endpoint string, requestPB, responsePB proto.Message) error {
+	err := c.doRequestOnce(ctx, endpoint, requestPB, responsePB)
+	if err == nil || !isUnauthorizedStatus(err) {
+		return err
+	}
+	if refreshErr := c.refreshXSRFToken(ctx); refreshErr != nil {
+		// Refresh failed (e.g. cookies dead -> ErrNotLoggedIn): surface the
+		// original 401 so the caller's auth handling sees a consistent signal.
+		return err
+	}
+	proto.Reset(responsePB)
+	return c.doRequestOnce(ctx, endpoint, requestPB, responsePB)
+}
+
+// isUnauthorizedStatus reports whether err is (or wraps) an
+// *UnexpectedStatusError carrying HTTP 401 -- the signal that the XSRF token
+// is stale and a refresh+retry is worth attempting.
+func isUnauthorizedStatus(err error) bool {
+	var ue *UnexpectedStatusError
+	return errors.As(err, &ue) && ue.Status == http.StatusUnauthorized
+}
+
+// doRequestOnce implements Client._gc_request (client.py:582-615): marshal
 // requestPB to binary protobuf, POST it to
 // {baseURL}/api/{endpoint}?c=<counter>&rt=b&alt=proto&key=<apiKey>, and
 // unmarshal the response body into responsePB.
@@ -118,7 +187,7 @@ func newRequestHeader() *pb.RequestHeader {
 // preserved (Session.Fetch's job) -- an explicit improvement over Python,
 // which collapses every non-200 /api/* response into a bare NetworkError
 // with no status (doc 01 §6).
-func (c *Client) doRequest(ctx context.Context, endpoint string, requestPB, responsePB proto.Message) error {
+func (c *Client) doRequestOnce(ctx context.Context, endpoint string, requestPB, responsePB proto.Message) error {
 	reqBody, err := proto.Marshal(requestPB)
 	if err != nil {
 		return fmt.Errorf("gchatmeow: failed to marshal %s request: %w", endpoint, err)
