@@ -13,6 +13,21 @@ import (
 // COMPASS/SSID/SID/OSID/HSID -- http_utils.py:64-66).
 var RequiredCookies = []string{"COMPASS", "SSID", "SID", "OSID", "HSID"}
 
+// CookieIsDomainSpecific reports whether a required cookie's NAME is also used
+// on OTHER Google subdomains, so the browser-side login UI must be told which
+// domain's copy to extract. Only COMPASS and OSID collide this way; SSID, SID
+// and HSID exist only under the parent .google.com and must NOT be pinned to
+// chat.google.com (hinting the wrong domain would make the extension miss or
+// grab the wrong value). Copied verbatim from the cleared reference
+// googlechat-megabridge/pkg/gchatmeow/cookies.go's CookieIsDomainSpecific
+// (documented in docs/research/08b-megabridge-connector.md §1.3). This is a
+// login-UI extraction hint only -- it is unrelated to the outbound cookie
+// JAR, which installs all 5 flat under chat.google.com (doc 01 §1.2,
+// cookieJar's doc comment).
+func CookieIsDomainSpecific(cookieName string) bool {
+	return cookieName == "COMPASS" || cookieName == "OSID"
+}
+
 // cookieJar is a minimal, flat, name-keyed cookie store.
 //
 // Unlike net/http/cookiejar.Jar, it does NOT do RFC 6265 domain/path

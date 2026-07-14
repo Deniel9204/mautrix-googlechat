@@ -62,8 +62,19 @@ func TestLoginStartStepShape(t *testing.T) {
 		if src.Name != f.ID {
 			t.Errorf("field[%d] source.Name = %q, want %q", i, src.Name, f.ID)
 		}
-		if src.CookieDomain != "chat.google.com" {
-			t.Errorf("field[%d] (%s) source.CookieDomain = %q, want chat.google.com", i, f.ID, src.CookieDomain)
+		// Only COMPASS and OSID collide across Google subdomains and so carry
+		// the chat.google.com extraction hint (matching megabridge's
+		// CookieIsDomainSpecific); SSID/SID/HSID must have an EMPTY domain so
+		// the client extracts them from their real parent-.google.com home.
+		// Hinting the wrong domain for those would break real logins while
+		// leaving every unit test that only checks "domain is set" green --
+		// hence the exact per-field pin below.
+		wantDomain := ""
+		if f.ID == "COMPASS" || f.ID == "OSID" {
+			wantDomain = "chat.google.com"
+		}
+		if src.CookieDomain != wantDomain {
+			t.Errorf("field[%d] (%s) source.CookieDomain = %q, want %q", i, f.ID, src.CookieDomain, wantDomain)
 		}
 		if f.ID == "COMPASS" {
 			if f.Pattern != "dynamite-ui=" {

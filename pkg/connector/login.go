@@ -87,16 +87,27 @@ type GChatLogin struct {
 var _ bridgev2.LoginProcessCookies = (*GChatLogin)(nil)
 
 // loginCookieFields builds the 5 LoginCookieField descriptors the login UI
-// must collect: COMPASS, SSID, SID, OSID, HSID (gchatmeow.RequiredCookies),
-// each scoped to chat.google.com -- doc 01 §1.2: "Each of the 5 cookies is
-// installed with domain=chat.google.com, path=/" (all 5 alike; unlike
-// megabridge there is no per-cookie "is this one domain-specific" branch to
-// port, since it applies uniformly here). COMPASS additionally carries a
-// client-side validation hint: real COMPASS cookie values contain a
-// "dynamite-ui=" prefix segment.
+// must collect: COMPASS, SSID, SID, OSID, HSID (gchatmeow.RequiredCookies).
+// The CookieDomain here is a BROWSER-SIDE EXTRACTION HINT telling the login
+// client which subdomain's copy of a same-named cookie to grab -- it is NOT
+// the outbound cookie-jar domain (all 5 are installed flat under
+// chat.google.com for requests, doc 01 §1.2). Only COMPASS and OSID collide
+// across Google subdomains and so need the chat.google.com hint
+// (gchatmeow.CookieIsDomainSpecific); SSID, SID and HSID exist only under the
+// parent .google.com and are left with an EMPTY domain so the client extracts
+// them from wherever they live -- pinning them to chat.google.com would make
+// the extension miss them and break real logins. Copied from the cleared
+// reference googlechat-megabridge/pkg/connector/login.go:53-71 (per
+// docs/research/08b-megabridge-connector.md §1.3). COMPASS additionally
+// carries a client-side validation hint: real COMPASS cookie values contain a
+// "dynamite-ui=" segment.
 func loginCookieFields() []bridgev2.LoginCookieField {
 	fields := make([]bridgev2.LoginCookieField, len(gchatmeow.RequiredCookies))
 	for i, key := range gchatmeow.RequiredCookies {
+		var cookieDomain string
+		if gchatmeow.CookieIsDomainSpecific(key) {
+			cookieDomain = "chat.google.com"
+		}
 		fields[i] = bridgev2.LoginCookieField{
 			ID:       key,
 			Required: true,
@@ -104,7 +115,7 @@ func loginCookieFields() []bridgev2.LoginCookieField {
 				{
 					Type:         bridgev2.LoginCookieTypeCookie,
 					Name:         key,
-					CookieDomain: "chat.google.com",
+					CookieDomain: cookieDomain,
 				},
 			},
 		}
