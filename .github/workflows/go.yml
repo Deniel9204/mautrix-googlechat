@@ -1,0 +1,29 @@
+name: Go
+
+on: [push, pull_request]
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.25", "1.26"]
+    name: Build & test (Go ${{ matrix.go-version }})
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+      - name: gofmt check
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Build
+        run: go build -tags goolm ./...
+      - name: Vet
+        run: go vet -tags goolm ./...
+      - name: Test
+        run: go test -tags goolm ./...
