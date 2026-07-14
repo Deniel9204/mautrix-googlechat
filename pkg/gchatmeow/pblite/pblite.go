@@ -46,6 +46,7 @@
 package pblite
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -62,9 +63,22 @@ import (
 // skipped, never returned as errors. Only a structural failure -- data
 // isn't a JSON array -- returns an error.
 func Unmarshal(data []byte, msg proto.Message) error {
+	// UseNumber() keeps every JSON number as the exact decimal text
+	// (json.Number, a string underneath) instead of decoding it through
+	// float64, which can only represent integers exactly up to 2^53.
+	// create_time and friends are microsecond int64 timestamps well past
+	// that, so a bare-number (non-stringified) int64/uint64 -- which the
+	// mandatory decode behaviors require accepting -- must not round-trip
+	// through float64 or it silently corrupts the value instead of
+	// decoding it exactly.
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	var raw any
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := dec.Decode(&raw); err != nil {
 		return fmt.Errorf("pblite: invalid JSON: %w", err)
+	}
+	if dec.More() {
+		return fmt.Errorf("pblite: trailing data after JSON value")
 	}
 	arr, ok := raw.([]any)
 	if !ok {
@@ -123,12 +137,19 @@ func buildFieldEntries(arr []any) []fieldEntry {
 	if len(dict) > 0 {
 		extra := make([]fieldEntry, 0, len(dict))
 		for k, v := range dict {
-			n, err := strconv.Atoi(k)
+			// ParseInt with bitSize 32, not Atoi (platform int, effectively
+			// 64-bit): entry.number is later narrowed to
+			// protoreflect.FieldNumber (int32) when looked up, and an
+			// unchecked truncation there could wrap a huge/garbage key
+			// around into a small, real field number and silently
+			// overwrite an unrelated field instead of being skipped as
+			// unknown.
+			n, err := strconv.ParseInt(k, 10, 32)
 			if err != nil {
-				log.Debug().Str("key", k).Msg("pblite: skipping non-numeric sparse-dict key")
+				log.Debug().Str("key", k).Msg("pblite: skipping out-of-range/non-numeric sparse-dict key")
 				continue
 			}
-			extra = append(extra, fieldEntry{number: n, value: v})
+			extra = append(extra, fieldEntry{number: int(n), value: v})
 		}
 		sort.Slice(extra, func(i, j int) bool { return extra[i].number < extra[j].number })
 		entries = append(entries, extra...)
@@ -175,6 +196,14 @@ func decodeSingularField(m protoreflect.Message, fd protoreflect.FieldDescriptor
 	m.Set(fd, v)
 }
 
+// decodeListField decodes a repeated field. Deliberate deviation from
+// maugclib: Python's _decode_repeated_field (pblite.py:48-70) discards the
+// *entire* list -- including elements already decoded successfully -- if
+// any single element fails to decode (ClearField on the caught exception).
+// This codec instead skips only the bad element and keeps the rest, per
+// the stricter "undecodable single values are skipped" contract mandated
+// for this port: one malformed element in an otherwise-good repeated field
+// must not throw away the whole field.
 func decodeListField(m protoreflect.Message, fd protoreflect.FieldDescriptor, value any) {
 	items, ok := value.([]any)
 	if !ok {
@@ -278,8 +307,12 @@ func decodeValue(value any, ref protoreflect.Message, insideList protoreflect.Li
 		switch v := value.(type) {
 		case bool:
 			return protoreflect.ValueOfBool(v), true
-		case float64:
-			return protoreflect.ValueOfBool(v != 0), true
+		case json.Number:
+			f, err := v.Float64()
+			if err != nil {
+				return protoreflect.Value{}, false
+			}
+			return protoreflect.ValueOfBool(f != 0), true
 		default:
 			return protoreflect.Value{}, false
 		}
@@ -288,20 +321,31 @@ func decodeValue(value any, ref protoreflect.Message, insideList protoreflect.Li
 	}
 }
 
-// toInt64 accepts a JSON number (float64) or a decimal string -- the pblite
-// wire form for int64/int32 fields (the JS client stringifies 64-bit values
-// it can't represent exactly as JS numbers; 32-bit fields are seen both
-// ways in practice, so both are accepted for all integer kinds).
+// toInt64 accepts a JSON number (decoded as json.Number, i.e. its exact
+// decimal text -- see the UseNumber comment in Unmarshal) or a decimal
+// string -- the pblite wire form for int64/int32 fields (the JS client
+// stringifies 64-bit values it can't represent exactly as JS numbers;
+// 32-bit fields are seen both ways in practice, so both are accepted for
+// all integer kinds). Falls back to a float parse for the rare non-integer
+// literal (e.g. "3.0"), matching Python's int(json.loads(...)) leniency.
 func toInt64(value any) (int64, bool) {
 	switch v := value.(type) {
 	case string:
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return 0, false
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return n, true
 		}
-		return n, true
-	case float64:
-		return int64(v), true
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return int64(f), true
+		}
+		return 0, false
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return n, true
+		}
+		if f, err := v.Float64(); err == nil {
+			return int64(f), true
+		}
+		return 0, false
 	default:
 		return 0, false
 	}
@@ -310,16 +354,21 @@ func toInt64(value any) (int64, bool) {
 func toUint64(value any) (uint64, bool) {
 	switch v := value.(type) {
 	case string:
-		n, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			return 0, false
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+			return n, true
 		}
-		return n, true
-	case float64:
-		if v < 0 {
-			return 0, false
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			return uint64(f), true
 		}
-		return uint64(v), true
+		return 0, false
+	case json.Number:
+		if n, err := strconv.ParseUint(v.String(), 10, 64); err == nil {
+			return n, true
+		}
+		if f, err := v.Float64(); err == nil && f >= 0 {
+			return uint64(f), true
+		}
+		return 0, false
 	default:
 		return 0, false
 	}
@@ -327,8 +376,12 @@ func toUint64(value any) (uint64, bool) {
 
 func toFloat64(value any) (float64, bool) {
 	switch v := value.(type) {
-	case float64:
-		return v, true
+	case json.Number:
+		f, err := v.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return f, true
 	case string:
 		f, err := strconv.ParseFloat(v, 64)
 		if err != nil {
@@ -368,8 +421,12 @@ func isTrivialValue(v any) bool {
 		return true
 	case string:
 		return t == ""
-	case float64:
-		return t == 0
+	case json.Number:
+		f, err := t.Float64()
+		return err == nil && f == 0
+	case bool:
+		// Python: `False == 0`, so `False in [[], "", 0]` is true.
+		return !t
 	case []any:
 		return len(t) == 0
 	default:

@@ -2,6 +2,7 @@ package pblite_test
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -235,5 +236,100 @@ func TestNullSkipsField(t *testing.T) {
 	}
 	if out.GetType() != pb.UserType_BOT {
 		t.Fatalf("expected Type to still decode past the null, got %v", out.GetType())
+	}
+}
+
+// TestInt64NumberPrecision guards against decoding bare (non-string) JSON
+// numbers through float64, which only represents integers exactly up to
+// 2^53 (9007199254740992). Message.create_time (field 3) is a microsecond
+// int64 timestamp that routinely exceeds that boundary; json.Decoder must
+// be configured with UseNumber() so the exact decimal text is preserved.
+func TestInt64NumberPrecision(t *testing.T) {
+	const want int64 = 9007199254740993 // 2^53 + 1: the smallest int not exactly representable as float64.
+	raw := `[null, null, 9007199254740993]`
+	var out pb.Message
+	if err := pblite.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.GetCreateTime() != want {
+		t.Fatalf("expected exact int64 %d, got %d (float64 round-trip precision loss)", want, out.GetCreateTime())
+	}
+}
+
+// TestSparseDictFieldNumberOverflowIgnored covers the sparse-dict field
+// number parse path: a key that overflows int32 must be dropped (as an
+// unparseable/unknown field), not silently truncated/wrapped into a real,
+// unrelated field number.
+func TestSparseDictFieldNumberOverflowIgnored(t *testing.T) {
+	// 4294967298 == 2^32 + 2; naive truncation to int32 wraps this to 2,
+	// which is UserId.type. It must NOT be decoded as if the key were "2".
+	raw := `[null, {"4294967298": 1}]`
+	var out pb.UserId
+	if err := pblite.Unmarshal([]byte(raw), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.GetType() != pb.UserType_HUMAN {
+		t.Fatalf("expected Type to stay unset (HUMAN is the zero value), got %v -- overflowing sparse-dict key aliased onto field 2", out.GetType())
+	}
+}
+
+// TestZeroValuePresence covers proto2 explicit field presence: an int32
+// field explicitly set to its zero value (0) must round-trip as *present*,
+// not as unset. This is exactly the defect class documents/research/08c
+// flags against megabridge's proto3 conversion (implicit presence can't
+// distinguish "set to 0" from "never set"); this codec must not regress it.
+func TestZeroValuePresence(t *testing.T) {
+	in := &pb.Annotation{StartIndex: i32(0)}
+	data, err := pblite.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out pb.Annotation
+	if err := pblite.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.StartIndex == nil {
+		t.Fatal("expected StartIndex to be present after round trip, got nil (explicit 0 lost its has-bit)")
+	}
+	if !gproto.Equal(in, &out) {
+		t.Fatalf("zero-value round trip mismatch: %s vs %s", in, &out)
+	}
+}
+
+// TestNullInsideRepeatedList covers a null embedded inside a repeated
+// field's array (not just the outer per-field null): it must be skipped
+// like any other undecodable single value, without discarding the
+// surrounding valid elements or aborting the whole list.
+func TestNullInsideRepeatedList(t *testing.T) {
+	// StreamEventsRequest.sample_ids is field 7 (repeated string).
+	scalarArr := make([]any, 7)
+	scalarArr[6] = []any{"a", nil, "b"}
+	scalarData, err := json.Marshal(scalarArr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outScalar pb.StreamEventsRequest
+	if err := pblite.Unmarshal(scalarData, &outScalar); err != nil {
+		t.Fatal(err)
+	}
+	if got := outScalar.GetSampleIds(); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("expected [a b] with the null element skipped, got %v", got)
+	}
+
+	// Message.annotations is field 11 (repeated message); each Annotation's
+	// start_index is its field 2, so a nested annotation array is [nil, N].
+	msgArr := make([]any, 11)
+	msgArr[10] = []any{[]any{nil, 1}, nil, []any{nil, 2}}
+	msgData, err := json.Marshal(msgArr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outMsg pb.Message
+	if err := pblite.Unmarshal(msgData, &outMsg); err != nil {
+		t.Fatal(err)
+	}
+	annotations := outMsg.GetAnnotations()
+	if len(annotations) != 2 || annotations[0].GetStartIndex() != 1 || annotations[1].GetStartIndex() != 2 {
+		t.Fatalf("expected 2 annotations [1 2] with the null element skipped, got %v", annotations)
 	}
 }
