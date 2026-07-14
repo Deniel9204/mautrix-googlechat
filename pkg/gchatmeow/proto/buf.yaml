@@ -1,0 +1,7 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use: []
+breaking:
+  use: []
