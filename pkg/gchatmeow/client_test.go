@@ -550,3 +550,84 @@ func TestXSRFRefreshOn401(t *testing.T) {
 		t.Errorf("/mole/world called %d times, want 1", moleCalls)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Client.FetchXSRFToken / Client.UserAgent (Task 10: exported so the
+// connector's login flow -- a different package -- can validate submitted
+// cookies and persist the resolved cookie/UA fingerprint without reaching
+// into Client's unexported session field.)
+// ---------------------------------------------------------------------------
+
+// TestClientFetchXSRFTokenSuccess mirrors TestFetchXSRFToken_Success
+// (auth_test.go) but through the exported Client wrapper: a valid /mole/world
+// response stores the scraped token on the Client.
+func TestClientFetchXSRFTokenSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(loggedInWizHTML))
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(ClientOpts{Cookies: map[string]string{"SID": "x"}})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.session.moleWorldBaseURL = srv.URL
+
+	if err := c.FetchXSRFToken(context.Background()); err != nil {
+		t.Fatalf("FetchXSRFToken() error = %v", err)
+	}
+	if got := c.XSRFToken(); got != "the-xsrf-token-value" {
+		t.Errorf("XSRFToken() = %q, want %q", got, "the-xsrf-token-value")
+	}
+}
+
+// TestClientFetchXSRFTokenNotLoggedIn mirrors TestFetchXSRFToken_NotLoggedIn:
+// the AccountsSignInUi signal must surface as ErrNotLoggedIn through the
+// Client wrapper too, unmodified, so the connector's login flow can detect
+// rejected cookies via errors.Is.
+func TestClientFetchXSRFTokenNotLoggedIn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(signInWizHTML))
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(ClientOpts{Cookies: map[string]string{}})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.session.moleWorldBaseURL = srv.URL
+
+	err = c.FetchXSRFToken(context.Background())
+	if !errors.Is(err, ErrNotLoggedIn) {
+		t.Fatalf("FetchXSRFToken() error = %v, want ErrNotLoggedIn", err)
+	}
+	if got := c.XSRFToken(); got != "" {
+		t.Errorf("XSRFToken() = %q after failed refresh, want empty", got)
+	}
+}
+
+// TestClientUserAgent verifies the exported UserAgent() getter reflects the
+// NORMALIZED value Session actually applies (default fallback, or a pinned
+// Chrome/Firefox version on a caller-supplied UA) -- see
+// normalizeUserAgent/TestUserAgentVersionRewrite. Needed so the connector can
+// persist the exact fingerprint used for the validated session (doc 01 §1.1:
+// "The user's real browser user-agent is stored per-user and reused").
+func TestClientUserAgent(t *testing.T) {
+	c, err := NewClient(ClientOpts{})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if got := c.UserAgent(); got != defaultUserAgent {
+		t.Errorf("UserAgent() = %q, want default %q", got, defaultUserAgent)
+	}
+
+	c2, err := NewClient(ClientOpts{UserAgent: "Mozilla/5.0 Chrome/100.0.4321.10 Firefox/99.5"})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if got := c2.UserAgent(); !strings.Contains(got, "Chrome/"+latestChromeVersion+".0.0.0") {
+		t.Errorf("UserAgent() = %q, want Chrome version rewritten to %s", got, latestChromeVersion)
+	}
+}

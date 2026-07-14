@@ -8,10 +8,18 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
+
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 )
 
 type GChatClient struct {
 	UserLogin *bridgev2.UserLogin
+
+	// Client is the gchatmeow client for this login. login.go's SubmitCookies
+	// attaches an already-validated, "warm" client here (never nil after a
+	// successful login); LoadUserLogin's rebuild-from-persisted-metadata path
+	// on restart is Task 11's job.
+	Client *gchatmeow.Client
 }
 
 var _ bridgev2.NetworkAPI = (*GChatClient)(nil)

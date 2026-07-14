@@ -203,6 +203,15 @@ func (s *Session) Cookies() map[string]string {
 	return s.jar.snapshot(RequiredCookies)
 }
 
+// UserAgent returns the normalized User-Agent (see normalizeUserAgent) this
+// Session applies to every request, for persistence by callers outside this
+// package (mirrors the Cookies() getter's purpose above).
+func (s *Session) UserAgent() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.userAgent
+}
+
 // hostAllowed reports whether u's host matches one of allowedHostSuffixes:
 // either exactly, or as a dotted suffix (host ends in "."+suffix). Python's
 // equivalent check (http_utils.py:251) is dot-suffix-only

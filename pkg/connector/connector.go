@@ -70,6 +70,9 @@ func (gc *GChatConnector) GetLoginFlows() []bridgev2.LoginFlow {
 	}}
 }
 
-func (gc *GChatConnector) CreateLogin(_ context.Context, _ *bridgev2.User, flowID string) (bridgev2.LoginProcess, error) {
-	return nil, fmt.Errorf("login flow %s is not implemented yet (M1)", flowID)
+func (gc *GChatConnector) CreateLogin(_ context.Context, user *bridgev2.User, flowID string) (bridgev2.LoginProcess, error) {
+	if flowID != "cookies" {
+		return nil, fmt.Errorf("login flow %s is not implemented yet (M1)", flowID)
+	}
+	return &GChatLogin{User: user, Main: gc}, nil
 }

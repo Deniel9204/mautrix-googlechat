@@ -158,6 +158,31 @@ func (c *Client) Cookies() map[string]string {
 	return c.session.Cookies()
 }
 
+// UserAgent returns the NORMALIZED User-Agent this Client's session actually
+// applies to every request (see normalizeUserAgent), for persistence -- so a
+// later reconnect replays the exact same browser fingerprint rather than
+// re-normalizing a possibly-different one (doc 01 §1.1: "The user's real
+// browser user-agent is stored per-user and reused for all subsequent
+// requests").
+func (c *Client) UserAgent() string {
+	return c.session.UserAgent()
+}
+
+// FetchXSRFToken validates the Client's cookies and (re)fetches its XSRF
+// token via GET /mole/world, unconditionally -- unlike ensureToken/Connect's
+// internal 24h-staleness gate, this always performs the round trip. Mirrors
+// Python's explicit Client.refresh_tokens() call at login time (client.py:
+// 499-539; doc 01 §1.4 step 2: "await client.refresh_tokens() -- validates
+// cookies, gets xsrf token"). Exported so the connector's login flow (a
+// different package) can validate submitted cookies and obtain a warm,
+// request-ready Client without reaching into the unexported session field --
+// returns gchatmeow.ErrNotLoggedIn unchanged when the cookies are rejected
+// (Session.FetchXSRFToken's AccountsSignInUi check), any other error
+// otherwise.
+func (c *Client) FetchXSRFToken(ctx context.Context) error {
+	return c.refreshXSRFToken(ctx)
+}
+
 // Connect runs the supervision loop: refresh the XSRF token if stale, register
 // and long-poll via a fresh Channel, and on each terminal Listen result consult
 // the ladder (research 07 §6 / user.py:299-388) to reconnect, back off, or
