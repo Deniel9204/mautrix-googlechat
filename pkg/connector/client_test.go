@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -352,5 +353,87 @@ func TestLogoutRemoteClearsCookiesAndDisconnects(t *testing.T) {
 	}
 	if saveCount != 1 {
 		t.Errorf("save called %d times, want 1", saveCount)
+	}
+}
+
+// --- Metadata race: logout vs. cookie persistence ---------------------------
+
+// TestMetadataRaceLogoutVsPersist is the regression test for the metadata
+// race the metaMu fix closes: persistCookies (simulating a Connected
+// callback running on conn's own OnConnectionState goroutine) and
+// LogoutRemote (simulating a concurrent bridgev2-side logout) used to mutate
+// the same *UserLoginMetadata with no synchronization at all. Run under
+// `-race`, this both proves no data race is reported and pins the required
+// outcome: because updateMetadata serializes the two critical sections and
+// LogoutRemote unconditionally nils Cookies + sets loggedOut (which
+// persistCookies checks before writing), the final state is logged out
+// (Cookies == nil) no matter which goroutine's critical section runs last --
+// a live cookie set can never be resurrected over a logout. Looped so a
+// single lucky ordering can't hide a real bug.
+func TestMetadataRaceLogoutVsPersist(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		meta := &UserLoginMetadata{Cookies: fakeCookies()}
+		login := newTestUserLogin(meta)
+		gc := &GChatClient{
+			UserLogin: login,
+			conn:      client,
+			saveFn:    func(context.Context) error { return nil },
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			gc.persistCookies(context.Background())
+		}()
+		go func() {
+			defer wg.Done()
+			gc.LogoutRemote(context.Background())
+		}()
+		wg.Wait()
+
+		if meta.Cookies != nil {
+			t.Fatalf("iteration %d: Metadata.Cookies = %v, want nil (logout must win a race against a concurrent persist, never be resurrected)", i, meta.Cookies)
+		}
+	}
+}
+
+// TestPersistSkippedAfterLogout pins the loggedOut latch itself (as opposed
+// to TestMetadataRaceLogoutVsPersist's concurrent-race framing): once
+// LogoutRemote has already completed, a later persistCookies call (e.g. a
+// slow Connected callback that lands well after the logout finished) must
+// not write the live cookies back -- including not calling save() at all,
+// not just leaving the field unmutated.
+func TestPersistSkippedAfterLogout(t *testing.T) {
+	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	meta := &UserLoginMetadata{Cookies: fakeCookies()}
+	login := newTestUserLogin(meta)
+	var saveCount int
+	gc := &GChatClient{
+		UserLogin: login,
+		conn:      client,
+		saveFn:    func(context.Context) error { saveCount++; return nil },
+	}
+
+	gc.LogoutRemote(context.Background())
+	if meta.Cookies != nil {
+		t.Fatalf("LogoutRemote did not clear cookies: %v", meta.Cookies)
+	}
+	saveCountAfterLogout := saveCount
+
+	gc.persistCookies(context.Background())
+
+	if meta.Cookies != nil {
+		t.Errorf("persistCookies() after LogoutRemote() resurrected cookies: %v, want nil", meta.Cookies)
+	}
+	if saveCount != saveCountAfterLogout {
+		t.Errorf("persistCookies() after LogoutRemote() called save (count %d -> %d), want skipped entirely (no save call)", saveCountAfterLogout, saveCount)
 	}
 }

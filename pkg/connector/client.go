@@ -39,6 +39,29 @@ type GChatClient struct {
 	conn      *gchatmeow.Client
 	lastState status.BridgeStateEvent
 
+	// metaMu guards all UserLoginMetadata mutations + the paired Save, and
+	// the loggedOut flag; held across Save (I/O) because metadata writes are
+	// infrequent (connect/logout only), not a hot path. Without this, three
+	// independent, unsynchronized writers -- persistCookies (conn's
+	// OnConnectionState goroutine), LogoutRemote (a bridgev2 goroutine), and
+	// Connect's pre-flight read of meta.Cookies (a third goroutine) -- can
+	// race on the same *UserLoginMetadata, and worse: a Connected callback
+	// still in flight when LogoutRemote runs can write live cookies back over
+	// the just-cleared nil, resurrecting a session the user explicitly logged
+	// out of. All metadata access goes through updateMetadata (mutate+save
+	// under one lock) or Connect's guarded snapshot read, never directly.
+	//
+	// Lock ordering: mu and metaMu are never held at once by this type's own
+	// code (metadata ops only ever take metaMu; conn ops only ever take mu).
+	// If a future change ever needs both, acquire mu first, then metaMu.
+	metaMu sync.Mutex
+	// loggedOut latches true once LogoutRemote has run, so a Connected
+	// callback that was already in flight (raced against the logout) skips
+	// persisting cookies instead of resurrecting the just-cleared session. A
+	// fresh Connect clears it: a new Connect means this login's session is
+	// being (re)activated. Guarded by metaMu.
+	loggedOut bool
+
 	// disconnectFn tears down a superseded/replaced conn. Defaults to
 	// (*gchatmeow.Client).Disconnect; overridden in tests so old-client
 	// teardown (Task 10 review carry-over: the cookie-resubmit goroutine
@@ -66,17 +89,36 @@ var _ bridgev2.NetworkAPI = (*GChatClient)(nil)
 // calling Connect again on the same *GChatClient -- which bridgev2 itself
 // does not do in normal operation, but which a defensive caller might -- can
 // never orphan a running client goroutine.
+//
+// Connect also clears the loggedOut latch (metaMu-guarded, see its doc
+// comment) before doing anything else: a new Connect call means this login's
+// session is being (re)activated, so a stale latch from an earlier
+// LogoutRemote must not suppress cookie persistence once this connection
+// reaches CONNECTED (persistCookies below).
 func (c *GChatClient) Connect(ctx context.Context) {
+	c.metaMu.Lock()
+	c.loggedOut = false
 	meta, _ := c.UserLogin.Metadata.(*UserLoginMetadata)
-	if meta == nil || !hasRequiredCookies(meta.Cookies) {
+	var cookies map[string]string
+	var userAgent string
+	if meta != nil {
+		// Snapshot under metaMu: meta.Cookies/UserAgent are also written by
+		// persistCookies and LogoutRemote from other goroutines, so reading
+		// the fields directly here (unlocked) would race them.
+		cookies = meta.Cookies
+		userAgent = meta.UserAgent
+	}
+	c.metaMu.Unlock()
+
+	if meta == nil || !hasRequiredCookies(cookies) {
 		zerolog.Ctx(ctx).Warn().Msg("googlechat: Connect called with no usable stored cookies")
 		c.reportState(gchatmeow.ConnStateBadCredentials, errNoStoredCookies)
 		return
 	}
 
 	conn, err := gchatmeow.NewClient(gchatmeow.ClientOpts{
-		Cookies:   meta.Cookies,
-		UserAgent: meta.UserAgent,
+		Cookies:   cookies,
+		UserAgent: userAgent,
 	})
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("googlechat: failed to build gchatmeow client from stored metadata")
@@ -183,6 +225,27 @@ func (c *GChatClient) save(ctx context.Context) error {
 	return c.UserLogin.Save(ctx)
 }
 
+// updateMetadata is the single choke point for mutating UserLoginMetadata:
+// it locks metaMu, type-asserts the metadata, calls mutate (which applies
+// field changes and reports whether the result needs persisting), and --
+// still holding metaMu -- calls c.save when persist is true. Holding metaMu
+// across the save (I/O) serializes the whole mutate+marshal+write sequence
+// against any other goroutine's updateMetadata call, so persistCookies and
+// LogoutRemote can never interleave (see metaMu's doc comment on GChatClient
+// for why that matters). A no-op if there is no UserLoginMetadata attached.
+func (c *GChatClient) updateMetadata(ctx context.Context, mutate func(*UserLoginMetadata) (persist bool)) error {
+	c.metaMu.Lock()
+	defer c.metaMu.Unlock()
+	meta, ok := c.UserLogin.Metadata.(*UserLoginMetadata)
+	if !ok || meta == nil {
+		return nil
+	}
+	if !mutate(meta) {
+		return nil
+	}
+	return c.save(ctx)
+}
+
 // reportState maps state/err to a BridgeState (bridgestate.go) and both sends
 // it and updates the cached last-seen state IsLoggedIn reads. Used both by
 // Connect's pre-flight missing-cookie check (no live conn yet) and by
@@ -208,17 +271,27 @@ func (c *GChatClient) handleConnState(ctx context.Context, state gchatmeow.ConnS
 }
 
 // persistCookies snapshots conn's current auth cookies + user agent into
-// UserLoginMetadata and saves it. A no-op if there is no live conn (shouldn't
-// happen when called from handleConnState) or no UserLoginMetadata attached.
+// UserLoginMetadata and saves it, through updateMetadata so the mutate+save
+// is serialized against a concurrent LogoutRemote. A no-op if there is no
+// live conn (shouldn't happen when called from handleConnState) or no
+// UserLoginMetadata attached, and -- critically -- a no-op if loggedOut is
+// already set: a Connected callback that raced a LogoutRemote must not write
+// live cookies back over the cookies LogoutRemote just cleared (that would
+// resurrect a session the user explicitly logged out of).
 func (c *GChatClient) persistCookies(ctx context.Context) {
 	conn := c.getConn()
-	meta, ok := c.UserLogin.Metadata.(*UserLoginMetadata)
-	if conn == nil || !ok || meta == nil {
+	if conn == nil {
 		return
 	}
-	meta.Cookies = conn.Cookies()
-	meta.UserAgent = conn.UserAgent()
-	if err := c.save(ctx); err != nil {
+	err := c.updateMetadata(ctx, func(meta *UserLoginMetadata) bool {
+		if c.loggedOut {
+			return false
+		}
+		meta.Cookies = conn.Cookies()
+		meta.UserAgent = conn.UserAgent()
+		return true
+	})
+	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("googlechat: failed to persist rotated cookies")
 	}
 }
@@ -249,14 +322,21 @@ func (c *GChatClient) IsLoggedIn() bool {
 // cookie-based sessions have no known remote "revoke" endpoint (docs/research
 // 01/03 don't document one), so there is no remote invalidation call to make
 // -- "best-effort" here means "local cleanup, tolerate a failed Save".
+//
+// Also sets the loggedOut latch (under the same metaMu-guarded update as the
+// cookie clear) so a persistCookies call from a Connected callback already in
+// flight when this runs -- e.g. conn was mid-handshake and reached CONNECTED
+// just as the user hit "log out" -- skips instead of resurrecting the
+// just-cleared cookies. Connect clears the latch again on the next real
+// (re)activation.
 func (c *GChatClient) LogoutRemote(ctx context.Context) {
 	c.Disconnect()
-	meta, ok := c.UserLogin.Metadata.(*UserLoginMetadata)
-	if !ok || meta == nil {
-		return
-	}
-	meta.Cookies = nil
-	if err := c.save(ctx); err != nil {
+	err := c.updateMetadata(ctx, func(meta *UserLoginMetadata) bool {
+		c.loggedOut = true
+		meta.Cookies = nil
+		return true
+	})
+	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("googlechat: failed to clear cookies on logout")
 	}
 }
