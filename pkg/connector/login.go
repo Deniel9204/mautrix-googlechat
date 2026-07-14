@@ -156,6 +156,20 @@ func extractGaiaID(resp *pb.GetSelfUserStatusResponse) (string, error) {
 	return id, nil
 }
 
+// attachAndConnect hands the warm, already-validated gchatmeow.Client to gc
+// and starts ITS real supervision/long-poll loop (gchatmeow.Client.Connect,
+// Task 8) in the background. Split out of SubmitCookies as its own named
+// step because "Connect" is ambiguous here: *GChatClient also has its own
+// Connect method (the bridgev2.NetworkAPI entry point bridgev2 itself calls
+// on every later reconnect; Task 11 fleshes out its body to reuse/rebuild
+// gc.Client and translate its results into bridge states) -- calling THAT
+// stub instead of gc.Client.Connect would silently discard the freshly
+// validated warm client and connect nothing.
+func attachAndConnect(gc *GChatClient, client *gchatmeow.Client, connectCtx context.Context) {
+	gc.Client = client
+	go gc.Client.Connect(connectCtx)
+}
+
 // SubmitCookies validates the submitted cookies against Google Chat, resolves
 // the caller's Gaia ID, creates (or reuses) the UserLogin row with the
 // validated cookies persisted, and starts the connection. Ports doc 01
@@ -200,7 +214,14 @@ func (gl *GChatLogin) SubmitCookies(ctx context.Context, cookies map[string]stri
 			UserAgent: client.UserAgent(),
 		},
 	}, &bridgev2.NewLoginParams{
-		DeleteOnConflict:  true,
+		// A conflicting login for this Gaia ID belonging to ANOTHER Matrix
+		// user is deleted rather than rejected: re-pasting cookies for the
+		// same Google account is expected to move the login to whichever
+		// Matrix user submits them, matching the task's specified params.
+		DeleteOnConflict: true,
+		// A conflicting login for THIS Matrix user is reused (its metadata
+		// updated in place) rather than erroring -- re-submitting cookies is
+		// exactly how a user refreshes an expired session.
 		DontReuseExisting: false,
 	})
 	if err != nil {
@@ -209,15 +230,13 @@ func (gl *GChatLogin) SubmitCookies(ctx context.Context, cookies map[string]stri
 
 	// Hand the WARM, already-validated client to the login's GChatClient --
 	// deliberately the ONLY client this login process ever builds; see this
-	// file's top comment on the client-swap race this avoids.
+	// file's top comment on the client-swap race this avoids. Step 5: spawn
+	// the long-poll loop. Uses the bridge's long-lived background context
+	// (not ctx, which is tied to this HTTP/provisioning request and may be
+	// cancelled the moment SubmitCookies returns) -- mirrors
+	// $REF/meta/pkg/connector/login.go's loginWithCookies.
 	gc := ul.Client.(*GChatClient)
-	gc.Client = client
-
-	// Step 5: spawn the long-poll loop. Uses the bridge's long-lived
-	// background context (not ctx, which is tied to this HTTP/provisioning
-	// request and may be cancelled the moment SubmitCookies returns) --
-	// mirrors $REF/meta/pkg/connector/login.go's loginWithCookies.
-	go gc.Connect(ul.Log.WithContext(gl.Main.Bridge.BackgroundCtx))
+	attachAndConnect(gc, client, ul.Log.WithContext(gl.Main.Bridge.BackgroundCtx))
 
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeComplete,
