@@ -37,7 +37,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -59,9 +58,12 @@ const (
 // commands/auth.py's `except NotLoggedInError` branch: "Those cookies don't
 // seem to be valid").
 var ErrLoginCookiesInvalid = bridgev2.RespError{
-	ErrCode:    "FI.MAU.GOOGLECHAT.INVALID_COOKIES",
-	Err:        "Those cookies don't seem to be valid. Please log into https://chat.google.com in a browser and extract fresh ones.",
-	StatusCode: http.StatusBadRequest,
+	ErrCode: "FI.MAU.GOOGLECHAT.INVALID_COOKIES",
+	Err:     "Those cookies don't seem to be valid. Please log into https://chat.google.com in a browser and extract fresh ones.",
+	// 400 Bad Request. Literal rather than the net/http status constant so this
+	// package imports no HTTP client at all (the connector-does-no-HTTP layering
+	// rule is CI-enforced; the connector talks to Google only via gchatmeow).
+	StatusCode: 400,
 }
 
 // ErrLoginFailed is returned for any other failure while validating the
@@ -72,7 +74,7 @@ var ErrLoginCookiesInvalid = bridgev2.RespError{
 var ErrLoginFailed = bridgev2.RespError{
 	ErrCode:    "FI.MAU.GOOGLECHAT.LOGIN_FAILED",
 	Err:        "Failed to log into Google Chat with the provided cookies",
-	StatusCode: http.StatusBadRequest,
+	StatusCode: 400, // see ErrLoginCookiesInvalid: literal to keep net/http out of the connector
 }
 
 // GChatLogin implements bridgev2.LoginProcessCookies: the cookie-paste login
