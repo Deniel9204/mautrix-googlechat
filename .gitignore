@@ -6,3 +6,5 @@
 *.log
 /logs
 /.idea/workspace.xml
+.env
+/.superpowers/
