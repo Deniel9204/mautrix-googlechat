@@ -425,15 +425,17 @@ func TestRequiredCookies(t *testing.T) {
 // TestDefaultAllowedHostSuffixes pins the actual default allowlist content.
 // Every other test in this file overrides allowedHostSuffixes to point at
 // an httptest server, so without this test a typo/regression in
-// defaultAllowedHostSuffixes itself would go undetected
-// (task-3-brief.md: "allowlisted host suffixes (google.com/
-// googleusercontent.com)").
+// defaultAllowedHostSuffixes itself would go undetected. The allowlist is
+// google.com ONLY: googleusercontent.com is deliberately NOT allowlisted
+// (doc 01 §5.2 -- Python routes googleusercontent.com through a separate,
+// cookie-less ClientSession so auth cookies never reach it; adjudicated
+// over task-3-brief.md's broader wording).
 func TestDefaultAllowedHostSuffixes(t *testing.T) {
 	sess, err := NewSession(nil, "")
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	want := []string{"google.com", "googleusercontent.com"}
+	want := []string{"google.com"}
 	if len(sess.allowedHostSuffixes) != len(want) {
 		t.Fatalf("allowedHostSuffixes = %v, want %v", sess.allowedHostSuffixes, want)
 	}
@@ -442,14 +444,71 @@ func TestDefaultAllowedHostSuffixes(t *testing.T) {
 			t.Errorf("allowedHostSuffixes[%d] = %q, want %q", i, sess.allowedHostSuffixes[i], suffix)
 		}
 	}
-	for _, host := range []string{"chat.google.com", "lh3.googleusercontent.com", "google.com"} {
+	for _, host := range []string{"chat.google.com", "accounts.google.com", "google.com"} {
 		u, _ := url.Parse("https://" + host + "/")
 		if !sess.hostAllowed(u) {
 			t.Errorf("hostAllowed(%q) = false, want true", host)
 		}
 	}
-	other, _ := url.Parse("https://evil.example.com/")
-	if sess.hostAllowed(other) {
-		t.Error("hostAllowed(evil.example.com) = true, want false")
+	for _, host := range []string{"lh3.googleusercontent.com", "googleusercontent.com", "evil.example.com", "notgoogle.com"} {
+		u, _ := url.Parse("https://" + host + "/")
+		if sess.hostAllowed(u) {
+			t.Errorf("hostAllowed(%q) = true, want false", host)
+		}
+	}
+}
+
+// TestGoogleusercontentGetsNoCookies drives a real HTTP request to a
+// literal googleusercontent.com URL (dial redirected to a local httptest
+// server, DEFAULT allowlist untouched) and asserts both directions of the
+// cookie gate: no Cookie header is sent, and a Set-Cookie in the response
+// is NOT absorbed into Cookies(). Doc 01 §5.2: Python fetches
+// googleusercontent.com hops "through a fresh cookie-less
+// aiohttp.ClientSession" precisely so auth cookies never leak there; the
+// M5 download flow relies on this Session withholding cookies from
+// non-allowlisted hosts.
+func TestGoogleusercontentGetsNoCookies(t *testing.T) {
+	var gotCookie string
+	var seen bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCookie = r.Header.Get("Cookie")
+		seen = true
+		// A rotation attempt from a non-allowlisted host must be ignored.
+		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "poisoned", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(map[string]string{"SID": "secret"}, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	// Deliberately do NOT override sess.allowedHostSuffixes -- this test
+	// exercises the real default allowlist against a real
+	// googleusercontent.com hostname. Only the dial is redirected to the
+	// local test server, so no DNS/network access is needed.
+	srvAddr := srv.Listener.Addr().String()
+	dialer := &net.Dialer{}
+	sess.apiClient.Transport = &http.Transport{
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, srvAddr)
+		},
+	}
+
+	resp, err := sess.Fetch(context.Background(), http.MethodGet, "http://lh3.googleusercontent.com/some/attachment", nil, nil)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200", resp.StatusCode)
+	}
+	if !seen {
+		t.Fatal("test server was never hit")
+	}
+	if gotCookie != "" {
+		t.Errorf("googleusercontent.com request carried Cookie = %q, want none", gotCookie)
+	}
+	if got := sess.Cookies()["SID"]; got != "secret" {
+		t.Errorf(`Cookies()["SID"] = %q, want "secret" (Set-Cookie from a non-allowlisted host must not be absorbed)`, got)
 	}
 }

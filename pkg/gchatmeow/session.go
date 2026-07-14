@@ -68,15 +68,13 @@ var (
 	// absorbed from) requests whose host matches one of these suffixes,
 	// mirroring http_utils.py:249-255's "ensure we don't accidentally send
 	// the authorization header/cookies to a non-Google domain" safety rail.
-	// Per task-3-brief.md this explicitly includes googleusercontent.com
-	// alongside google.com. NOTE: this is broader than doc 01 §5.2's
-	// description of Python's *caller-side* download-flow behavior, which
-	// routes googleusercontent.com through a separate, cookie-less
-	// aiohttp.ClientSession specifically so it does NOT get auth cookies --
-	// flagged in the task report as a tension between the two docs for the
-	// milestone owner to confirm; implemented here per this task's explicit
-	// brief.
-	defaultAllowedHostSuffixes = []string{"google.com", "googleusercontent.com"}
+	// google.com ONLY: googleusercontent.com is deliberately excluded --
+	// doc 01 §5.2: Python routes googleusercontent.com hops through a
+	// separate, cookie-less aiohttp.ClientSession precisely so auth cookies
+	// never reach it. The M5 download flow must make cookie-less requests
+	// for non-allowlisted hosts (this Session simply won't attach cookies
+	// to them).
+	defaultAllowedHostSuffixes = []string{"google.com"}
 )
 
 // Response is a fully-read HTTP response, as returned by Fetch. It mirrors
