@@ -18,14 +18,17 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
+	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
@@ -88,6 +91,28 @@ type GChatClient struct {
 	// bridgev2.Bridge+DB harness (mirrors gchatmeow.Client's sleepFn test
 	// seam, pkg/gchatmeow/client.go).
 	saveFn func(ctx context.Context) error
+
+	// paginatedWorldFn issues the paginated_world RPC that sync.go's
+	// syncChats needs. Defaults to conn.PaginatedWorld; overridden in tests
+	// so syncChats' retry/latch-reset behavior (below, and see
+	// resetSyncLatch's doc comment) can be exercised without a live
+	// gchatmeow.Client connection -- mirrors saveFn/disconnectFn above.
+	paginatedWorldFn func(ctx context.Context, req *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error)
+
+	// queueChatResyncFn queues one planned chat-list-sync entry (sync.go's
+	// syncChats). Defaults to c.UserLogin.QueueRemoteEvent; overridden in
+	// tests that construct a UserLogin without a full bridgev2.Bridge+DB
+	// harness, since the real UserLogin.QueueRemoteEvent dereferences
+	// UserLogin.Bridge, which is nil for this package's lightweight test
+	// UserLogins (see newTestUserLogin, client_test.go).
+	queueChatResyncFn func(evt *simplevent.ChatResync) bridgev2.EventHandlingResult
+
+	// syncRetryBackoffBase is syncChats' base retry delay (doubled on each
+	// subsequent attempt); a zero value means "use
+	// defaultSyncRetryBackoffBase" (sync.go). Overridden in tests to a tiny
+	// duration so the retry-then-succeed / retry-then-give-up tests run
+	// fast instead of waiting on real wall-clock backoff.
+	syncRetryBackoffBase time.Duration
 }
 
 var _ bridgev2.NetworkAPI = (*GChatClient)(nil)
@@ -225,6 +250,22 @@ func (c *GChatClient) shouldSyncOnConnect() bool {
 	}
 	c.initialSyncDone = true
 	return true
+}
+
+// resetSyncLatch clears initialSyncDone so a later Connected transition for
+// the current conn (e.g. a webchannel reconnect) gets another chance to run
+// syncChats. shouldSyncOnConnect latches the "may sync" slot BEFORE
+// syncChats has actually run, so on its own that latch would permanently
+// consume the one-time sync opportunity even if the paginated_world RPC
+// never succeeds -- a single transient blip at first connect would leave
+// the bridge CONNECTED with zero portals until a process restart. syncChats
+// (sync.go) calls this from every path where it gives up without queuing
+// any chats: no live conn, and paginated_world failing after its bounded
+// retry loop is exhausted.
+func (c *GChatClient) resetSyncLatch() {
+	c.mu.Lock()
+	c.initialSyncDone = false
+	c.mu.Unlock()
 }
 
 // replaceConn installs newConn as the active client, tearing down (via

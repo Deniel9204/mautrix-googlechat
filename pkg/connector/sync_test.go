@@ -2,9 +2,13 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
+	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/simplevent"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
@@ -168,4 +172,124 @@ func TestSyncChatsNoConnIsNoop(t *testing.T) {
 	// harness in this test) -- syncChats should return before ever reaching
 	// UserLogin.QueueRemoteEvent.
 	gc.syncChats(context.Background())
+}
+
+// --- syncChats: retry + latch reset on paginated_world failure ------------
+//
+// These pin the M1 whole-branch review fix: shouldSyncOnConnect
+// (client.go) latches initialSyncDone=true BEFORE syncChats runs, so if the
+// paginated_world RPC fails, the one-time chat-list sync used to never
+// retry -- a single transient blip at first connect left the bridge
+// CONNECTED with zero portals until a restart. syncChats must now (a) retry
+// a bounded number of times before giving up, and (b) reset the latch on
+// final failure so the next Connected transition (e.g. a webchannel
+// reconnect) tries again.
+
+// TestSyncChatsResetsLatchOnFailure RED-verifies the latch-reset half of the
+// fix: without it, shouldSyncOnConnect stays permanently consumed after a
+// failed sync and this test fails.
+func TestSyncChatsResetsLatchOnFailure(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var calls int
+	gc := &GChatClient{
+		UserLogin:            login,
+		Main:                 &GChatConnector{Config: *newTestConfig(t)},
+		syncRetryBackoffBase: time.Millisecond,
+		paginatedWorldFn: func(context.Context, *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
+			calls++
+			return nil, errors.New("paginated_world: boom")
+		},
+	}
+
+	if !gc.shouldSyncOnConnect() {
+		t.Fatal("shouldSyncOnConnect() = false on first call, want true (test setup)")
+	}
+
+	gc.syncChats(context.Background())
+
+	if calls < 2 {
+		t.Errorf("paginatedWorldFn called %d times, want a bounded retry (>1)", calls)
+	}
+	if !gc.shouldSyncOnConnect() {
+		t.Error("shouldSyncOnConnect() = false after syncChats exhausted retries, want true (latch must be reset so a later Connected transition retries the sync instead of leaving the bridge permanently unsynced)")
+	}
+}
+
+// TestSyncChatsRetriesThenSucceeds covers the common case the bug report
+// calls out: the webchannel stays up (so no new Connected transition ever
+// fires) but a single paginated_world RPC blips. A bounded in-process retry
+// must absorb that without needing a whole new conn.
+func TestSyncChatsRetriesThenSucceeds(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var queued []*simplevent.ChatResync
+	var calls int
+	gc := &GChatClient{
+		UserLogin:            login,
+		Main:                 &GChatConnector{Config: *newTestConfig(t)},
+		syncRetryBackoffBase: time.Millisecond,
+		paginatedWorldFn: func(context.Context, *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
+			calls++
+			if calls < 3 {
+				return nil, errors.New("paginated_world: transient")
+			}
+			return &pb.PaginatedWorldResponse{WorldItems: []*pb.WorldItemLite{worldItem("a", 100)}}, nil
+		},
+		queueChatResyncFn: func(evt *simplevent.ChatResync) bridgev2.EventHandlingResult {
+			queued = append(queued, evt)
+			return bridgev2.EventHandlingResultQueued
+		},
+	}
+
+	if !gc.shouldSyncOnConnect() {
+		t.Fatal("shouldSyncOnConnect() = false on first call, want true (test setup)")
+	}
+
+	gc.syncChats(context.Background())
+
+	if calls != 3 {
+		t.Fatalf("paginatedWorldFn called %d times, want 3 (fail, fail, succeed)", calls)
+	}
+	if len(queued) != 1 {
+		t.Fatalf("len(queued) = %d ChatResync events, want 1", len(queued))
+	}
+	if gc.shouldSyncOnConnect() {
+		t.Error("shouldSyncOnConnect() = true after a retry that eventually succeeded, want false (latch stays consumed on success)")
+	}
+}
+
+// TestSyncChatsSuccessKeepsLatch is the control case: an immediately
+// successful sync must not retry, must queue every planned entry, and must
+// leave the one-time latch consumed (unlike the two failure tests above).
+func TestSyncChatsSuccessKeepsLatch(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var queued []*simplevent.ChatResync
+	var calls int
+	gc := &GChatClient{
+		UserLogin: login,
+		Main:      &GChatConnector{Config: *newTestConfig(t)},
+		paginatedWorldFn: func(context.Context, *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
+			calls++
+			return &pb.PaginatedWorldResponse{WorldItems: []*pb.WorldItemLite{worldItem("a", 100), worldItem("b", 50)}}, nil
+		},
+		queueChatResyncFn: func(evt *simplevent.ChatResync) bridgev2.EventHandlingResult {
+			queued = append(queued, evt)
+			return bridgev2.EventHandlingResultQueued
+		},
+	}
+
+	if !gc.shouldSyncOnConnect() {
+		t.Fatal("shouldSyncOnConnect() = false on first call, want true (test setup)")
+	}
+
+	gc.syncChats(context.Background())
+
+	if calls != 1 {
+		t.Errorf("paginatedWorldFn called %d times, want 1 (no retry needed on first-try success)", calls)
+	}
+	if len(queued) != 2 {
+		t.Fatalf("len(queued) = %d ChatResync events, want 2", len(queued))
+	}
+	if gc.shouldSyncOnConnect() {
+		t.Error("shouldSyncOnConnect() = true after a successful sync, want false (latch stays consumed, matching the pre-existing one-sync-per-conn behavior)")
+	}
 }

@@ -7,6 +7,7 @@ package connector
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/proto"
@@ -17,6 +18,24 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
+
+// syncMaxAttempts bounds syncChats' paginated_world retry loop (see
+// fetchWorldWithRetry): up to this many attempts total before giving up and
+// resetting the sync latch (GChatClient.resetSyncLatch) so a later
+// Connected transition tries again. This absorbs a single transient RPC
+// blip -- the M1 whole-branch review bug this retry loop fixes -- without
+// turning a persistently-broken connection into a long, silent stall inside
+// handleConnState's Connected branch (which runs syncChats in its own
+// goroutine specifically so a slow sync never blocks that; see its doc
+// comment in client.go).
+const syncMaxAttempts = 3
+
+// defaultSyncRetryBackoffBase is syncChats' base retry delay when
+// GChatClient.syncRetryBackoffBase is zero (the production default; tests
+// override the field to a tiny duration so the retry tests run in
+// milliseconds instead of waiting on real wall-clock backoff). Doubles each
+// attempt: attempt 1 waits this long, attempt 2 waits 2x, and so on.
+const defaultSyncRetryBackoffBase = 500 * time.Millisecond
 
 // syncChatItem pairs one (post-filter) world item with whether it's within
 // this login's initial_chat_sync cap.
@@ -98,18 +117,22 @@ func planChatSync(items []*pb.WorldItemLite, maxSync int) []syncChatItem {
 // needs to push it directly).
 func (c *GChatClient) syncChats(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
-	conn := c.getConn()
-	if conn == nil {
-		log.Warn().Msg("googlechat: syncChats called with no live connection, skipping")
-		return
+
+	fetch := c.paginatedWorldFn
+	if fetch == nil {
+		conn := c.getConn()
+		if conn == nil {
+			log.Warn().Msg("googlechat: syncChats called with no live connection, skipping")
+			c.resetSyncLatch()
+			return
+		}
+		fetch = conn.PaginatedWorld
 	}
 
-	resp, err := conn.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
-		FetchFromUserSpaces: proto.Bool(true),
-		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
-	})
+	resp, err := c.fetchWorldWithRetry(ctx, fetch)
 	if err != nil {
-		log.Err(err).Msg("googlechat: paginated_world failed, skipping chat-list sync")
+		log.Err(err).Msg("googlechat: paginated_world failed after retries, skipping chat-list sync (latch reset so a later Connected transition retries)")
+		c.resetSyncLatch()
 		return
 	}
 
@@ -127,7 +150,7 @@ func (c *GChatClient) syncChats(ctx context.Context) {
 			continue
 		}
 		group := gcid.GroupID{ID: id, IsDM: isDM}
-		res := c.UserLogin.QueueRemoteEvent(&simplevent.ChatResync{
+		res := c.queueChatResync(&simplevent.ChatResync{
 			EventMeta: simplevent.EventMeta{
 				Type:         bridgev2.RemoteEventChatResync,
 				PortalKey:    gcid.MakePortalKey(group, c.UserLogin.ID),
@@ -142,5 +165,75 @@ func (c *GChatClient) syncChats(ctx context.Context) {
 			Bool("create_portal", entry.CreatePortal).
 			Any("result", res).
 			Msg("googlechat: queued chat-list sync event")
+	}
+}
+
+// queueChatResync queues one planned chat-list-sync entry, routing through
+// queueChatResyncFn when a test has overridden it, and through the real
+// c.UserLogin.QueueRemoteEvent otherwise -- mirrors the save/disconnect seam
+// pattern documented on GChatClient in client.go.
+func (c *GChatClient) queueChatResync(evt *simplevent.ChatResync) bridgev2.EventHandlingResult {
+	if c.queueChatResyncFn != nil {
+		return c.queueChatResyncFn(evt)
+	}
+	return c.UserLogin.QueueRemoteEvent(evt)
+}
+
+// fetchWorldWithRetry calls fetch (either conn.PaginatedWorld or a test's
+// paginatedWorldFn override) up to syncMaxAttempts times, sleeping a growing
+// backoff between attempts, and returns the first success or the last error
+// once attempts are exhausted. This is the "channel stays up but a single
+// RPC blipped" half of the latch-reset fix (see resetSyncLatch's doc
+// comment): most transient paginated_world failures never even reach the
+// point of consuming the whole retry budget, so they're absorbed here
+// without ever needing a fresh Connected transition. ctx-aware: a cancelled
+// ctx during the backoff sleep aborts immediately with ctx.Err() rather than
+// waiting out the full delay.
+func (c *GChatClient) fetchWorldWithRetry(ctx context.Context, fetch func(context.Context, *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error)) (*pb.PaginatedWorldResponse, error) {
+	log := zerolog.Ctx(ctx)
+	backoffBase := c.syncRetryBackoffBase
+	if backoffBase <= 0 {
+		backoffBase = defaultSyncRetryBackoffBase
+	}
+
+	req := &pb.PaginatedWorldRequest{
+		FetchFromUserSpaces: proto.Bool(true),
+		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+	}
+
+	var resp *pb.PaginatedWorldResponse
+	var err error
+	for attempt := 0; attempt < syncMaxAttempts; attempt++ {
+		if attempt > 0 {
+			if sleepErr := syncSleepOrDone(ctx, backoffBase*time.Duration(uint(1)<<uint(attempt-1))); sleepErr != nil {
+				return nil, sleepErr
+			}
+		}
+		resp, err = fetch(ctx, req)
+		if err == nil {
+			return resp, nil
+		}
+		log.Err(err).Int("attempt", attempt+1).Int("max_attempts", syncMaxAttempts).
+			Msg("googlechat: paginated_world failed, retrying")
+	}
+	return nil, err
+}
+
+// syncSleepOrDone waits for d, or returns ctx.Err() early if ctx is
+// cancelled first. A tiny local copy of gchatmeow/session.go's unexported
+// sleepOrDone: this package must not reach into gchatmeow's internals just
+// for a two-branch select, per the layering rule that keeps pkg/connector
+// from depending on gchatmeow beyond its exported API.
+func syncSleepOrDone(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
