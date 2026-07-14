@@ -1,0 +1,455 @@
+package gchatmeow
+
+import (
+	"context"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+)
+
+// testServerHost returns the bare hostname (no port) of an httptest server's
+// URL, for injecting into Session.allowedHostSuffixes in tests.
+func testServerHost(t *testing.T, rawURL string) string {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("url.Parse(%q): %v", rawURL, err)
+	}
+	return u.Hostname()
+}
+
+// newLoopbackServer starts an httptest server bound to a specific loopback
+// address (not the usual 127.0.0.1) so a test can create two servers that
+// are distinguishable by host, without relying on real DNS. Used to prove
+// cookies are withheld from a host outside the allowlist.
+func newLoopbackServer(t *testing.T, ip string, handler http.Handler) *httptest.Server {
+	t.Helper()
+	ln, err := net.Listen("tcp", ip+":0")
+	if err != nil {
+		t.Skipf("cannot bind %s:0 (sandboxed network?): %v", ip, err)
+	}
+	srv := httptest.NewUnstartedServer(handler)
+	srv.Listener.Close()
+	srv.Listener = ln
+	srv.Start()
+	return srv
+}
+
+// TestCookiesSentUnquoted verifies a cookie value containing a space and a
+// comma is sent to the server VERBATIM, unquoted -- Go's default
+// http.Client.Jar machinery double-quotes such values (net/http's
+// sanitizeCookieValue), which the Google Chat server does not accept
+// (maugclib/http_utils.py:61-62 -- aiohttp.CookieJar(quote_cookie=False),
+// referencing hangups issue #498).
+func TestCookiesSentUnquoted(t *testing.T) {
+	var gotCookie string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCookie = r.Header.Get("Cookie")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(map[string]string{"SID": "has space,and,commas"}, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	resp, err := sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d, want 200", resp.StatusCode)
+	}
+
+	const want = "SID=has space,and,commas"
+	if !strings.Contains(gotCookie, want) {
+		t.Errorf("Cookie header = %q, want it to contain unquoted %q", gotCookie, want)
+	}
+	if strings.Contains(gotCookie, `"`) {
+		t.Errorf("Cookie header = %q, must not contain quotes", gotCookie)
+	}
+}
+
+// TestCookieRotationReadback verifies a rotated Set-Cookie from the server
+// is absorbed into the jar and visible via Cookies() (maugclib
+// Session.get_auth_cookies, http_utils.py:87-92; doc 01 §1.2: "the Go
+// bridge must round-trip rotated cookie values to the DB or sessions die
+// early").
+func TestCookieRotationReadback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "rotated2", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(map[string]string{
+		"COMPASS": "c0", "SSID": "s0", "SID": "original", "OSID": "o0", "HSID": "h0",
+	}, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	if _, err := sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	got := sess.Cookies()
+	if got["SID"] != "rotated2" {
+		t.Errorf(`Cookies()["SID"] = %q, want "rotated2"`, got["SID"])
+	}
+	// Un-rotated cookies must survive untouched.
+	if got["COMPASS"] != "c0" {
+		t.Errorf(`Cookies()["COMPASS"] = %q, want "c0"`, got["COMPASS"])
+	}
+}
+
+// TestCookiesNotSentCrossDomain verifies cookies are attached only to
+// requests whose host matches Session.allowedHostSuffixes -- a second
+// server outside the allowlist must receive no Cookie header at all
+// (maugclib http_utils.py:249-255's "don't accidentally send the auth
+// cookie to a non-Google domain" safety rail, reimplemented here as
+// conditional attachment rather than a hard request rejection).
+func TestCookiesNotSentCrossDomain(t *testing.T) {
+	var allowedCookie, outsideCookie string
+	var allowedSeen, outsideSeen bool
+
+	allowedSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		allowedCookie = r.Header.Get("Cookie")
+		allowedSeen = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer allowedSrv.Close()
+
+	outsideSrv := newLoopbackServer(t, "127.0.0.2", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		outsideCookie = r.Header.Get("Cookie")
+		outsideSeen = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer outsideSrv.Close()
+
+	sess, err := NewSession(map[string]string{"SID": "secret"}, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, allowedSrv.URL)}
+
+	if _, err := sess.Fetch(context.Background(), http.MethodGet, allowedSrv.URL, nil, nil); err != nil {
+		t.Fatalf("Fetch(allowed): %v", err)
+	}
+	if _, err := sess.Fetch(context.Background(), http.MethodGet, outsideSrv.URL, nil, nil); err != nil {
+		t.Fatalf("Fetch(outside): %v", err)
+	}
+
+	if !allowedSeen || !strings.Contains(allowedCookie, "SID=secret") {
+		t.Errorf("allowlisted server Cookie = %q, want it to contain SID=secret", allowedCookie)
+	}
+	if !outsideSeen {
+		t.Fatal("non-allowlisted server was never hit")
+	}
+	if outsideCookie != "" {
+		t.Errorf("non-allowlisted server Cookie = %q, want empty", outsideCookie)
+	}
+}
+
+// TestFetchRetries verifies Fetch retries transient (5xx) failures up to
+// maxRetries=3 total attempts with exponential backoff, succeeding once the
+// server recovers (task-3-brief.md mandatory behavior; MAX_RETRIES=3 is
+// http_utils.py:20 -- the exponential backoff itself has no Python
+// equivalent, see retryBackoffBase's doc comment).
+func TestFetchRetries(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+		if n < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	resp, err := sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK || string(resp.Body) != "ok" {
+		t.Errorf("resp = %+v, want 200 body \"ok\"", resp)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if requests != 3 {
+		t.Errorf("requests = %d, want 3", requests)
+	}
+}
+
+// TestFetchRetriesExhaustedReturnsNetworkError verifies that once all
+// maxRetries attempts fail, Fetch surfaces a *NetworkError (task-3-brief.md:
+// "returning *NetworkError after exhaustion").
+func TestFetchRetriesExhaustedReturnsNetworkError(t *testing.T) {
+	var requests int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	_, err = sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil)
+	var netErr *NetworkError
+	if !errors.As(err, &netErr) {
+		t.Fatalf("err = %v (%T), want *NetworkError", err, err)
+	}
+	if got := atomic.LoadInt32(&requests); got != maxRetries {
+		t.Errorf("requests = %d, want %d", got, maxRetries)
+	}
+	// The wrapped cause should still be recoverable with its status code, so
+	// a caller can tell a 502 exhaustion apart from a bare transport error.
+	var use *UnexpectedStatusError
+	if !errors.As(err, &use) {
+		t.Fatalf("err = %v, want it to unwrap to an *UnexpectedStatusError", err)
+	}
+	if use.Status != http.StatusBadGateway {
+		t.Errorf("unwrapped Status = %d, want %d", use.Status, http.StatusBadGateway)
+	}
+}
+
+// TestFetchNonRetryableStatusReturnsUnexpectedStatusError verifies a
+// non-5xx, non-200 status (e.g. 401) is surfaced immediately as
+// *UnexpectedStatusError with the status code AND parsed error code
+// preserved, and is NOT retried -- unlike googlechat-megabridge's
+// session.go, which retries every non-200 status and hammers a dead
+// session 3x while losing the status code
+// (docs/research/08c-megabridge-clientlib.md §3).
+func TestFetchNonRetryableStatusReturnsUnexpectedStatusError(t *testing.T) {
+	var requests int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"invalid_grant"}`))
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	_, err = sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil)
+	var use *UnexpectedStatusError
+	if !errors.As(err, &use) {
+		t.Fatalf("err = %v (%T), want *UnexpectedStatusError", err, err)
+	}
+	if use.Status != http.StatusUnauthorized {
+		t.Errorf("Status = %d, want 401", use.Status)
+	}
+	if use.ErrorCode != "invalid_grant" {
+		t.Errorf("ErrorCode = %q, want invalid_grant", use.ErrorCode)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Errorf("requests = %d, want 1 (401 must not be retried)", got)
+	}
+}
+
+// TestConnectionKeepAliveForced verifies Connection: Keep-Alive is forced
+// on every request, overriding any caller-supplied value (maugclib
+// http_utils.py:254-255 unconditionally sets headers["Connection"] =
+// "Keep-Alive").
+func TestConnectionKeepAliveForced(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Connection")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	hdr := http.Header{"Connection": []string{"close"}}
+	if _, err := sess.Fetch(context.Background(), http.MethodGet, srv.URL, hdr, nil); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if got != "Keep-Alive" {
+		t.Errorf("Connection header = %q, want %q", got, "Keep-Alive")
+	}
+}
+
+// TestTLSVerificationEnabled verifies TLS certificate verification stays
+// ON. Python passes ssl=False to aiohttp (http_utils.py:264), disabling
+// verification entirely; docs/research/01 §7 explicitly says a Go port
+// must NOT replicate that.
+func TestTLSVerificationEnabled(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	// srv's certificate is self-signed and not installed in sess's client;
+	// with real verification a request against it must fail.
+	_, err = sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil)
+	if err == nil {
+		t.Fatal("Fetch against an untrusted TLS server unexpectedly succeeded -- TLS verification appears disabled")
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "certificate") && !strings.Contains(msg, "x509") && !strings.Contains(msg, "tls") {
+		t.Errorf("error = %q, want it to mention a certificate/x509/tls failure", err.Error())
+	}
+}
+
+// TestNoClientTimeout guards against megabridge's fatal defect: a blanket
+// http.Client.Timeout on the client used for long-polling, which covers
+// the entire request including body read and kills every poll after a
+// fixed duration regardless of heartbeats
+// (docs/research/08c-megabridge-clientlib.md §1.4: "the shared http.Client
+// has Timeout: 90 * time.Second ... every long poll is aborted after 90
+// seconds"). pollClient.Timeout must stay the zero value: FetchRaw callers
+// own cancellation via ctx instead.
+func TestNoClientTimeout(t *testing.T) {
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if sess.pollClient.Timeout != 0 {
+		t.Errorf("pollClient.Timeout = %v, want 0 (see docs/research/08c §1.4)", sess.pollClient.Timeout)
+	}
+}
+
+// TestFetchRawReturnsRawResponseNoRetry verifies FetchRaw performs exactly
+// one attempt and returns the raw, unread *http.Response regardless of
+// status -- no retry loop and no status-code mapping, which are Fetch-only
+// behaviors. Task 7's channel does its own status/error mapping on top of
+// this.
+func TestFetchRawReturnsRawResponseNoRetry(t *testing.T) {
+	var requests int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	resp, err := sess.FetchRaw(context.Background(), http.MethodGet, srv.URL, nil, nil)
+	if err != nil {
+		t.Fatalf("FetchRaw: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("StatusCode = %d, want 502 (FetchRaw returns the raw response verbatim)", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Errorf("requests = %d, want 1 (FetchRaw must not retry)", got)
+	}
+}
+
+// TestUserAgentVersionRewrite verifies a caller-supplied User-Agent has its
+// Chrome/Firefox version pinned to the latest known-good values
+// (maugclib http_utils.py:69-77).
+func TestUserAgentVersionRewrite(t *testing.T) {
+	sess, err := NewSession(nil, "Mozilla/5.0 Chrome/100.0.4321.10 Safari/537.36")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if !strings.Contains(sess.userAgent, "Chrome/114.0.0.0") {
+		t.Errorf("userAgent = %q, want Chrome version rewritten to 114.0.0.0", sess.userAgent)
+	}
+}
+
+// TestDefaultUserAgent verifies an empty User-Agent falls back to
+// maugclib's DEFAULT_USER_AGENT (http_utils.py:25-28).
+func TestDefaultUserAgent(t *testing.T) {
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if !strings.Contains(sess.userAgent, "Chrome/114.0.0.0") || !strings.Contains(sess.userAgent, "Windows NT 10.0") {
+		t.Errorf("userAgent = %q, want maugclib's default Windows/Chrome114 UA", sess.userAgent)
+	}
+}
+
+// TestRequiredCookies pins the exact set of cookies the login UI must
+// collect (maugclib http_utils.py:39-44's Cookies NamedTuple fields,
+// uppercased).
+func TestRequiredCookies(t *testing.T) {
+	want := []string{"COMPASS", "SSID", "SID", "OSID", "HSID"}
+	if len(RequiredCookies) != len(want) {
+		t.Fatalf("RequiredCookies = %v, want %v", RequiredCookies, want)
+	}
+	for i, name := range want {
+		if RequiredCookies[i] != name {
+			t.Errorf("RequiredCookies[%d] = %q, want %q", i, RequiredCookies[i], name)
+		}
+	}
+}
+
+// TestDefaultAllowedHostSuffixes pins the actual default allowlist content.
+// Every other test in this file overrides allowedHostSuffixes to point at
+// an httptest server, so without this test a typo/regression in
+// defaultAllowedHostSuffixes itself would go undetected
+// (task-3-brief.md: "allowlisted host suffixes (google.com/
+// googleusercontent.com)").
+func TestDefaultAllowedHostSuffixes(t *testing.T) {
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	want := []string{"google.com", "googleusercontent.com"}
+	if len(sess.allowedHostSuffixes) != len(want) {
+		t.Fatalf("allowedHostSuffixes = %v, want %v", sess.allowedHostSuffixes, want)
+	}
+	for i, suffix := range want {
+		if sess.allowedHostSuffixes[i] != suffix {
+			t.Errorf("allowedHostSuffixes[%d] = %q, want %q", i, sess.allowedHostSuffixes[i], suffix)
+		}
+	}
+	for _, host := range []string{"chat.google.com", "lh3.googleusercontent.com", "google.com"} {
+		u, _ := url.Parse("https://" + host + "/")
+		if !sess.hostAllowed(u) {
+			t.Errorf("hostAllowed(%q) = false, want true", host)
+		}
+	}
+	other, _ := url.Parse("https://evil.example.com/")
+	if sess.hostAllowed(other) {
+		t.Error("hostAllowed(evil.example.com) = true, want false")
+	}
+}
