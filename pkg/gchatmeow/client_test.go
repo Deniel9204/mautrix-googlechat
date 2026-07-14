@@ -408,6 +408,120 @@ func TestSupervisionCleanCancel(t *testing.T) {
 	}
 }
 
+// hasCancel reports whether Connect has installed its cancel func yet.
+// Test-only observability (defined here, not in client.go, since it exists
+// solely to pin down the timing guarantee below) proving c.cancel is stored
+// under mu before Connect does anything else -- ensureToken, newChannel,
+// Listen, or spawning the xsrf refresh goroutine.
+func (c *Client) hasCancel() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cancel != nil
+}
+
+// TestConnectInstallsCancelBeforeChannelSetup proves there is no lost-cancel
+// window: Connect must store c.cancel (guarded by mu) before it ever creates
+// a channel or calls Listen, i.e. before any blocking or async work. It
+// blocks Connect inside newChannel (the first hook Connect calls after
+// installing cancel) and, while Connect is paused there, asserts hasCancel()
+// is already true and that Disconnect() takes effect immediately.
+//
+// The connector's wireAndStart does `go conn.Connect(ctx)`, so anything that
+// deferred installing cancel until inside a nested goroutine (e.g. spawning
+// the supervision loop and setting c.cancel from within it) would leave a
+// window where a racing Disconnect() is silently dropped. This test would
+// fail against that structuring: entered would still close (newChannel is
+// called eventually), but hasCancel() would very likely still be false at
+// that point, or -- pushed further -- Disconnect() would have no cancel to
+// call and Connect would hang past the 2s deadline.
+func TestConnectInstallsCancelBeforeChannelSetup(t *testing.T) {
+	fake := newScriptedChannel() // no steps -> Listen blocks on ctx.Done()
+	rec := &stateRecorder{}
+	c := ladderClient(t, fake, rec)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	c.newChannel = func() channelListener {
+		close(entered)
+		<-release
+		return fake
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Connect never reached newChannel")
+	}
+
+	if !c.hasCancel() {
+		t.Fatal("cancel not installed before newChannel/Listen setup -- lost-cancel window")
+	}
+	c.Disconnect()
+	close(release)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Connect returned %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Connect did not return after Disconnect")
+	}
+}
+
+// TestDisconnectImmediatelyAfterConnectStops is an end-to-end regression
+// guard proving that a Disconnect() racing the `go conn.Connect(ctx)` call in
+// the connector's wireAndStart is never PERMANENTLY lost. It spawns Connect
+// and, with NO synchronization barrier at all, races a second goroutine that
+// hammers Disconnect() in a tight retry loop against Connect's own goroutine
+// start -- the hammering continues until Connect actually returns (not just
+// for a fixed number of iterations), so this only catches a cancel that is
+// never installed (or a Disconnect()/mu bug) within the 2s deadline; it does
+// NOT by itself prove cancel is installed before any particular point in
+// Connect's own sequence (any finite scheduling delay is absorbed by the
+// retry). TestConnectInstallsCancelBeforeChannelSetup above is the
+// deterministic test for that install-ordering guarantee. Repeated across
+// many iterations under `-race` to make the race window meaningful.
+func TestDisconnectImmediatelyAfterConnectStops(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		fake := newScriptedChannel() // no steps -> Listen blocks on ctx.Done()
+		rec := &stateRecorder{}
+		c := ladderClient(t, fake, rec)
+
+		done := make(chan error, 1)
+		go func() { done <- c.Connect(context.Background()) }()
+
+		// No barrier: race Disconnect against Connect's goroutine start,
+		// retrying until it lands (Connect returns) or the deadline below
+		// fires.
+		stop := make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					c.Disconnect()
+				}
+			}
+		}()
+
+		select {
+		case err := <-done:
+			close(stop)
+			if err != nil {
+				t.Fatalf("iteration %d: Connect returned %v, want nil", i, err)
+			}
+		case <-time.After(2 * time.Second):
+			close(stop)
+			t.Fatalf("iteration %d: Connect did not return after Disconnect race", i)
+		}
+	}
+}
+
 // TestSIDInvalidResyncPaced verifies that consecutive SID-invalid resyncs are
 // paced with a growing backoff (not fired back-to-back in milliseconds), so a
 // brief transient "Unknown SID" storm backs off before the fatal cap instead of
