@@ -1,0 +1,5 @@
+# Displayname template for Google Chat ghost users.
+# Variables: .Name (full name), .FirstName, .Email
+displayname_template: '{{ or .Name .Email "Unknown user" }} (Google Chat)'
+# How many most-recently-active chats to create portals for after login.
+initial_chat_sync: 20
