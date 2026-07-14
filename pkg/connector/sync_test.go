@@ -64,6 +64,37 @@ func TestPlanChatSyncCapsCreatePortalAtInitialChatSync(t *testing.T) {
 	}
 }
 
+// TestPlanChatSyncSkippedItemConsumesCapSlot pins the fix for the cap
+// arithmetic bug the gchat-port-auditor caught: user.py's loop
+// (user.py:628-641) enumerates the FULL sorted list and a skipped
+// (blocked/hidden/not-joined) item still advances the index for everything
+// after it -- `continue` doesn't "collapse" the index. Filtering before
+// indexing (an earlier version of planChatSync did this) shifts the cap
+// boundary earlier by one slot per skipped item ahead of the boundary.
+func TestPlanChatSyncSkippedItemConsumesCapSlot(t *testing.T) {
+	blocked := worldItem("blocked", 500) // newest -> absolute sorted position 0
+	blocked.ReadState.Blocked = proto.Bool(true)
+	items := []*pb.WorldItemLite{
+		blocked,
+		worldItem("a", 400), // absolute sorted position 1
+		worldItem("b", 300), // absolute sorted position 2
+	}
+
+	plan := planChatSync(items, 2)
+
+	if len(plan) != 2 {
+		t.Fatalf("len(plan) = %d, want 2 (blocked item emits nothing at all)", len(plan))
+	}
+	idA, _, _ := groupIDPlain(plan[0].Item.GetGroupId())
+	if idA != "a" || !plan[0].CreatePortal {
+		t.Errorf("plan[0] = {%q, CreatePortal=%v}, want {\"a\", true} (absolute position 1 < cap 2)", idA, plan[0].CreatePortal)
+	}
+	idB, _, _ := groupIDPlain(plan[1].Item.GetGroupId())
+	if idB != "b" || plan[1].CreatePortal {
+		t.Errorf("plan[1] = {%q, CreatePortal=%v}, want {\"b\", false} (absolute position 2, NOT < cap 2 -- \"blocked\" at position 0 still consumed a cap slot)", idB, plan[1].CreatePortal)
+	}
+}
+
 func TestPlanChatSyncZeroCapMarksEverythingNoCreate(t *testing.T) {
 	items := []*pb.WorldItemLite{worldItem("a", 100), worldItem("b", 200)}
 

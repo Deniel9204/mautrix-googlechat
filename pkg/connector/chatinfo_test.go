@@ -133,6 +133,36 @@ func TestChatInfoFromWorldItemSpaceSetsNameNoMembers(t *testing.T) {
 	}
 }
 
+func TestChatInfoFromWorldItemNoRoomNameFieldLeavesNameNil(t *testing.T) {
+	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")} // room_name entirely absent
+
+	info := chatInfoFromWorldItem(item, ownID)
+
+	if info.Name != nil {
+		t.Errorf("Name = %q, want nil when room_name is absent (no update attempted)", *info.Name)
+	}
+}
+
+func TestChatInfoFromWorldItemExplicitEmptyRoomNameClearsName(t *testing.T) {
+	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1"), RoomName: proto.String("")}
+
+	info := chatInfoFromWorldItem(item, ownID)
+
+	if info.Name == nil || *info.Name != "" {
+		t.Errorf("Name = %v, want a non-nil pointer to \"\" (room_name explicitly present but empty must still propagate)", info.Name)
+	}
+}
+
+func TestChatInfoFromWorldItemTopicAlwaysSetEvenWhenAbsent(t *testing.T) {
+	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")} // group_lite/group_details entirely absent
+
+	info := chatInfoFromWorldItem(item, ownID)
+
+	if info.Topic == nil || *info.Topic != "" {
+		t.Errorf("Topic = %v, want a non-nil pointer to \"\" (unconditional, matching Python's _update_description)", info.Topic)
+	}
+}
+
 func TestChatInfoFromWorldItemThreadingFlags(t *testing.T) {
 	cases := []struct {
 		name               string
@@ -237,6 +267,36 @@ func TestChatInfoFromGetGroupResponseSpace(t *testing.T) {
 	}
 	if len(info.Members.MemberMap) != 3 {
 		t.Errorf("len(MemberMap) = %d, want 3", len(info.Members.MemberMap))
+	}
+}
+
+func TestChatInfoFromGetGroupResponseNoNameFieldLeavesNameNil(t *testing.T) {
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}} // name entirely absent
+
+	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
+
+	if info.Name != nil {
+		t.Errorf("Name = %q, want nil when group.name is absent (no update attempted)", *info.Name)
+	}
+}
+
+func TestChatInfoFromGetGroupResponseExplicitEmptyNameClears(t *testing.T) {
+	resp := &pb.GetGroupResponse{Group: &pb.Group{Name: proto.String("")}}
+
+	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
+
+	if info.Name == nil || *info.Name != "" {
+		t.Errorf("Name = %v, want a non-nil pointer to \"\" (name explicitly present but empty must still propagate)", info.Name)
+	}
+}
+
+func TestChatInfoFromGetGroupResponseTopicAlwaysSetEvenWhenAbsent(t *testing.T) {
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}} // group_details entirely absent
+
+	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
+
+	if info.Topic == nil || *info.Topic != "" {
+		t.Errorf("Topic = %v, want a non-nil pointer to \"\" (unconditional, matching Python's _update_description)", info.Topic)
 	}
 }
 

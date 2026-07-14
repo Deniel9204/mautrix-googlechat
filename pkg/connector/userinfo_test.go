@@ -39,19 +39,42 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 			first: "Ada",
 		},
 		{
-			name: "first+last joined when no full name",
-			user: &pb.User{FirstName: proto.String("Grace"), LastName: proto.String("Hopper"), Email: proto.String("grace@example.com")},
-			want: "Grace Hopper",
+			name:  "first+last joined when no full name",
+			user:  &pb.User{FirstName: proto.String("Grace"), LastName: proto.String("Hopper"), Email: proto.String("grace@example.com")},
+			want:  "Grace Hopper",
+			first: "Grace", // FirstName passes through unchanged; only Name is derived here
 		},
 		{
-			name: "first only, no last",
-			user: &pb.User{FirstName: proto.String("Cher"), Email: proto.String("cher@example.com")},
-			want: "Cher",
+			name:  "first only, no last",
+			user:  &pb.User{FirstName: proto.String("Cher"), Email: proto.String("cher@example.com")},
+			want:  "Cher",
+			first: "Cher",
 		},
 		{
-			name: "no names at all leaves Name blank (template falls back to email)",
-			user: &pb.User{Email: proto.String("noname@example.com")},
-			want: "",
+			name:  "no names at all leaves Name blank (template falls back to email)",
+			user:  &pb.User{Email: proto.String("noname@example.com")},
+			want:  "",
+			first: "",
+		},
+		{
+			// puppet.py:194-198: full name given, but no explicit first_name
+			// -> derive FirstName from the full name, stripping a trailing
+			// last_name suffix.
+			name:  "first name derived from full name, stripping last name suffix",
+			user:  &pb.User{Name: proto.String("Ada Lovelace"), LastName: proto.String("Lovelace"), Email: proto.String("ada@example.com")},
+			want:  "Ada Lovelace",
+			first: "Ada",
+		},
+		{
+			// Same derivation, but last_name is NOT a suffix of the full
+			// name (e.g. a nickname/full name mismatch) -- first falls back
+			// to the whole full name, matching Python's `if last and
+			// first.endswith(last)` guard (only strips when it's actually a
+			// suffix).
+			name:  "first name derivation skips stripping when last name isn't a suffix",
+			user:  &pb.User{Name: proto.String("Ada L."), LastName: proto.String("Lovelace"), Email: proto.String("ada@example.com")},
+			want:  "Ada L.",
+			first: "Ada L.",
 		},
 	}
 	for _, tc := range cases {
@@ -59,6 +82,9 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 			got := displaynameParams(tc.user)
 			if got.Name != tc.want {
 				t.Errorf("Name = %q, want %q", got.Name, tc.want)
+			}
+			if got.FirstName != tc.first {
+				t.Errorf("FirstName = %q, want %q", got.FirstName, tc.first)
 			}
 			if got.Email != tc.user.GetEmail() {
 				t.Errorf("Email = %q, want %q", got.Email, tc.user.GetEmail())

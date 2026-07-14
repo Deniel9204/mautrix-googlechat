@@ -41,12 +41,19 @@ type GChatClient struct {
 	Main      *GChatConnector
 	UserLogin *bridgev2.UserLogin
 
-	// mu guards conn and lastState, which the OnConnectionState callback
-	// (running on conn's own Connect goroutine) and bridgev2's calling
-	// goroutine (Connect/Disconnect/IsLoggedIn) may touch concurrently.
+	// mu guards conn, lastState, and initialSyncDone, which the
+	// OnConnectionState callback (running on conn's own Connect goroutine)
+	// and bridgev2's calling goroutine (Connect/Disconnect/IsLoggedIn) may
+	// touch concurrently.
 	mu        sync.Mutex
 	conn      *gchatmeow.Client
 	lastState status.BridgeStateEvent
+	// initialSyncDone latches true the first time handleConnState's
+	// Connected branch runs syncChats for the currently-installed conn, and
+	// is reset to false by wireAndStart whenever a new conn is installed
+	// (i.e. a fresh session bootstrap). See shouldSyncOnConnect's doc
+	// comment for why this gate exists.
+	initialSyncDone bool
 
 	// metaMu guards all UserLoginMetadata mutations + the paired Save, and
 	// the loggedOut flag; held across Save (I/O) because metadata writes are
@@ -165,6 +172,12 @@ func hasRequiredCookies(cookies map[string]string) bool {
 // (handleGChatEvent, Task 12's territory), and starts conn's supervision loop
 // in the background.
 //
+// Also resets initialSyncDone: installing a new conn represents a fresh
+// session bootstrap (a brand new gchatmeow.Client, not one of its own
+// internal silent reconnects), so the next Connected transition should run
+// syncChats again, matching Python's on_connect_later running once per
+// User.connect() call (user.py:259-292 -> 526-560).
+//
 // ctx is retained for the connection's lifetime: it is the context
 // conn.Connect runs under, and the OnConnectionState closure captures it for
 // every later BridgeState.Send / cookie-persistence call. Callers choose
@@ -174,12 +187,44 @@ func hasRequiredCookies(cookies map[string]string) bool {
 // StartLogins/StartConnectors); login.go's attachAndConnect explicitly uses
 // the bridge's BackgroundCtx rather than a short HTTP-request-scoped ctx.
 func (c *GChatClient) wireAndStart(ctx context.Context, conn *gchatmeow.Client) {
+	c.mu.Lock()
+	c.initialSyncDone = false
+	c.mu.Unlock()
 	conn.OnStreamEvent = c.handleGChatEvent
 	conn.OnConnectionState = func(state gchatmeow.ConnState, err error) {
 		c.handleConnState(ctx, state, err)
 	}
 	c.replaceConn(conn)
 	go conn.Connect(ctx)
+}
+
+// shouldSyncOnConnect reports whether the current Connected transition is
+// the first one since this GChatClient's active conn was (re)installed
+// (wireAndStart), latching true so every later call for the same conn
+// returns false.
+//
+// Without this gate, handleConnState would re-run the (potentially large,
+// uncapped-emission) chat-list sync on EVERY Connected transition, not just
+// the first -- and gchatmeow.Client's own internal webchannel reconnects
+// (channel.go's SetOnReconnect) emit ConnStateConnected too, including after
+// the routine ~1.5h channel-lifetime recycle (client.go's
+// ErrChannelLifetimeExpired branch, which starts a brand new channel that
+// re-registers and re-fires OnConnect). Python's equivalent path is
+// explicitly silent there (user.py:322-325's _skip_on_connect skips
+// on_connect_later entirely) and its bare on_reconnect (user.py:562-565)
+// never calls sync() either -- the only recurring resync Python performs is
+// an hourly, throttled sync(limit=3) (user.py:578-591), which is out of
+// scope for this task (sync.go's syncChats doc comment) and not
+// reintroduced by this gate; this just stops the one-time sync from
+// silently becoming a "resync on every reconnect" one.
+func (c *GChatClient) shouldSyncOnConnect() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.initialSyncDone {
+		return false
+	}
+	c.initialSyncDone = true
+	return true
 }
 
 // replaceConn installs newConn as the active client, tearing down (via
@@ -272,19 +317,22 @@ func (c *GChatClient) reportState(state gchatmeow.ConnState, err error) {
 // with the freshest session (Task 10 review carry-over (c); see also
 // login.go's SubmitCookies, which persists the initial post-validation
 // snapshot once at login). Also kicks off the chat-list sync (sync.go's
-// syncChats, Task 12) once Connected -- matching Python's on_connect_later,
-// which calls self.sync() right before pushing BridgeStateEvent.CONNECTED
-// (user.py:555-560). syncChats runs in its own goroutine rather than inline:
-// handleConnState is conn's OnConnectionState callback and runs on conn's
-// own supervision goroutine (see wireAndStart's doc comment), so blocking it
-// here on a full paginated_world RPC round trip would stall that client's
-// ability to notice a subsequent reconnect/disconnect for as long as the
-// sync takes.
+// syncChats, Task 12) the FIRST time this conn reaches Connected (gated by
+// shouldSyncOnConnect, see its doc comment for why) -- matching Python's
+// on_connect_later, which calls self.sync() once per connect() call, right
+// before pushing BridgeStateEvent.CONNECTED (user.py:555-560). syncChats
+// runs in its own goroutine rather than inline: handleConnState is conn's
+// OnConnectionState callback and runs on conn's own supervision goroutine
+// (see wireAndStart's doc comment), so blocking it here on a full
+// paginated_world RPC round trip would stall that client's ability to
+// notice a subsequent reconnect/disconnect for as long as the sync takes.
 func (c *GChatClient) handleConnState(ctx context.Context, state gchatmeow.ConnState, err error) {
 	c.reportState(state, err)
 	if state == gchatmeow.ConnStateConnected {
 		c.persistCookies(ctx)
-		go c.syncChats(ctx)
+		if c.shouldSyncOnConnect() {
+			go c.syncChats(ctx)
+		}
 	}
 }
 

@@ -79,21 +79,36 @@ func (c *GChatClient) userInfoFromUser(user *pb.User) *bridgev2.UserInfo {
 // `{{ or .Name .Email "Unknown user" }}` fallback (example-config.yaml)
 // applies -- matching Python's further "else info.email" / "return None"
 // steps without duplicating them here.
+//
+// Also ports get_name_from_info's other branch (puppet.py:194-198): when the
+// API gives a full name but no explicit first_name, FirstName is derived
+// from the full name instead of staying empty, stripping a trailing
+// last_name suffix if one is present (e.g. name="Ada Lovelace",
+// last_name="Lovelace" -> FirstName="Ada"). This only affects FirstName (the
+// default displayname_template doesn't reference {{.FirstName}} at all --
+// example-config.yaml -- so it only matters for a customized template).
 func displaynameParams(user *pb.User) DisplaynameParams {
 	name := user.GetName()
+	first := user.GetFirstName()
+	last := user.GetLastName()
 	if name == "" {
 		parts := make([]string, 0, 2)
-		if first := user.GetFirstName(); first != "" {
+		if first != "" {
 			parts = append(parts, first)
 		}
-		if last := user.GetLastName(); last != "" {
+		if last != "" {
 			parts = append(parts, last)
 		}
 		name = strings.Join(parts, " ")
+	} else if first == "" {
+		first = name
+		if last != "" && strings.HasSuffix(first, last) {
+			first = strings.TrimSpace(strings.TrimSuffix(first, last))
+		}
 	}
 	return DisplaynameParams{
 		Name:      name,
-		FirstName: user.GetFirstName(),
+		FirstName: first,
 		Email:     user.GetEmail(),
 	}
 }

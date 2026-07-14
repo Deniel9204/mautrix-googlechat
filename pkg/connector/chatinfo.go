@@ -19,14 +19,22 @@ package connector
 // include BOTH DM participants, not just "the other one", and Python's
 // _update_participants explicitly removes source.gcid from that list before
 // deriving other_user_id (portal.py:349-352) -- there is no way to reproduce
-// that removal without knowing which member ID is "self".
-// bridgev2.ChatMemberList.CheckAllLogins (the mechanism that lets a member
-// list get built without knowing "self" up front) doesn't substitute for it
-// here: it's only consulted when portal.Receiver == "" (portal.go's
-// getIntentAndUserMXIDFor), and gcid.MakePortalKey scopes every DM portal to
-// a receiver, so that auto-derivation path never engages for this bridge.
-// The derivation has to happen here instead, and GetChatInfo already has
-// c.UserLogin.ID in scope, so only the free function's signature changes.
+// that removal without knowing which member ID is "self". Two bridgev2
+// mechanisms that might look like substitutes don't actually eliminate the
+// need for it: (1) updateOtherUser's own generic "2 members, exactly one
+// IsFromMe" fallback (portal.go:4563-4587) is real and always active
+// (unlike (2) below, it isn't gated on portal.Receiver), but it only
+// CONSUMES already-tagged IsFromMe flags on the ChatMember entries this
+// file builds -- tagging those correctly in the first place still requires
+// knowing which member is "self", so it doesn't remove the need for
+// ownUserID, just moves where it would be needed to; (2)
+// bridgev2.ChatMemberList.CheckAllLogins (lets the framework infer a
+// sender's identity via IsThisUser without SenderLogin pre-filled) is
+// gated on portal.Receiver == "" (portal.go's getIntentAndUserMXIDFor), and
+// gcid.MakePortalKey scopes every DM portal to a receiver, so that path
+// never engages for this bridge regardless. The derivation has to happen
+// here instead, and GetChatInfo already has c.UserLogin.ID in scope, so
+// only the free function's signature changes.
 import (
 	"context"
 	"fmt"
@@ -111,14 +119,24 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 	// Name (spaces only): DM room names are derived by bridgev2 from the
 	// other member's ghost displayname (portal.py:281-284's
 	// _update_name_from_info: `if self.is_direct: name = puppet.name`).
-	if !group.IsDM {
-		if name := g.GetName(); name != "" {
-			info.Name = &name
-		}
+	// Presence-gated on the raw *string field (proto2 HasField equivalent),
+	// NOT a `!= ""` value check: Python's `info.group.HasField("name")`
+	// (portal.py:287-288) explicitly skips any name update at all when the
+	// field is absent (e.g. a space still using Google's dynamically
+	// computed name, INCLUDE_DYNAMIC_GROUP_NAME's whole reason for being
+	// requested above) -- collapsing "absent" and "explicitly set to empty"
+	// into the same `!= ""` branch would also silently swallow a genuine
+	// rename-to-empty from the server.
+	if !group.IsDM && g.Name != nil {
+		info.Name = g.Name
 	}
-	if desc := g.GetGroupDetails().GetDescription(); desc != "" {
-		info.Topic = &desc
-	}
+	// Topic: unconditional, matching Python's _update_description, which is
+	// always called with whatever group.group_details.description resolves
+	// to (portal.py:258,274) -- including "" when GroupDetails/Description
+	// was never set, since Python's own attribute access on an unset
+	// submessage/field also just yields "" with no HasField gate at all.
+	desc := g.GetGroupDetails().GetDescription()
+	info.Topic = &desc
 	threadsOnly := g.GetThreadedGroup() != nil
 	threadsEnabled := g.GetFlatThreadsEnabled() || threadsOnly
 	info.ExtraUpdates = threadingExtraUpdater(threadsEnabled, threadsOnly)
@@ -158,9 +176,19 @@ func chatInfoFromWorldItem(item *pb.WorldItemLite, ownUserID networkid.UserID) *
 
 	if isDM {
 		info.Members = dmMemberListFromWorldItem(item, ownUserID)
-	} else if name := item.GetRoomName(); name != "" {
-		info.Name = &name
+	} else if item.RoomName != nil {
+		// Presence-gated (proto2 HasField equivalent), matching
+		// _update_name_from_info's `info.HasField("room_name")`
+		// (portal.py:285-286) -- see chatInfoFromGetGroupResponse's Name
+		// comment for why this must not collapse to a `!= ""` value check.
+		info.Name = item.RoomName
 	}
+	// Topic: WorldItemLite's description lives at group_lite.group_details
+	// (matching Python's `info.group_lite.group_details.description`,
+	// portal.py:255), unconditional for the same reason as
+	// chatInfoFromGetGroupResponse's Topic.
+	desc := item.GetGroupLite().GetGroupDetails().GetDescription()
+	info.Topic = &desc
 
 	threadsOnly := item.GetThreadedGroup() != nil
 	threadsEnabled := item.GetFlatThreadsEnabled() || threadsOnly

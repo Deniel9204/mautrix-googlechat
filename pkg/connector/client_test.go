@@ -283,6 +283,73 @@ func TestHandleConnStatePersistsCookiesOnConnected(t *testing.T) {
 	time.Sleep(20 * time.Millisecond) // let the spawned syncChats goroutine return
 }
 
+// --- shouldSyncOnConnect: sync once per conn, not on every reconnect ------
+
+func TestShouldSyncOnConnectTrueOnceThenFalse(t *testing.T) {
+	gc := &GChatClient{}
+
+	if !gc.shouldSyncOnConnect() {
+		t.Error("shouldSyncOnConnect() = false on first call, want true")
+	}
+	if gc.shouldSyncOnConnect() {
+		t.Error("shouldSyncOnConnect() = true on second call, want false (gchatmeow.Client's own internal reconnects -- e.g. the ~1.5h channel-lifetime recycle -- also emit ConnStateConnected, and must not re-trigger a full chat-list sync)")
+	}
+	if gc.shouldSyncOnConnect() {
+		t.Error("shouldSyncOnConnect() = true on third call, want false")
+	}
+}
+
+func TestWireAndStartResetsInitialSyncDone(t *testing.T) {
+	gc := &GChatClient{initialSyncDone: true}
+	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancelled: the spawned goroutine returns immediately, no real I/O
+
+	gc.wireAndStart(ctx, client)
+
+	if !gc.shouldSyncOnConnect() {
+		t.Error("shouldSyncOnConnect() = false right after wireAndStart, want true (a freshly installed conn is a new session bootstrap and must sync once)")
+	}
+	time.Sleep(20 * time.Millisecond)
+}
+
+// TestHandleConnStateDoesNotResyncOnSecondConnected pins the actual bug the
+// gchat-port-auditor caught end-to-end through handleConnState (rather than
+// shouldSyncOnConnect in isolation): a second ConnStateConnected transition
+// on the SAME conn (e.g. an internal webchannel reconnect) must not spawn
+// another syncChats goroutine. Since syncChats itself always makes a real
+// RPC call when given a live (if never-actually-connected) *gchatmeow.Client,
+// this only asserts indirectly -- via shouldSyncOnConnect's own state -- that
+// handleConnState's gate consumed the "may sync" slot exactly once for the
+// two Connected transitions below, which is what actually prevents the
+// second goroutine spawn in handleConnState's real code path.
+func TestHandleConnStateDoesNotResyncOnSecondConnected(t *testing.T) {
+	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	login := newTestUserLogin(&UserLoginMetadata{})
+	gc := &GChatClient{
+		UserLogin: login,
+		conn:      client,
+		saveFn:    func(context.Context) error { return nil },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil) // 1st: consumes the slot
+	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil) // 2nd: must not re-consume
+
+	if gc.shouldSyncOnConnect() {
+		t.Error("shouldSyncOnConnect() = true after two Connected transitions on the same conn, want false (the slot was already consumed by the first)")
+	}
+	time.Sleep(20 * time.Millisecond)
+}
+
 func TestHandleConnStateDoesNotPersistOnTransient(t *testing.T) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
 	if err != nil {

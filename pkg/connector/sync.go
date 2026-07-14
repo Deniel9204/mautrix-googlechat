@@ -29,14 +29,25 @@ type syncChatItem struct {
 // the per-chat sync plan syncChats emits as ChatResync events. Ports
 // user.py's sync() loop (user.py:623-641):
 //
-//   - skip conditions copied verbatim from user.py:630-635 (blocked / hidden
-//     (hide_timestamp > 0) / not MEMBER_JOINED);
 //   - sort by sort_timestamp descending (user.py:624) -- sort.SliceStable so
 //     ties keep the server's original relative order, matching Python
 //     list.sort's stability guarantee;
+//   - walk the FULL sorted list with an absolute position counter and skip
+//     conditions copied verbatim from user.py:630-635 (blocked / hidden
+//     (hide_timestamp > 0) / not MEMBER_JOINED) -- critically, a skipped
+//     item still advances the position counter for every item after it,
+//     exactly like Python's `for index, item in enumerate(items): ...
+//     continue` (the enumerate index is over the unfiltered, sorted list;
+//     `continue` does not "collapse" it). An earlier version of this
+//     function filtered first and then indexed only the survivors, which
+//     silently shifted the cap boundary earlier by one slot for every
+//     skipped chat ahead of it -- e.g. with maxSync=2 and the single most
+//     recent chat blocked, that version would auto-create portals for the
+//     2nd and 3rd most recent chats instead of just the 2nd, diverging from
+//     Python whenever a skipped chat ranks within the cap window;
 //   - cap at maxSync (bridge.initial_chat_sync, user.py:625): the newest
-//     maxSync (post-filter, post-sort) items are marked CreatePortal true,
-//     the rest false.
+//     maxSync items BY ABSOLUTE POSITION in the full sorted list are marked
+//     CreatePortal true, the rest false.
 //
 // Deviation from user.py's literal loop: Python additionally keeps (marks
 // for update/backfill, not creation) every item beyond the cap that ALREADY
@@ -51,20 +62,19 @@ type syncChatItem struct {
 // same net effect as user.py's gate, just enforced downstream instead of
 // here.
 func planChatSync(items []*pb.WorldItemLite, maxSync int) []syncChatItem {
-	filtered := make([]*pb.WorldItemLite, 0, len(items))
-	for _, item := range items {
+	sorted := make([]*pb.WorldItemLite, len(items))
+	copy(sorted, items)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].GetSortTimestamp() > sorted[j].GetSortTimestamp()
+	})
+
+	plan := make([]syncChatItem, 0, len(sorted))
+	for i, item := range sorted {
 		rs := item.GetReadState()
 		if rs.GetBlocked() || rs.GetHideTimestamp() > 0 || rs.GetMembershipState() != pb.MembershipState_MEMBER_JOINED {
 			continue
 		}
-		filtered = append(filtered, item)
-	}
-	sort.SliceStable(filtered, func(i, j int) bool {
-		return filtered[i].GetSortTimestamp() > filtered[j].GetSortTimestamp()
-	})
-	plan := make([]syncChatItem, len(filtered))
-	for i, item := range filtered {
-		plan[i] = syncChatItem{Item: item, CreatePortal: i < maxSync}
+		plan = append(plan, syncChatItem{Item: item, CreatePortal: i < maxSync})
 	}
 	return plan
 }
