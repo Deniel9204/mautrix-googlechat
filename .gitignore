@@ -10,3 +10,6 @@
 .env.spike
 /.superpowers/
 /.spike-fixtures/
+/tmp/
+*cookie*
+*.cookies
