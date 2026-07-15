@@ -25,18 +25,26 @@ import (
 // portal/network-ignorant (see msgconv.go's package doc comment), so
 // mention is accepted as a plain function value here, not a *bridgev2.Portal.
 //
-// Plain-text extraction: the message body is exactly msg.GetTextBody()
-// (proto field 10, TextBody in the generated Go struct). Python builds
-// TextMessageEventContent(body=add_surrogate(evt.text_body)) and later,
-// when there is no formatted_body, sets content.body =
-// del_surrogate(content.body) -- i.e. round-trips text_body through UTF-16
-// surrogate padding and back unchanged, which is a no-op for the plain
-// Body value itself. Here text_body is taken verbatim as UTF-8: no
-// surrogate encode/decode of Body happens in this file (gchatfmt.Parse
-// does its own UTF-16 re-encoding internally, only for annotation offset
-// math -- see its package doc comment). Astral-plane characters (e.g.
-// emoji outside the BMP) are preserved because Go strings are already
-// UTF-8 byte sequences.
+// Plain-text extraction: the message body starts as msg.GetTextBody()
+// (proto field 10, TextBody in the generated Go struct), then
+// gchatfmt.AppendLinkAnnotations (M5 Task 4, a port of the
+// video_call_metadata/drive_metadata/youtube_metadata branches of
+// _preprocess_annotations, portal.py:1496-1519) may extend it with a
+// Drive/Meet/YouTube URL before anything else sees it -- see that
+// function's doc comment for the full investigation into why url_metadata
+// is deliberately NOT handled the same way (it is never appended to
+// text_body by Python; it becomes a separate, out-of-scope HTTP-downloaded
+// attachment instead). Python builds
+// TextMessageEventContent(body=add_surrogate(evt.text_body)) (using the
+// already-preprocessed evt.text_body) and later, when there is no
+// formatted_body, sets content.body = del_surrogate(content.body) -- i.e.
+// round-trips text_body through UTF-16 surrogate padding and back
+// unchanged, which is a no-op for the plain Body value itself. Here
+// text_body is taken verbatim as UTF-8: no surrogate encode/decode of Body
+// happens in this file (gchatfmt.Parse does its own UTF-16 re-encoding
+// internally, only for annotation offset math -- see its package doc
+// comment). Astral-plane characters (e.g. emoji outside the BMP) are
+// preserved because Go strings are already UTF-8 byte sequences.
 //
 // text_body presence gate: Python only creates a text event at all when
 // evt.text_body is truthy (portal.py:1411, `if evt.text_body:`) -- an
@@ -44,7 +52,13 @@ import (
 // a part with an empty body. This mirrors Python's exact truthiness rule:
 // the empty string is the only falsy case; a whitespace-only body (e.g.
 // "   ") is truthy in Python and therefore still produces a part, verbatim
-// and untrimmed.
+// and untrimmed. Crucially, this gate is evaluated on the text AFTER
+// gchatfmt.AppendLinkAnnotations (M5 Task 4) has run, exactly like Python:
+// _preprocess_annotations (portal.py:1399) -- which can mutate evt.text_body
+// via its video_call_metadata/drive_metadata/youtube_metadata branches --
+// runs BEFORE the `if evt.text_body:` check (portal.py:1411), so a message
+// with NO original text but a Drive/Meet/YouTube annotation still gets a
+// text part (body = just the appended URL), not zero parts.
 //
 // Format/FormattedBody gate: gchatfmt.Parse returns html == "" whenever
 // annotations is empty (its own fix for the Python always-truthy-annotations
@@ -128,9 +142,12 @@ import (
 // what portal.py's own thread_parent + non-fallback reply_to combination
 // produces (portal.py:891-894).
 //
-// Computed BEFORE the empty-text_body early return below (not after), so a
-// future (M5) attachment-only message in a thread still carries the right
-// ThreadRoot/ReplyTo even though it has zero text parts today.
+// Computed BEFORE the empty-text_body early return below (not after), so an
+// attachment-only message in a thread still carries the right
+// ThreadRoot/ReplyTo even when it has zero text parts (an upload_metadata-
+// or should_not_render url_metadata-only message still has none today;
+// M5 Task 4 means a Drive/Meet/YouTube-only message no longer falls in that
+// bucket -- see AppendLinkAnnotations above).
 func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, threadsOnly bool, mention gchatfmt.MentionResolver) (*bridgev2.ConvertedMessage, gchatfmt.ParsedMentions) {
 	cm := &bridgev2.ConvertedMessage{
 		Parts: make([]*bridgev2.ConvertedMessagePart, 0, 1),
@@ -147,7 +164,7 @@ func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, threa
 		cm.ReplyTo = &networkid.MessageOptionalPartID{MessageID: networkid.MessageID(replyToID)}
 	}
 
-	text := msg.GetTextBody()
+	text := gchatfmt.AppendLinkAnnotations(msg.GetTextBody(), msg.GetAnnotations())
 	if text == "" {
 		return cm, gchatfmt.ParsedMentions{}
 	}

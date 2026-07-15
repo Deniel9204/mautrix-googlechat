@@ -2,6 +2,7 @@ package msgconv_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -499,5 +500,242 @@ func TestToMatrix_ReplyToAndThreadRootBothSet(t *testing.T) {
 	}
 	if cm.ReplyTo == nil || string(cm.ReplyTo.MessageID) != "target-in-thread" {
 		t.Errorf("ReplyTo = %v, want MessageID %q", cm.ReplyTo, "target-in-thread")
+	}
+}
+
+// --- Drive/Meet/YouTube link annotations (M5 Task 4) ------------------------
+//
+// Ports the video_call_metadata/drive_metadata/youtube_metadata branches of
+// _preprocess_annotations (portal.py:1496-1519) via
+// gchatfmt.AppendLinkAnnotations, wired in ToMatrix BEFORE the empty-text_body
+// gate (see from-gchat.go's package/function doc comments and
+// gchatfmt/linkappend.go's doc comment for the full investigation into why
+// url_metadata is NOT handled the same way -- it is never appended to
+// text_body by Python at all, so there is no double-render hazard between
+// this append and gchatfmt.Parse's pre-existing inline url_metadata
+// rendering; see TestToMatrix_UrlMetadataInlineAnnotationNotDoubleAppended
+// below for the pinning test).
+
+func driveMetadataAnnotation(id string) *pb.Annotation {
+	return &pb.Annotation{
+		Metadata: &pb.Annotation_DriveMetadata{
+			DriveMetadata: &pb.DriveMetadata{Id: proto.String(id)},
+		},
+	}
+}
+
+func youtubeMetadataAnnotation(id string) *pb.Annotation {
+	return &pb.Annotation{
+		Metadata: &pb.Annotation_YoutubeMetadata{
+			YoutubeMetadata: &pb.YoutubeMetadata{Id: proto.String(id)},
+		},
+	}
+}
+
+func videoCallMetadataAnnotation(meetingURL string) *pb.Annotation {
+	return &pb.Annotation{
+		Metadata: &pb.Annotation_VideoCallMetadata{
+			VideoCallMetadata: &pb.VideoCallMetadata{
+				MeetingSpace: &pb.MeetingSpace{MeetingUrl: proto.String(meetingURL)},
+			},
+		},
+	}
+}
+
+// TestToMatrix_DriveMetadataAppendsURLToBody is the headline drive_metadata
+// case: the Drive open URL is appended to the plain body with a "\n\n"
+// separator, and (having no chip_render_type == DO_NOT_RENDER span) produces
+// no HTML formatting -- just plain appended text.
+func TestToMatrix_DriveMetadataAppendsURLToBody(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody:    proto.String("check this doc"),
+		Annotations: []*pb.Annotation{driveMetadataAnnotation("doc1")},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	want := "check this doc\n\nhttps://drive.google.com/open?id=doc1"
+	if got := cm.Parts[0].Content.Body; got != want {
+		t.Errorf("Body = %q, want %q", got, want)
+	}
+}
+
+// TestToMatrix_YoutubeMetadataAppendsWatchURLToBody mirrors the drive test
+// for youtube_metadata.
+func TestToMatrix_YoutubeMetadataAppendsWatchURLToBody(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody:    proto.String("watch this"),
+		Annotations: []*pb.Annotation{youtubeMetadataAnnotation("dQw4w9WgXcQ")},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	want := "watch this\n\nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ"
+	if got := cm.Parts[0].Content.Body; got != want {
+		t.Errorf("Body = %q, want %q", got, want)
+	}
+}
+
+// TestToMatrix_VideoCallMetadataAppendsMeetingURLToBody mirrors the drive
+// test for video_call_metadata (a Meet link).
+func TestToMatrix_VideoCallMetadataAppendsMeetingURLToBody(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody:    proto.String("join the call"),
+		Annotations: []*pb.Annotation{videoCallMetadataAnnotation("https://meet.google.com/abc-defg-hij")},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	want := "join the call\n\nhttps://meet.google.com/abc-defg-hij"
+	if got := cm.Parts[0].Content.Body; got != want {
+		t.Errorf("Body = %q, want %q", got, want)
+	}
+}
+
+// TestToMatrix_DriveMetadataAlreadyPresentSkipsAppend proves the substring
+// dedup: if the id is already present in text_body (e.g. the user pasted
+// the link themselves), no duplicate is appended.
+func TestToMatrix_DriveMetadataAlreadyPresentSkipsAppend(t *testing.T) {
+	mc := msgconv.New()
+	text := "see https://drive.google.com/open?id=doc1 for the doc"
+	msg := &pb.Message{
+		TextBody:    proto.String(text),
+		Annotations: []*pb.Annotation{driveMetadataAnnotation("doc1")},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	if got := cm.Parts[0].Content.Body; got != text {
+		t.Errorf("Body = %q, want unchanged %q", got, text)
+	}
+}
+
+// TestToMatrix_EmptyTextBodyWithDriveAnnotationProducesTextPart is the key
+// empty-gate-ordering test: portal.py's _preprocess_annotations (which can
+// mutate evt.text_body via the drive_metadata branch) runs BEFORE the
+// `if evt.text_body:` truthy gate (portal.py:1399 then 1411). So a message
+// with NO original text but a drive_metadata annotation must still produce
+// ONE text part whose body is exactly the appended Drive URL -- NOT zero
+// parts, which is what TestToMatrix_EmptyBody proves for a message with no
+// link annotations at all.
+func TestToMatrix_EmptyTextBodyWithDriveAnnotationProducesTextPart(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody:    proto.String(""),
+		Annotations: []*pb.Annotation{driveMetadataAnnotation("doc1")},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part for an empty text_body with a drive_metadata annotation, got %d", len(cm.Parts))
+	}
+	want := "https://drive.google.com/open?id=doc1"
+	if got := cm.Parts[0].Content.Body; got != want {
+		t.Errorf("Body = %q, want %q (set, not appended with a leading separator)", got, want)
+	}
+}
+
+// TestToMatrix_UrlMetadataInlineAnnotationNotDoubleAppended is THE double-
+// render pin the M5 Task 4 investigation was about. A url_metadata
+// annotation with chip_render_type == DO_NOT_RENDER wraps EXISTING body
+// text as an inline <a href> (gchatfmt.Parse's pre-existing renderURL,
+// convert.go:523, from M3) -- a completely different Python code path
+// (_gc_annotations_to_matrix's HTML renderer) from _preprocess_annotations,
+// which never appends url_metadata's URL to text_body at all (see
+// gchatfmt/linkappend.go's doc comment). If AppendLinkAnnotations mistakenly
+// treated url_metadata like drive/youtube/video_call metadata, the URL
+// would render TWICE: once as the inline hyperlink around "click here",
+// once more as new plain text appended after it. This test proves the
+// plain Body is exactly the original text (the inline rendering only
+// affects FormattedBody, via HTML markup around the SAME text, not new
+// text) -- i.e. no double render.
+func TestToMatrix_UrlMetadataInlineAnnotationNotDoubleAppended(t *testing.T) {
+	mc := msgconv.New()
+	text := "click here"
+	msg := &pb.Message{
+		TextBody: proto.String(text),
+		Annotations: []*pb.Annotation{
+			gchatfmt.MakeURLAnnotation(0, int32(len(text)), "https://example.com/page", pb.Annotation_DO_NOT_RENDER),
+		},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	part := cm.Parts[0]
+	if part.Content.Body != text {
+		t.Errorf("Body = %q, want unchanged %q (url_metadata must never be appended)", part.Content.Body, text)
+	}
+	wantHTML := `<a href="https://example.com/page">click here</a>`
+	if part.Content.FormattedBody != wantHTML {
+		t.Errorf("FormattedBody = %q, want %q", part.Content.FormattedBody, wantHTML)
+	}
+	if got := strings.Count(part.Content.FormattedBody, "https://example.com/page"); got != 1 {
+		t.Errorf("the URL appears %d times in FormattedBody, want exactly 1 (no double-render)", got)
+	}
+}
+
+// TestToMatrix_UrlMetadataRenderChipNeverAppended covers the OTHER
+// url_metadata shape: a RENDER (link-preview chip) annotation, should_not_
+// render=false, with an image_url set -- the closest analogue to what the
+// original task brief assumed would be appended. Per the investigation
+// (gchatfmt/linkappend.go doc comment), Python's _preprocess_annotations
+// turns this into an AttachmentURL for a separate, out-of-scope HTTP
+// download; it is never appended to text_body, and gchatfmt.Parse skips
+// non-DO_NOT_RENDER chip annotations entirely (convert.go:412) so it isn't
+// rendered inline either. The plain, unwrapped underlying text survives
+// verbatim and no URL is appended.
+func TestToMatrix_UrlMetadataRenderChipNeverAppended(t *testing.T) {
+	mc := msgconv.New()
+	text := "check out this link"
+	ann := gchatfmt.MakeURLAnnotation(0, int32(len(text)), "https://example.com/page", pb.Annotation_RENDER)
+	ann.GetUrlMetadata().ImageUrl = proto.String("https://example.com/preview.png")
+	msg := &pb.Message{
+		TextBody:    proto.String(text),
+		Annotations: []*pb.Annotation{ann},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	if got := cm.Parts[0].Content.Body; got != text {
+		t.Errorf("Body = %q, want unchanged %q", got, text)
+	}
+}
+
+// TestToMatrix_NoLinkAnnotationsBodyUnchanged is the converse fast path: a
+// message with no video_call/drive/youtube/url metadata annotations at all
+// must have its body left completely untouched by AppendLinkAnnotations.
+func TestToMatrix_NoLinkAnnotationsBodyUnchanged(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{TextBody: proto.String("hello world")}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	if got := cm.Parts[0].Content.Body; got != "hello world" {
+		t.Errorf("Body = %q, want unchanged %q", got, "hello world")
 	}
 }
