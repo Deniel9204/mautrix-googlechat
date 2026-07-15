@@ -15,6 +15,20 @@ package connector
 // fills in MessagePosted (new messages only -- see handleMessagePosted's
 // doc comment for why edits share this same body arm but are routed
 // elsewhere). Later M2+ tasks fill in the rest.
+//
+// Every event, regardless of body type, first goes through advanceRevision
+// (backfill.go) -- ports user.py:674-682's on_stream_event, which
+// unconditionally checks `evt.HasField("user_revision")` before its own
+// type-based dispatch, not only during an explicit catch-up. This is what
+// keeps UserLoginMetadata.Revision (the catch_up_user watermark backfill.go's
+// catchUp reads on a reconnect) tracking live traffic: without it, the
+// watermark could only ever move forward from inside catchUp's own replay,
+// so after a period of live traffic it would go stale, and the NEXT
+// reconnect's catch_up_user call would request "since account creation"
+// instead of "since the last processed event" -- eventually provoking a
+// permanent ABORTED_FROM_REVISION_TOO_OLD/ABORTED_CUTOFF_EXCEEDED response
+// that never recovers (gchat-port-auditor P0 finding on M2 Task 7's initial
+// review, closed by adding this call).
 import (
 	"context"
 
@@ -30,6 +44,7 @@ import (
 
 func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) {
 	log := zerolog.Ctx(ctx)
+	c.advanceRevision(ctx, evt)
 	switch evt.GetBody().GetType().(type) {
 	case *pb.Event_EventBody_GroupViewed:
 		log.Debug().Msg("googlechat: unhandled GroupViewed event (M2+)")

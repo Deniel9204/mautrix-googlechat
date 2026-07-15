@@ -44,28 +44,48 @@ import (
 // the SAME handleGChatEvent path a live stream event takes (events.go) --
 // so M4's later edit/reaction/delete handlers apply to gap-replayed events
 // automatically, with no separate backfill-specific event handling to keep
-// in sync. Idempotency (a caught-up event that also arrives live, or is
-// replayed again by an overlapping window on a later reconnect) is left to
-// bridgev2's own message-id-keyed dedup on the RemoteMessage path
-// (portal.go's checkFakeMessage/message-exists lookup) exactly like a live
-// duplicate would be -- this function does no de-duplication of its own.
+// in sync, AND so the watermark advance itself (advanceRevision, called
+// from inside handleGChatEvent for every event, live or replayed) applies
+// identically here: each returned event's own revision is persisted right
+// after that event is dispatched, not once in bulk at the end -- mirroring
+// portal.py:502-503's `_handle_backfill_events`, which calls set_revision
+// PER multi_evt inside its loop, not after it, so a crash partway through a
+// catch-up page never has to redo work it already committed. Idempotency (a
+// caught-up event that also arrives live, or is replayed again by an
+// overlapping window on a later reconnect) is left to bridgev2's own
+// message-id-keyed dedup on the RemoteMessage path (portal.go's
+// checkFakeMessage/message-exists lookup) exactly like a live duplicate
+// would be -- this function does no de-duplication of its own.
 //
 // Intended to run on every Connected transition AFTER the first for the
 // current conn (client.go's handleConnState, gated by the SAME
 // shouldSyncOnConnect latch syncChats uses for the first-connect case --
 // see handleConnState's doc comment for why reusing that latch, rather than
-// adding a second one, is both correct and required by this task).
+// adding a second one, is both correct and required by this task). Also
+// bails out (no RPC call at all) while this conn's first-ever syncChats is
+// still running: shouldSyncOnConnect's latch is consumed synchronously the
+// instant the FIRST Connected is handled, before its spawned syncChats
+// goroutine has even started, so a second Connected transition landing that
+// quickly would otherwise race an unfinished first sync and call
+// catch_up_user with a meaningless (still probably 0) watermark --
+// gchat-port-auditor P1 finding on this task's initial review. Skipping
+// here is safe: it only means this one reconnect's catch-up opportunity is
+// deferred, not lost -- once the first sync finishes, advanceRevision picks
+// up tracking from the very next live event, same as any other reconnect.
 //
-// The revision watermark is persisted ONLY once every returned event has
-// been dispatched, and only if this function does not return early -- an
-// RPC error, or a non-COMPLETED/PAGINATED response status, leaves
-// UserLoginMetadata.Revision untouched so the NEXT reconnect retries the
-// exact same window instead of silently skipping it (no gap loss on a
-// transient catch-up failure). This mirrors Python's own set_revision guard
-// (db/user.py:104-109: never move a stored revision backwards) applied to a
-// single account-wide watermark instead of Python's per-object ones.
+// If catch_up_user itself fails outright, or its response status is
+// anything other than COMPLETED/PAGINATED, this returns before dispatching
+// or persisting anything at all, so UserLoginMetadata.Revision is left
+// completely untouched and the NEXT reconnect retries the exact same
+// window instead of silently skipping it (no gap loss on a transient
+// catch-up failure).
 func (c *GChatClient) catchUp(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
+
+	if c.isSyncInProgress() {
+		log.Debug().Msg("googlechat: catchUp skipped, this conn's first chat-list sync is still running")
+		return
+	}
 
 	fetch := c.catchUpUserFn
 	if fetch == nil {
@@ -107,46 +127,51 @@ func (c *GChatClient) catchUp(ctx context.Context) {
 		return
 	}
 
-	newRevision := fromRevision
+	eventCount := 0
 	for _, evt := range resp.GetEvents() {
-		if r := eventRevision(evt); r > newRevision {
-			newRevision = r
-		}
 		for _, flat := range gchatmeow.SplitEventBodies(evt) {
-			c.handleGChatEvent(ctx, flat)
+			eventCount++
+			c.handleGChatEvent(ctx, flat) // advances the watermark itself, per event (see doc comment above)
 		}
 	}
 	log.Debug().
-		Int("event_count", len(resp.GetEvents())).
+		Int("event_count", eventCount).
 		Int64("from_revision", fromRevision).
-		Int64("new_revision", newRevision).
 		Str("status", resp.GetStatus().String()).
 		Msg("googlechat: catch_up_user replay complete")
+}
 
-	if newRevision <= fromRevision {
-		// Nothing new: either zero events, or none of them carried a
-		// revision field greater than what we already had. Leave the
-		// watermark exactly as it was rather than persisting a value that
-		// isn't actually further along (and skip the write entirely).
+// advanceRevision persists evt's own user_revision/group_revision timestamp
+// (eventRevision) as the new catch_up_user watermark
+// (UserLoginMetadata.Revision) if it is greater than what is already
+// stored. Called from handleGChatEvent (events.go) for EVERY event this
+// login processes -- live stream or catchUp replay alike -- mirroring
+// user.py:674-682's on_stream_event, which runs its
+// `if evt.HasField("user_revision"): await self.set_revision(...)` check
+// unconditionally, independent of the event's type-based dispatch. A no-op
+// (no lock taken, no I/O) when evt carries no revision at all, which is the
+// common case for most event bodies.
+func (c *GChatClient) advanceRevision(ctx context.Context, evt *pb.Event) {
+	r := eventRevision(evt)
+	if r <= 0 {
 		return
 	}
 	if err := c.updateMetadata(ctx, func(meta *UserLoginMetadata) bool {
-		if meta.Revision >= newRevision {
+		if meta.Revision >= r {
 			return false
 		}
-		meta.Revision = newRevision
+		meta.Revision = r
 		return true
 	}); err != nil {
-		log.Err(err).Msg("googlechat: failed to persist catch-up revision watermark")
+		zerolog.Ctx(ctx).Err(err).Msg("googlechat: failed to persist revision watermark")
 	}
 }
 
 // getRevision snapshots the current catch_up_user watermark
 // (UserLoginMetadata.Revision) under metaMu -- mirrors Connect's cookie
 // snapshot read (client.go): meta.Revision is also written by
-// updateMetadata (catchUp's own watermark advance, above) from potentially
-// a different goroutine, so reading the field directly (unlocked) would
-// race it.
+// updateMetadata (advanceRevision above) from potentially a different
+// goroutine, so reading the field directly (unlocked) would race it.
 func (c *GChatClient) getRevision() int64 {
 	c.metaMu.Lock()
 	defer c.metaMu.Unlock()
@@ -164,11 +189,15 @@ func (c *GChatClient) getRevision() int64 {
 // comparison rather than an explicit oneof switch to match
 // GetUserRevision/GetGroupRevision's own nil-safe accessor style (the arm
 // that is NOT set simply returns nil, and GetTimestamp() on a nil
-// *WriteRevision returns 0). Computed from the RAW, pre-split multi-body
-// event -- catch_up_user's response carries the revision once per multi_evt,
-// not once per flattened body -- mirroring portal.py:502-503's
-// `multi_evt.group_revision` and user.py:681-682's `evt.user_revision`,
-// both read from the event BEFORE split_event_bodies flattens it.
+// *WriteRevision returns 0). Safe to call on an already-split (flattened)
+// event: splitEventBodies (pkg/gchatmeow/client.go) proto.Clones the whole
+// parent event -- RevisionType included -- onto every split copy, so
+// calling this once per flattened body (as handleGChatEvent does) is
+// equivalent to Python's once-per-raw-multi-event read
+// (portal.py:502-503's `multi_evt.group_revision`, user.py:681-682's
+// `evt.user_revision`): every split copy carries the identical value, and
+// advanceRevision's own monotonic guard makes re-applying the same value
+// multiple times a harmless no-op.
 func eventRevision(evt *pb.Event) int64 {
 	r := evt.GetUserRevision().GetTimestamp()
 	if g := evt.GetGroupRevision().GetTimestamp(); g > r {

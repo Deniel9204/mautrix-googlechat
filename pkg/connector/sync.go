@@ -115,8 +115,18 @@ func planChatSync(items []*pb.WorldItemLite, maxSync int) []syncChatItem {
 // path); no update_direct_chats()/m.direct sync at the end (user.py:664 --
 // bridgev2 maintains m.direct itself from portal state, this bridge never
 // needs to push it directly).
+//
+// Sets syncInProgress for its own duration (client.go) so backfill.go's
+// catchUp -- which can run concurrently with this call if a second
+// Connected transition lands before this one finishes, since
+// shouldSyncOnConnect's latch is consumed synchronously up front, not once
+// this function actually completes -- knows to defer its catch_up_user
+// call rather than race an unfinished first sync (gchat-port-auditor P1
+// finding, M2 Task 7).
 func (c *GChatClient) syncChats(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
+	c.setSyncInProgress(true)
+	defer c.setSyncInProgress(false)
 
 	fetch := c.paginatedWorldFn
 	if fetch == nil {

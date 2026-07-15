@@ -58,6 +58,20 @@ type GChatClient struct {
 	// (i.e. a fresh session bootstrap). See shouldSyncOnConnect's doc
 	// comment for why this gate exists.
 	initialSyncDone bool
+	// syncInProgress is true for the duration of a still-running syncChats
+	// call (sync.go sets/clears it around its own body). shouldSyncOnConnect
+	// consumes the "may sync" latch synchronously, before syncChats' spawned
+	// goroutine (client.go's handleConnState) has even started running, so a
+	// second Connected transition landing in that narrow window would
+	// otherwise take backfill.go's catchUp branch concurrently with an
+	// unfinished first sync -- calling catch_up_user with a meaningless
+	// (still probably zero) UserLoginMetadata.Revision watermark
+	// (gchat-port-auditor P1 finding, M2 Task 7). catchUp checks this flag
+	// and skips its RPC call entirely while it is true, deferring (not
+	// losing) that reconnect's catch-up opportunity: once the first sync
+	// finishes, advanceRevision (backfill.go) picks up tracking from the
+	// very next live event, same as any other reconnect.
+	syncInProgress bool
 
 	// metaMu guards all UserLoginMetadata mutations + the paired Save, and
 	// the loggedOut flag; held across Save (I/O) because metadata writes are
@@ -324,6 +338,24 @@ func (c *GChatClient) resetSyncLatch() {
 	c.mu.Lock()
 	c.initialSyncDone = false
 	c.mu.Unlock()
+}
+
+// setSyncInProgress sets/clears the syncInProgress flag (see its doc
+// comment above); syncChats (sync.go) calls this with true right before its
+// body runs and defers a false to cover every return path.
+func (c *GChatClient) setSyncInProgress(v bool) {
+	c.mu.Lock()
+	c.syncInProgress = v
+	c.mu.Unlock()
+}
+
+// isSyncInProgress reports whether this conn's syncChats call is still
+// running -- backfill.go's catchUp checks this before ever issuing a
+// catch_up_user RPC (see syncInProgress's doc comment for why).
+func (c *GChatClient) isSyncInProgress() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.syncInProgress
 }
 
 // replaceConn installs newConn as the active client, tearing down (via
