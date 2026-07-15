@@ -115,6 +115,14 @@ type GChatClient struct {
 	// fast instead of waiting on real wall-clock backoff.
 	syncRetryBackoffBase time.Duration
 
+	// createTopicFn issues the create_topic RPC that handlematrix.go's
+	// HandleMatrixMessage needs to send a brand-new top-level message.
+	// Defaults to conn.CreateTopic; overridden in tests so the outbound send
+	// path (request construction, response->DB mapping) can be exercised
+	// without a live gchatmeow.Client connection -- mirrors
+	// paginatedWorldFn above (sync.go).
+	createTopicFn func(ctx context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error)
+
 	// queueRemoteEventFn queues one inbound bridgev2.RemoteEvent built from a
 	// live gchatmeow stream event (events.go's handleGChatEvent, starting
 	// with MESSAGE_POSTED in Task 4; later M2+ event kinds -- edits,
@@ -506,6 +514,4 @@ func (c *GChatClient) GetCapabilities(_ context.Context, _ *bridgev2.Portal) *ev
 	return &event.RoomFeatures{MaxTextLength: 4096}
 }
 
-func (c *GChatClient) HandleMatrixMessage(_ context.Context, _ *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
-	return nil, fmt.Errorf("sending messages is not implemented yet")
-}
+// HandleMatrixMessage is implemented in handlematrix.go.
