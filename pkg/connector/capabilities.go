@@ -116,19 +116,31 @@ var gchatFileFeatures = &event.FileFeatures{
 }
 
 // gchatFile is this bridge's outbound File capability map (M5 Task 5): the
-// four msgtypes handlematrix.go's HandleMatrixMessage media branch actually
-// accepts (isOutboundMediaMsgType, media.go) -- image/video/audio/file, one
-// for one. Any msgtype missing from this map is rejected by bridgev2 itself
-// (mautrix-go bridgev2/portal.go's checkMessageContentCaps) with
-// ErrUnsupportedMessageType BEFORE HandleMatrixMessage is ever called, so
-// this map and isOutboundMediaMsgType's own switch must be kept in sync --
-// see isOutboundMediaMsgType's doc comment for why event.CapMsgSticker is
-// deliberately absent from both.
+// msgtypes handlematrix.go's HandleMatrixMessage media branch actually
+// accepts (isOutboundMediaMsgType, media.go) -- image/video/audio/file.
+// bridgev2 rejects any msgtype missing from this map (mautrix-go
+// bridgev2/portal.go's checkMessageContentCaps) with ErrUnsupportedMessageType
+// BEFORE HandleMatrixMessage is ever called, keyed on
+// content.GetCapMsgType() -- NOT the raw MsgType. That distinction is why
+// CapMsgVoice and CapMsgGIF must be listed EXPLICITLY here alongside the
+// four base types: GetCapMsgType (mautrix-go event/message.go:155-176)
+// promotes an m.audio carrying an MSC3245 `org.matrix.msc3245.voice` marker
+// to CapMsgVoice, and an m.video whose Info.MauGIF is set to CapMsgGIF, so a
+// map with only event.MsgAudio/event.MsgVideo would make bridgev2
+// hard-reject a voice message (common from Element) or an animated GIF even
+// though isOutboundMediaMsgType (which switches on the RAW m.audio/m.video
+// MsgType, unaffected by the cap-type promotion) accepts them fine and
+// Google Chat's generic /uploads endpoint takes the bytes without caring
+// what kind of media they are. event.CapMsgSticker is still deliberately
+// absent (see isOutboundMediaMsgType's doc comment). This map and
+// isOutboundMediaMsgType's own switch must be kept in sync.
 var gchatFile = event.FileFeatureMap{
-	event.MsgImage: gchatFileFeatures,
-	event.MsgVideo: gchatFileFeatures,
-	event.MsgAudio: gchatFileFeatures,
-	event.MsgFile:  gchatFileFeatures,
+	event.MsgImage:    gchatFileFeatures,
+	event.MsgVideo:    gchatFileFeatures,
+	event.MsgAudio:    gchatFileFeatures,
+	event.MsgFile:     gchatFileFeatures,
+	event.CapMsgVoice: gchatFileFeatures,
+	event.CapMsgGIF:   gchatFileFeatures,
 }
 
 // gchatCapsFlat is advertised for every portal with no topic-threading

@@ -353,6 +353,28 @@ func TestGetCapabilitiesFileMediaTypesFullySupported(t *testing.T) {
 	}
 }
 
+// TestGetCapabilitiesFileVoiceAndGIFSupported pins the M5 whole-branch fix:
+// bridgev2's checkMessageContentCaps keys caps.File lookups on
+// content.GetCapMsgType() (mautrix-go event/message.go:155-176), which
+// promotes an m.audio MSC3245 voice message to CapMsgVoice and an m.video
+// GIF to CapMsgGIF -- so without explicit CapMsgVoice/CapMsgGIF entries,
+// bridgev2 hard-rejects both (voice messages from Element are common) even
+// though Google Chat's generic /uploads endpoint accepts the bytes fine and
+// isOutboundMediaMsgType (switching on the raw m.audio/m.video) accepts them.
+func TestGetCapabilitiesFileVoiceAndGIFSupported(t *testing.T) {
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{}))
+
+	for _, capType := range []event.CapabilityMsgType{event.CapMsgVoice, event.CapMsgGIF} {
+		feat, ok := caps.File[capType]
+		if !ok || feat == nil {
+			t.Fatalf("File[%s] missing, want an entry (otherwise bridgev2 rejects it before HandleMatrixMessage)", capType)
+		}
+		if lvl := feat.GetMimeSupport("application/octet-stream"); !lvl.Full() {
+			t.Errorf("File[%s] has no */* catch-all (GetMimeSupport = %v)", capType, lvl)
+		}
+	}
+}
+
 // TestGetCapabilitiesFileDoesNotClaimSticker pins that event.CapMsgSticker
 // is deliberately absent -- see isOutboundMediaMsgType's doc comment
 // (media.go) for why: Google Chat's upload pipeline has no sticker concept,

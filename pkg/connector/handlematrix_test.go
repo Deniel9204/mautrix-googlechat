@@ -1284,6 +1284,64 @@ func TestHandleMatrixMessageFormattedCaptionKeepsFileAndFormattingAnnotations(t 
 	}
 }
 
+// TestHandleMatrixMessageMediaReplyKeepsBothUploadAndReplyTarget covers the
+// media+reply composition (M5 whole-branch review Minor): an outbound media
+// message that is ALSO a quote-reply (msg.ReplyTo set) must produce BOTH the
+// UPLOAD_METADATA annotation (the attached file) AND the SendReplyTarget
+// (the reply pointer) on the same create_topic request -- the media path
+// (mergeAnnotations) and the reply path (buildReplyTarget) compose without
+// either clobbering the other.
+func TestHandleMatrixMessageMediaReplyKeepsBothUploadAndReplyTarget(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantMeta := testUploadMetadata("cat.png", "image/png")
+
+	var gotReq *pb.CreateTopicRequest
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+			return []byte("fake png bytes"), nil
+		},
+		uploadFileFn: func(context.Context, string, []byte, string, string) (*pb.UploadMetadata, error) {
+			return wantMeta, nil
+		},
+		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			gotReq = req
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "cat.png", "cat.png", "image/png")
+	msg.ReplyTo = &database.Message{
+		ID:       gcid.MakeMessageID("target1"),
+		Metadata: &MessageMetadata{TimestampMicro: 555_000},
+	}
+
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+
+	// The UPLOAD_METADATA annotation (the attached file) must survive.
+	anns := gotReq.GetAnnotations()
+	if len(anns) != 1 || anns[0].GetType() != pb.AnnotationType_UPLOAD_METADATA {
+		t.Fatalf("Annotations = %s, want exactly [UPLOAD_METADATA] (the attached file must survive a reply)", formatAnnotationsForTest(anns))
+	}
+	if got := anns[0].GetUploadMetadata(); got != wantMeta {
+		t.Errorf("Annotations[0].UploadMetadata = %v, want the uploaded metadata", got)
+	}
+	// The SendReplyTarget (the reply pointer) must ALSO be present.
+	replyTarget := gotReq.GetMessageInfo().GetReplyTo()
+	if replyTarget == nil {
+		t.Fatal("MessageInfo.ReplyTo is nil, want a SendReplyTarget alongside the upload annotation")
+	}
+	if got := replyTarget.GetId().GetMessageId(); got != "target1" {
+		t.Errorf("ReplyTo.Id.MessageId = %q, want %q", got, "target1")
+	}
+	if got := replyTarget.GetCreateTime(); got != 555_000 {
+		t.Errorf("ReplyTo.CreateTime = %d, want %d", got, 555_000)
+	}
+}
+
 // TestHandleMatrixMessageUploadFileErrorIsCleanNoPartialSend is the #114
 // contract: an UploadFile failure (the endpoint 500ing, or any other
 // upload error) must propagate as a clean error from HandleMatrixMessage,

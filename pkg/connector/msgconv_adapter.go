@@ -20,6 +20,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/database"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv"
 )
 
@@ -139,23 +140,53 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) 
 // which portal.handleRemoteEdit (mautrix-go bridgev2/portal.go) treats as
 // EventHandlingResultIgnored, not a failure.
 //
-// Only part 0 (existing[0]) is ever read or modified -- matching Python's
-// `target = await DBMessage.get_by_gcid(msg_id, ..., index=0)`: this bridge
-// has no multi-part text messages to disambiguate between yet (M5's
-// attachments), so existing[0] is always the message's one and only part.
+// ONLY the text part (the existing DB part whose PartID == gcid.TextPartID,
+// "") is ever read or modified -- found by an explicit scan of `existing`,
+// NOT by indexing existing[0]. This is the full port of Python's non-text
+// guard (portal.py:1248-1251, `elif target.msgtype != "m.text" or not
+// evt.text_body: return`, "Figuring out how to map multipart message edits
+// to Matrix is hard, so don't even try"): under M5, a Google Chat message
+// is multi-part (a text part "" plus att_0/att_1... attachment parts), and
+// an ATTACHMENT-ONLY message persists ONLY its att_0 part (ToMatrix returns
+// no text part for an empty text_body). existing[0] is therefore NO LONGER
+// guaranteed to be the text part:
+//
+//   - an attachment-only message's existing[0] is the att_0 (m.image) row;
+//     a MESSAGE_UPDATED that now carries non-empty text (e.g. an added
+//     caption, or a Drive/Meet/YouTube link annotation surfaced as text by
+//     gchatfmt.AppendLinkAnnotations) would, if applied to existing[0],
+//     m.replace the IMAGE event with an m.text body -- silently replacing
+//     the image in every client and corrupting the att_0 row;
+//   - even a text+attachment message is unsafe to index by position: the DB
+//     query bridgev2 uses to load the parts for an edit
+//     (GetAllPartsByID/getAllMessagePartsByIDQuery) has NO ORDER BY, and
+//     sendConvertedEdit's DB.Message.Update relocates the heap tuple on
+//     Postgres, so after the first edit the parts can come back
+//     att_0-first -- reading dedup off the wrong part (att_0's zero
+//     LastEditTime bypasses the dedup gate) and corrupting the image on the
+//     second edit. Insertion order is not a contract; scanning for the ""
+//     PartID removes all ordering dependence and works identically on
+//     SQLite and Postgres.
+//
+// If no "" text part exists at all (an attachment-only message, or any
+// message with no text part), the whole edit is ignored via
+// bridgev2.ErrIgnoringRemoteEvent -- exactly Python's "don't even try"
+// return. (Redaction/reactions/replies are unaffected: they redact every
+// part, or use the ORDER BY'd GetFirstPartByID/GetLastPartByID; only this
+// edit path used the unordered query.)
 //
 // Unlike convertMessageToMatrix above, this does NOT stamp a fresh
 // *MessageMetadata onto the converted part's DBMetadata: conv.ToMatrix is
 // called directly (not through convertMessageToMatrix), so the returned
 // part's DBMetadata is nil, and ToEditPart's "cmp.DBMetadata != nil" branch
-// is skipped -- existing[0].Metadata is left as-is by ToEditPart, and only
-// its LastEditTime field is bumped afterward, in place, below. This
+// is skipped -- the text part's Metadata is left as-is by ToEditPart, and
+// only its LastEditTime field is bumped afterward, in place, below. This
 // preserves TimestampMicro/TopicID untouched (an edit never changes a
 // message's original create_time or the topic it belongs to) without
 // needing a database.MetaMerger implementation on *MessageMetadata --
 // mirroring WAMessageEvent.ConvertEdit's identical
-// "ToEditPart with no DBMetadata set, mutate existing[0].Metadata directly
-// afterward" pattern.
+// "ToEditPart with no DBMetadata set, mutate the target part's Metadata
+// directly afterward" pattern.
 //
 // content.Mentions is deliberately left unset on the returned part (and
 // ConvertedEditPart.NewMentions is left nil): mautrix-go's own
@@ -174,10 +205,21 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) 
 // unaffected either way.
 func convertEditToMatrix(conv *msgconv.MessageConverter) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message, msg *pb.Message) (*bridgev2.ConvertedEdit, error) {
 	return func(ctx context.Context, portal *bridgev2.Portal, _ bridgev2.MatrixAPI, existing []*database.Message, msg *pb.Message) (*bridgev2.ConvertedEdit, error) {
-		if len(existing) == 0 {
-			return nil, fmt.Errorf("googlechat: edit target has no parts")
+		// Find the text part explicitly by its "" PartID, never by position
+		// -- see the doc comment above (the non-text guard + the Postgres
+		// ordering hazard M5's multi-part messages introduced). A message
+		// with no text part at all (attachment-only, or empty existing) is
+		// Python's `target.msgtype != "m.text"` case: ignore the whole edit.
+		var target *database.Message
+		for _, part := range existing {
+			if part.PartID == gcid.TextPartID {
+				target = part
+				break
+			}
 		}
-		target := existing[0]
+		if target == nil {
+			return nil, fmt.Errorf("%w: googlechat edit of non-text message (no text part to edit)", bridgev2.ErrIgnoringRemoteEvent)
+		}
 
 		editTS := msg.GetLastEditTime()
 		if editTS == 0 {
@@ -196,10 +238,12 @@ func convertEditToMatrix(conv *msgconv.MessageConverter) func(ctx context.Contex
 		}
 		cm, _ := conv.ToMatrix(ctx, msg, threadsOnly, resolve)
 		if len(cm.Parts) == 0 {
-			// evt.text_body empty -- matches portal.py's
-			// `elif target.msgtype != "m.text" or not evt.text_body:` drop
-			// (the msgtype half is covered generically: this bridge stores
-			// no non-text message parts to edit yet).
+			// evt.text_body empty (the `not evt.text_body` half of
+			// portal.py:1248-1251): the edit removed all text, which this
+			// bridge does not try to map to Matrix -- drop it. conv.ToMatrix
+			// only ever emits the text part (attachments are appended by
+			// convertMessageToMatrix, not here), so cm.Parts[0] below is
+			// always that text part.
 			return nil, fmt.Errorf("%w: googlechat edit has no text body", bridgev2.ErrIgnoringRemoteEvent)
 		}
 

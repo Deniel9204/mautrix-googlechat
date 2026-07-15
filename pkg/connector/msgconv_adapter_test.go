@@ -319,10 +319,12 @@ func editMsg(messageID, topicID, text string, lastEditTime, lastUpdateTime int64
 }
 
 func TestConvertEditToMatrix_ReconvertsBody(t *testing.T) {
-	existing := []*database.Message{{
+	textPart := &database.Message{
 		ID:       gcid.MakeMessageID("msg1"),
+		PartID:   gcid.TextPartID,
 		Metadata: &MessageMetadata{TimestampMicro: 111, TopicID: "msg1", LastEditTime: 0},
-	}}
+	}
+	existing := []*database.Message{textPart}
 	msg := editMsg("msg1", "msg1", "edited text", 5000, 0)
 
 	convert := convertEditToMatrix(msgconv.New())
@@ -334,11 +336,114 @@ func TestConvertEditToMatrix_ReconvertsBody(t *testing.T) {
 		t.Fatalf("len(ModifiedParts) = %d, want 1", len(converted.ModifiedParts))
 	}
 	part := converted.ModifiedParts[0]
-	if part.Part != existing[0] {
-		t.Error("ModifiedParts[0].Part is not the existing[0] pointer -- only part 0 must ever be touched")
+	// The edit must target the "" text part, found by PartID -- never any
+	// attachment part (see TestConvertEditToMatrix_TargetsTextPartNotFirstPart).
+	if part.Part != textPart {
+		t.Error("ModifiedParts[0].Part is not the text part -- the edit must target the \"\"-PartID part")
 	}
 	if got := part.Content.Body; got != "edited text" {
 		t.Errorf("Content.Body = %q, want %q", got, "edited text")
+	}
+}
+
+// TestConvertEditToMatrix_AttachmentOnlyMessageIgnored is the headline M5
+// Critical fix: an ATTACHMENT-ONLY Google Chat message persists ONLY its
+// att_0 part (ToMatrix emits no text part for an empty text_body), so
+// existing[0] is the m.image row. A MESSAGE_UPDATED that now carries text
+// (e.g. an added caption or a Drive/Meet/YouTube link annotation surfaced as
+// text) must NOT m.replace the image event with m.text -- it must be dropped
+// entirely, restoring Python's non-text guard (portal.py:1248-1251,
+// "multipart message edits are hard, don't even try").
+func TestConvertEditToMatrix_AttachmentOnlyMessageIgnored(t *testing.T) {
+	attPart := &database.Message{
+		ID:       gcid.MakeMessageID("msg1"),
+		PartID:   gcid.MakeAttachmentPartID(0),
+		Metadata: &MessageMetadata{LastEditTime: 0},
+	}
+	existing := []*database.Message{attPart}
+	// A MESSAGE_UPDATED with non-empty text: exactly the payload that WOULD
+	// have corrupted the image before this fix.
+	msg := editMsg("msg1", "msg1", "a link https://drive.google.com/x", 5000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	_, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if !errors.Is(err, bridgev2.ErrIgnoringRemoteEvent) {
+		t.Errorf("error = %v, want wrapping bridgev2.ErrIgnoringRemoteEvent (attachment-only edits must be ignored, not applied to the image part)", err)
+	}
+	// The att_0 part must be left completely untouched -- no LastEditTime
+	// bump, no metadata corruption.
+	if attPart.Metadata.(*MessageMetadata).LastEditTime != 0 {
+		t.Errorf("att_0 LastEditTime = %d, want unchanged 0 (the image part must never be touched by an edit)", attPart.Metadata.(*MessageMetadata).LastEditTime)
+	}
+}
+
+// TestConvertEditToMatrix_TargetsTextPartNotFirstPart pins that the edit is
+// applied to the "" text part by PartID lookup, NOT by slice position: even
+// when the text part comes SECOND (att_0 first -- exactly what Postgres can
+// return after the first edit relocates the heap tuple, since
+// getAllMessagePartsByIDQuery has no ORDER BY), the edit must target the
+// text part and read dedup off IT, never off att_0's zero LastEditTime.
+func TestConvertEditToMatrix_TargetsTextPartNotFirstPart(t *testing.T) {
+	attPart := &database.Message{
+		ID:       gcid.MakeMessageID("msg1"),
+		PartID:   gcid.MakeAttachmentPartID(0),
+		Metadata: &MessageMetadata{LastEditTime: 0},
+	}
+	textPart := &database.Message{
+		ID:       gcid.MakeMessageID("msg1"),
+		PartID:   gcid.TextPartID,
+		Metadata: &MessageMetadata{TimestampMicro: 111, TopicID: "msg1", LastEditTime: 3000},
+	}
+	// att_0 FIRST, text part SECOND -- the Postgres-after-first-edit order.
+	existing := []*database.Message{attPart, textPart}
+	msg := editMsg("msg1", "msg1", "edited caption", 5000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	converted, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if err != nil {
+		t.Fatalf("convertEditToMatrix returned error: %v", err)
+	}
+	if len(converted.ModifiedParts) != 1 {
+		t.Fatalf("len(ModifiedParts) = %d, want 1", len(converted.ModifiedParts))
+	}
+	if converted.ModifiedParts[0].Part != textPart {
+		t.Error("edit did not target the \"\" text part -- it must be found by PartID, not slice position")
+	}
+	if got := converted.ModifiedParts[0].Content.Body; got != "edited caption" {
+		t.Errorf("Content.Body = %q, want %q", got, "edited caption")
+	}
+	// Dedup + LastEditTime bump must land on the text part, never att_0.
+	if textPart.Metadata.(*MessageMetadata).LastEditTime != 5000 {
+		t.Errorf("text part LastEditTime = %d, want 5000", textPart.Metadata.(*MessageMetadata).LastEditTime)
+	}
+	if attPart.Metadata.(*MessageMetadata).LastEditTime != 0 {
+		t.Errorf("att_0 LastEditTime = %d, want unchanged 0 (dedup/bump must never touch the attachment part)", attPart.Metadata.(*MessageMetadata).LastEditTime)
+	}
+}
+
+// TestConvertEditToMatrix_DedupReadsFromTextPartNotFirstPart guards the
+// second half of the Postgres hazard: with att_0 first (LastEditTime 0) and
+// the text part second carrying an already-applied LastEditTime, a duplicate
+// edit must be deduped off the TEXT part (5000 >= 5000 -> skip), not off
+// att_0's zero (which would bypass the dedup gate and re-apply/corrupt).
+func TestConvertEditToMatrix_DedupReadsFromTextPartNotFirstPart(t *testing.T) {
+	attPart := &database.Message{
+		ID:       gcid.MakeMessageID("msg1"),
+		PartID:   gcid.MakeAttachmentPartID(0),
+		Metadata: &MessageMetadata{LastEditTime: 0},
+	}
+	textPart := &database.Message{
+		ID:       gcid.MakeMessageID("msg1"),
+		PartID:   gcid.TextPartID,
+		Metadata: &MessageMetadata{LastEditTime: 5000},
+	}
+	existing := []*database.Message{attPart, textPart}
+	msg := editMsg("msg1", "msg1", "duplicate", 5000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	_, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if !errors.Is(err, bridgev2.ErrIgnoringRemoteEvent) {
+		t.Errorf("error = %v, want wrapping bridgev2.ErrIgnoringRemoteEvent (dedup must read the text part's 5000, not att_0's 0)", err)
 	}
 }
 
