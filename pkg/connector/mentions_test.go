@@ -183,6 +183,26 @@ func TestInboundMentions_DedupesRepeatedMentions(t *testing.T) {
 	}
 }
 
+// TestInboundMentions_RespectsChipRenderTypeFilter mirrors
+// gchatfmt.renderAnnotations's own chip_render_type filter (convert.go):
+// an annotation whose ChipRenderType isn't DO_NOT_RENDER is a link/upload
+// preview chip (M5), not inline formatting -- gchatfmt renders no pill for
+// it, so content.Mentions must not ping/flag the mentioned user either, or
+// the two independent annotation walks would silently disagree about what
+// the message "contains".
+func TestInboundMentions_RespectsChipRenderTypeFilter(t *testing.T) {
+	renderChip := gchatfmt.MakeMentionAnnotation(0, 4, "200")
+	renderChip.ChipRenderType = pb.Annotation_RENDER.Enum()
+	resolve := gchatMentionResolver(
+		func(networkid.UserID) id.UserID { return "@200_ghost:example.com" },
+		nil,
+	)
+
+	if got := inboundMentions([]*pb.Annotation{renderChip}, resolve); got != nil {
+		t.Errorf("inboundMentions(RENDER chip mention) = %+v, want nil (gchatfmt renders no pill for this either)", got)
+	}
+}
+
 func TestInboundMentions_MixedRoomAndUserMention(t *testing.T) {
 	anns := []*pb.Annotation{
 		gchatfmt.MakeMentionAllAnnotation(0, 4),
@@ -196,6 +216,31 @@ func TestInboundMentions_MixedRoomAndUserMention(t *testing.T) {
 	got := inboundMentions(anns, resolve)
 	if got == nil || !got.Room || !got.Has("@200_ghost:example.com") {
 		t.Fatalf("inboundMentions(mixed) = %+v, want Room=true and the resolved UserID", got)
+	}
+}
+
+// --- cloneMentions ----------------------------------------------------
+
+func TestCloneMentions_Nil(t *testing.T) {
+	if got := cloneMentions(nil); got != nil {
+		t.Errorf("cloneMentions(nil) = %+v, want nil", got)
+	}
+}
+
+func TestCloneMentions_IndependentBackingArray(t *testing.T) {
+	original := &event.Mentions{UserIDs: []id.UserID{"@a:example.com"}, Room: true}
+	clone := cloneMentions(original)
+
+	if clone == original {
+		t.Fatal("cloneMentions returned the same pointer, not a copy")
+	}
+	if !clone.Room || !clone.Has("@a:example.com") {
+		t.Fatalf("clone = %+v, want a faithful copy of the original", clone)
+	}
+
+	clone.Add("@b:example.com")
+	if original.Has("@b:example.com") {
+		t.Error("mutating the clone's UserIDs leaked back into the original -- shared backing array")
 	}
 }
 
@@ -471,11 +516,19 @@ func (f fakeMatrixAPI) GetMXID() id.UserID { return f.mxid }
 
 type fakeMatrixConnector struct {
 	bridgev2.MatrixConnector
-	ghostIntent    func(networkid.UserID) id.UserID
+	ghostIntent func(networkid.UserID) id.UserID
+	// ghostIntentAPI, when set, overrides ghostIntent entirely and lets a
+	// test hand back an arbitrary bridgev2.MatrixAPI -- used by
+	// TestNewInboundMentionResolver_RecoversFromGhostIntentPanic to inject
+	// a GetMXID() that panics, the way a real ASIntent{Matrix: nil} would.
+	ghostIntentAPI func(networkid.UserID) bridgev2.MatrixAPI
 	parseGhostMXID func(id.UserID) (networkid.UserID, bool)
 }
 
 func (f *fakeMatrixConnector) GhostIntent(userID networkid.UserID) bridgev2.MatrixAPI {
+	if f.ghostIntentAPI != nil {
+		return f.ghostIntentAPI(userID)
+	}
 	return fakeMatrixAPI{mxid: f.ghostIntent(userID)}
 }
 
@@ -498,6 +551,36 @@ func TestNewInboundMentionResolver_RealWiring(t *testing.T) {
 	mxid, _, ok := resolve("200")
 	if !ok || mxid != "@200_ghost:example.com" {
 		t.Errorf("resolve(200) = (%q, _, %v), want (@200_ghost:example.com, true)", mxid, ok)
+	}
+}
+
+// panicMatrixAPI simulates the theoretical bridgev2 edge case flagged by
+// the M3 Task 3 port audit: GhostIntent(id) can return a non-nil MatrixAPI
+// wrapping a nil *appservice.IntentAPI (e.g. a malformed/empty encoded
+// ghost localpart), whose GetMXID() then nil-pointer-panics. This runs on
+// every live message conversion, so newInboundMentionResolver must degrade
+// to "no pill for this mention" rather than crash the whole conversion.
+type panicMatrixAPI struct {
+	bridgev2.MatrixAPI
+}
+
+func (panicMatrixAPI) GetMXID() id.UserID {
+	panic("simulated: GetMXID on a MatrixAPI wrapping a nil intent")
+}
+
+func TestNewInboundMentionResolver_RecoversFromGhostIntentPanic(t *testing.T) {
+	matrix := &fakeMatrixConnector{
+		ghostIntentAPI: func(networkid.UserID) bridgev2.MatrixAPI { return panicMatrixAPI{} },
+	}
+	portal := &bridgev2.Portal{
+		Portal: &database.Portal{},
+		Bridge: &bridgev2.Bridge{Matrix: matrix},
+	}
+
+	resolve := newInboundMentionResolver(portal)
+	mxid, _, ok := resolve("200")
+	if ok || mxid != "" {
+		t.Errorf("resolve(200) = (%q, _, %v), want ok=false after a recovered panic, not a crashed test", mxid, ok)
 	}
 }
 

@@ -36,11 +36,14 @@ import (
 // newInboundMentionResolver + inboundMentions (mentions.go, M3 Task 3, fix
 // B2/gap G4 -- docs/research/08d §1.7/§6): every mention every converted
 // part carries (there is normally exactly one text part, but this loop
-// covers M5's future multi-part messages too) gets the same resolved
-// Mentions block, since content.Mentions describes the whole event's
-// mentions, not a per-part concept. conv.ToMatrix itself does not render
-// annotations into HTML/pills yet (M2 plain-text scope, replaced by M3 Task
-// 4) -- that is orthogonal to m.mentions, which this fixes now regardless.
+// covers M5's future multi-part messages too) gets its OWN cloneMentions
+// copy of the same resolved Mentions block (content.Mentions describes the
+// whole event's mentions, not a per-part concept, but each part still gets
+// an independent object) -- matching the adjacent *MessageMetadata
+// allocation's own "never alias into a sibling part" rule, just above.
+// conv.ToMatrix itself does not render annotations into HTML/pills yet (M2
+// plain-text scope, replaced by M3 Task 4) -- that is orthogonal to
+// m.mentions, which this fixes now regardless.
 func convertMessageToMatrix(conv *msgconv.MessageConverter) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
 	return func(ctx context.Context, portal *bridgev2.Portal, _ bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
 		cm := conv.ToMatrix(ctx, msg)
@@ -49,7 +52,7 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter) func(ctx context.Con
 		for _, part := range cm.Parts {
 			part.DBMetadata = &MessageMetadata{TimestampMicro: ts}
 			if mentions != nil {
-				part.Content.Mentions = mentions
+				part.Content.Mentions = cloneMentions(mentions)
 			}
 		}
 		return cm, nil

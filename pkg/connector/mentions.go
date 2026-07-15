@@ -34,13 +34,18 @@ package connector
 // exactly, via bridgev2's equivalents: Bridge.GetCachedUserLoginByID for
 // `User.get_by_gcid`, and Bridge.Matrix.GhostIntent(id).GetMXID() (the same
 // formula bridgev2 itself uses to name a ghost's Matrix user, ghost.go:58 in
-// mautrix-go -- also pure, no I/O) for `Puppet.get_mxid_from_id`. The
-// mention_text override is NOT ported: it only fires for the double-puppet
-// branch and requires a live room-member-state-store lookup, a dependency
-// gchatfmt's MentionResolver seam deliberately has no room for (see its doc
-// comment) -- name is left "" here for every case, which gchatfmt's
-// renderMention already falls back to entity_text for, matching Python's own
-// unconditional `mention_text = entity_text` default.
+// mautrix-go -- also pure, no I/O) for `Puppet.get_mxid_from_id`. Python's
+// mention_text override -- a live Matrix room-member-state-store lookup,
+// only for the double-puppet branch -- is NOT ported as-is: gchatfmt's
+// MentionResolver seam has no room for a state-store dependency (see its
+// doc comment). For a plain ghost mention, name is left "" here, which
+// gchatfmt's renderMention falls back to entity_text for, matching
+// Python's OWN unconditional `mention_text = entity_text` default for that
+// branch. For the double-puppet branch specifically, gchatMentionResolver
+// substitutes login.RemoteName (the double-puppeted account's network-side
+// display name) instead of a room-member displayname -- a deliberately
+// different, DB-free source for a similar effect, not the same value
+// Python would show; see gchatMentionResolver's own doc comment.
 //
 // # Design: plain-function dependencies, not bridgev2 types
 //
@@ -132,11 +137,27 @@ func newInboundMentionResolver(portal *bridgev2.Portal) gchatfmt.MentionResolver
 	}
 	matrix := portal.Bridge.Matrix
 	return gchatMentionResolver(
-		func(gaiaUserID networkid.UserID) id.UserID {
+		func(gaiaUserID networkid.UserID) (mxid id.UserID) {
 			intent := matrix.GhostIntent(gaiaUserID)
 			if intent == nil {
 				return ""
 			}
+			// GhostIntent's concrete implementation (bridgev2/matrix.Connector)
+			// can return a non-nil MatrixAPI wrapping a nil *appservice.IntentAPI
+			// when the encoded gaia id somehow produces an empty ghost
+			// localpart -- shouldn't happen for a real (non-empty) gaia id,
+			// but GetMXID() would nil-pointer-panic in that case, and this
+			// runs on every live message conversion. Message conversion must
+			// degrade to "no pill for this mention" on that, never crash the
+			// whole conversion -- matching this codebase's broader rule that
+			// malformed/unexpected server data returns/falls back rather than
+			// panics (see gchatfmt/convert.go's renderAnnotations bounds
+			// check).
+			defer func() {
+				if recover() != nil {
+					mxid = ""
+				}
+			}()
 			return intent.GetMXID()
 		},
 		portal.Bridge.GetCachedUserLoginByID,
@@ -156,6 +177,14 @@ func newInboundMentionResolver(portal *bridgev2.Portal) gchatfmt.MentionResolver
 // resolving. Every other user_mention_metadata annotation is resolved via
 // resolve and, when ok, added (event.Mentions.Add already dedupes).
 //
+// chip_render_type filter: gchatfmt.renderAnnotations skips (renders no
+// pill, no "@room" text) any annotation whose ChipRenderType is not
+// DO_NOT_RENDER -- RENDER/RENDER_IF_POSSIBLE annotations are link/upload
+// preview chips, handled elsewhere (M5), not inline formatting. This walk
+// applies the identical filter so content.Mentions can never ping/flag a
+// user for an annotation gchatfmt itself skipped rendering -- keeping the
+// two independent annotation walks from silently drifting apart.
+//
 // Returns nil -- not an empty-but-non-nil *event.Mentions -- when nothing in
 // annotations produced a mention, so callers can leave content.Mentions
 // completely unset for a message with no mentions, matching Matrix's own
@@ -167,6 +196,9 @@ func inboundMentions(annotations []*pb.Annotation, resolve gchatfmt.MentionResol
 	mentions := &event.Mentions{}
 	found := false
 	for _, a := range annotations {
+		if a.GetChipRenderType() != pb.Annotation_DO_NOT_RENDER {
+			continue
+		}
 		um := a.GetUserMentionMetadata()
 		if um == nil {
 			continue
@@ -185,6 +217,24 @@ func inboundMentions(annotations []*pb.Annotation, resolve gchatfmt.MentionResol
 		return nil
 	}
 	return mentions
+}
+
+// cloneMentions returns a deep-enough copy of m -- a fresh *event.Mentions
+// with its own UserIDs backing array -- so that handing the "same" resolved
+// mentions to multiple bridgev2.ConvertedMessagePart.Content values (one
+// call to inboundMentions covers a whole event, but a message can have
+// several parts) never lets a later mutation of one part's Mentions alias
+// into a sibling's. Mirrors convertMessageToMatrix's adjacent per-part
+// *MessageMetadata allocation, which the same rationale is already
+// documented for (msgconv_adapter.go). nil-safe: cloning nil returns nil.
+func cloneMentions(m *event.Mentions) *event.Mentions {
+	if m == nil {
+		return nil
+	}
+	return &event.Mentions{
+		UserIDs: append([]id.UserID(nil), m.UserIDs...),
+		Room:    m.Room,
+	}
 }
 
 // matrixMentionResolver builds the matrixfmt.MentionResolver matrixfmt.Parse
