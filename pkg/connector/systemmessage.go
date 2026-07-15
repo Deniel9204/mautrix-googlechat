@@ -229,8 +229,9 @@ func membershipChangeDelta(t pb.MembershipChangedMetadata_Type) (membership, pre
 func (c *GChatClient) queueMembershipChanged(ctx context.Context, evt *pb.Event, msg *pb.Message, update *pb.MembershipChangedMetadata) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	membership, prevMembership, ok := membershipChangeDelta(update.GetType())
-	memberMap := make(bridgev2.ChatMemberMap)
+	change := &bridgev2.ChatInfoChange{}
 	if ok {
+		memberMap := make(bridgev2.ChatMemberMap)
 		ownID := c.ownUserID()
 		for _, member := range update.GetAffectedMembers() {
 			gcUserID := member.GetUserId().GetId()
@@ -244,24 +245,38 @@ func (c *GChatClient) queueMembershipChanged(ctx context.Context, evt *pb.Event,
 				PrevMembership: prevMembership,
 			}
 		}
+		if len(memberMap) > 0 {
+			// IsFull is deliberately left false (the zero value): this is a
+			// delta of the members who changed, NOT the portal's whole
+			// member list -- ChatMemberList.IsFull's own doc comment
+			// (mautrix-go bridgev2/portal.go) warns that true here would
+			// remove every OTHER current member not listed in this map,
+			// which is not what a membership-changed announcement about a
+			// handful of members means. Contrast chatinfo.go's
+			// chatMemberList/dmMemberListFromWorldItem, which build a
+			// COMPLETE snapshot from GetChatInfo and correctly set
+			// IsFull: true.
+			change.MemberChanges = &bridgev2.ChatMemberList{MemberMap: memberMap}
+		}
 	}
-	if len(memberMap) == 0 {
+	if change.MemberChanges == nil {
+		// No actionable member delta (ok=false's ROLE_UPDATED/TYPE_UNSPECIFIED,
+		// or an affected_members list with no usable ids) -- still queued as
+		// an otherwise-empty ChatInfoChange, NOT returned as Ignored without
+		// queuing anything: Python's create_matrix_room (portal.py:573-574)
+		// runs unconditionally BEFORE the SYSTEM_MESSAGE dispatch even
+		// begins, for every message including this one, so a ROLE_UPDATED
+		// notice arriving as literally the first event this bridge ever
+		// sees for a portal-less space must still create the Matrix room,
+		// even though it has nothing else to apply. On an already-existing
+		// portal this is a true no-op (ProcessChatInfoChange,
+		// mautrix-go bridgev2/portal.go, does nothing when both ChatInfo and
+		// MemberChanges are nil), matching Python's own no-op there too.
 		log.Debug().
 			Str("gc_membership_change_type", update.GetType().String()).
-			Msg("googlechat: SYSTEM_MESSAGE membership change with no actionable member delta, skipping")
-		return bridgev2.EventHandlingResultIgnored
+			Msg("googlechat: SYSTEM_MESSAGE membership change with no actionable member delta")
 	}
-	// IsFull is deliberately left false (the zero value): this is a delta of
-	// the members who changed, NOT the portal's whole member list --
-	// ChatMemberList.IsFull's own doc comment (mautrix-go bridgev2/portal.go)
-	// warns that true here would remove every OTHER current member not
-	// listed in this map, which is not what a membership-changed
-	// announcement about a handful of members means. Contrast
-	// chatinfo.go's chatMemberList/dmMemberListFromWorldItem, which build a
-	// COMPLETE snapshot from GetChatInfo and correctly set IsFull: true.
-	return c.queueSystemMessageChatInfoChange(ctx, evt, msg, &bridgev2.ChatInfoChange{
-		MemberChanges: &bridgev2.ChatMemberList{MemberMap: memberMap},
-	}, "membership_changed")
+	return c.queueSystemMessageChatInfoChange(ctx, evt, msg, change, "membership_changed")
 }
 
 // queueSystemMessageChatInfoChange builds and queues the

@@ -226,6 +226,13 @@ func TestMembershipChangeDeltaMapsAllNineTypes(t *testing.T) {
 // matching Python's unconditional `return` after
 // handle_googlechat_membership_change (portal.py:1370-1374) ----------------
 
+// TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled pins
+// two things at once: ROLE_UPDATED produces no member delta (MemberChanges
+// stays nil), but the event is still queued (not dropped outright) so that
+// CreatePortal:true can still create the Matrix room if this happens to be
+// the first event this bridge ever sees for the portal -- matching Python's
+// unconditional create_matrix_room-before-dispatch (portal.py:573-574,
+// queueMembershipChanged's own doc comment).
 func TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-3", "98765", 1,
@@ -234,10 +241,25 @@ func TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled(t *tes
 	res := gc.handleGChatEvent(context.Background(), evt)
 
 	if !res.Success {
-		t.Fatalf("handleGChatEvent() result = %+v, want Success (Ignored, so the watermark still advances)", res)
+		t.Fatalf("handleGChatEvent() result = %+v, want Success", res)
 	}
-	if len(*queued) != 0 {
-		t.Fatalf("len(queued) = %d, want 0 (ROLE_UPDATED is not a membership transition)", len(*queued))
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1 (still queued for portal-creation fidelity, just with no member delta)", len(*queued))
+	}
+	change := (*queued)[0].(bridgev2.RemoteChatInfoChange)
+	info, err := change.GetChatInfoChange(context.Background())
+	if err != nil {
+		t.Fatalf("GetChatInfoChange: %v", err)
+	}
+	if info.MemberChanges != nil {
+		t.Errorf("MemberChanges = %+v, want nil (ROLE_UPDATED is not a membership transition)", info.MemberChanges)
+	}
+	if info.ChatInfo != nil {
+		t.Errorf("ChatInfo = %+v, want nil", info.ChatInfo)
+	}
+	createPortal, ok := (*queued)[0].(bridgev2.RemoteEventThatMayCreatePortal)
+	if !ok || !createPortal.ShouldCreatePortal() {
+		t.Error("ShouldCreatePortal() = false, want true")
 	}
 }
 
@@ -456,6 +478,10 @@ func TestHandleGChatEventSystemMessageNoGroupIDSkipped(t *testing.T) {
 	}
 }
 
+// TestHandleGChatEventSystemMessageNoAffectedMembersSkipped: an
+// affected_members list with no usable member entries still queues (for the
+// same portal-creation-fidelity reason as the ROLE_UPDATED case above), just
+// with a nil MemberChanges.
 func TestHandleGChatEventSystemMessageNoAffectedMembersSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-13", "98765", 1,
@@ -464,9 +490,17 @@ func TestHandleGChatEventSystemMessageNoAffectedMembersSkipped(t *testing.T) {
 	res := gc.handleGChatEvent(context.Background(), evt)
 
 	if !res.Success {
-		t.Fatalf("handleGChatEvent() result = %+v, want Success (Ignored)", res)
+		t.Fatalf("handleGChatEvent() result = %+v, want Success", res)
 	}
-	if len(*queued) != 0 {
-		t.Fatalf("len(queued) = %d, want 0 (no affected members)", len(*queued))
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	change := (*queued)[0].(bridgev2.RemoteChatInfoChange)
+	info, err := change.GetChatInfoChange(context.Background())
+	if err != nil {
+		t.Fatalf("GetChatInfoChange: %v", err)
+	}
+	if info.MemberChanges != nil {
+		t.Errorf("MemberChanges = %+v, want nil (no affected members)", info.MemberChanges)
 	}
 }
