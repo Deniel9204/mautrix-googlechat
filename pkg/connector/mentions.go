@@ -78,7 +78,6 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
-	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/matrixfmt"
@@ -164,57 +163,37 @@ func newInboundMentionResolver(portal *bridgev2.Portal) gchatfmt.MentionResolver
 	)
 }
 
-// inboundMentions scans a Google Chat message's annotations for
-// user_mention_metadata and builds the event.Mentions ("m.mentions") block
-// that fixes B2/gap G4 (docs/research/08d §1.7): neither of megabridge's
-// mention paths ever populated content.Mentions, so spec-compliant Matrix
-// clients never actually pinged anyone, including for "@all".
+// mentionsFromParsed turns the gchatfmt.ParsedMentions gchatfmt.Parse
+// reports it ACTUALLY rendered (via ToMatrix) into the event.Mentions
+// ("m.mentions") block that fixes B2/gap G4 (docs/research/08d §1.7):
+// neither of megabridge's mention paths ever populated content.Mentions, so
+// spec-compliant Matrix clients never actually pinged anyone, including for
+// "@all".
 //
-// MENTION_ALL -> Room=true: gchatfmt's renderMention hardcodes the literal
-// "@room" text for this case WITHOUT ever calling the resolver (see
-// gchatfmt/convert.go), so it has to be detected here independently by
-// walking the same annotations, rather than observed as a side effect of
-// resolving. Every other user_mention_metadata annotation is resolved via
-// resolve and, when ok, added (event.Mentions.Add already dedupes).
+// This replaces an earlier independent second walk of the raw annotations
+// (the removed inboundMentions) that fixed B2 but re-introduced a phantom-
+// ping bug: it applied no bounds/validity gate, so a malformed/out-of-bounds
+// mention annotation -- one gchatfmt itself renders no pill for, whose
+// "@Name" text is therefore absent from the delivered body -- still pinged
+// the user. Sourcing content.Mentions from ParsedMentions instead makes "who
+// gets pinged" identical to "whose pill gchatfmt rendered", by construction
+// (gchatfmt.collectMentions applies the very same spanWithinParent bounds
+// gate + chip filter + resolver-ok check the HTML renderer does). The
+// MENTION_ALL/@room flag likewise comes straight from ParsedMentions.Room.
 //
-// chip_render_type filter: gchatfmt.renderAnnotations skips (renders no
-// pill, no "@room" text) any annotation whose ChipRenderType is not
-// DO_NOT_RENDER -- RENDER/RENDER_IF_POSSIBLE annotations are link/upload
-// preview chips, handled elsewhere (M5), not inline formatting. This walk
-// applies the identical filter so content.Mentions can never ping/flag a
-// user for an annotation gchatfmt itself skipped rendering -- keeping the
-// two independent annotation walks from silently drifting apart.
-//
-// Returns nil -- not an empty-but-non-nil *event.Mentions -- when nothing in
-// annotations produced a mention, so callers can leave content.Mentions
-// completely unset for a message with no mentions, matching Matrix's own
-// "absent m.mentions" contract rather than emitting an explicit empty one.
-func inboundMentions(annotations []*pb.Annotation, resolve gchatfmt.MentionResolver) *event.Mentions {
-	if resolve == nil {
+// Returns nil -- not an empty-but-non-nil *event.Mentions -- when the
+// message mentions no one, so callers can leave content.Mentions completely
+// unset, matching Matrix's own "absent m.mentions" contract rather than
+// emitting an explicit empty one. event.Mentions.Add is still used per
+// user id, but ParsedMentions.UserIDs is already deduplicated, so this is
+// belt-and-suspenders.
+func mentionsFromParsed(parsed gchatfmt.ParsedMentions) *event.Mentions {
+	if len(parsed.UserIDs) == 0 && !parsed.Room {
 		return nil
 	}
-	mentions := &event.Mentions{}
-	found := false
-	for _, a := range annotations {
-		if a.GetChipRenderType() != pb.Annotation_DO_NOT_RENDER {
-			continue
-		}
-		um := a.GetUserMentionMetadata()
-		if um == nil {
-			continue
-		}
-		if um.GetType() == pb.UserMentionMetadata_MENTION_ALL {
-			mentions.Room = true
-			found = true
-			continue
-		}
-		if mxid, _, ok := resolve(um.GetId().GetId()); ok {
-			mentions.Add(mxid)
-			found = true
-		}
-	}
-	if !found {
-		return nil
+	mentions := &event.Mentions{Room: parsed.Room}
+	for _, mxid := range parsed.UserIDs {
+		mentions.Add(mxid)
 	}
 	return mentions
 }
@@ -222,7 +201,7 @@ func inboundMentions(annotations []*pb.Annotation, resolve gchatfmt.MentionResol
 // cloneMentions returns a deep-enough copy of m -- a fresh *event.Mentions
 // with its own UserIDs backing array -- so that handing the "same" resolved
 // mentions to multiple bridgev2.ConvertedMessagePart.Content values (one
-// call to inboundMentions covers a whole event, but a message can have
+// mentionsFromParsed result covers a whole event, but a message can have
 // several parts) never lets a later mutation of one part's Mentions alias
 // into a sibling's. Mirrors convertMessageToMatrix's adjacent per-part
 // *MessageMetadata allocation, which the same rationale is already

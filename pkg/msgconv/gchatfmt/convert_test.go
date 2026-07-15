@@ -174,7 +174,7 @@ func TestParse(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			body, html := gchatfmt.Parse(context.Background(), test.text, test.annotations, nil)
+			body, html, _ := gchatfmt.Parse(context.Background(), test.text, test.annotations, nil)
 			if body != test.wantBody {
 				t.Errorf("body = %q, want %q", body, test.wantBody)
 			}
@@ -193,7 +193,7 @@ func TestParse_HyperlinkEscaping(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeURLAnnotation(0, 10, maliciousURL, pb.Annotation_DO_NOT_RENDER),
 	}
-	_, html := gchatfmt.Parse(context.Background(), "click here", annotations, nil)
+	_, html, _ := gchatfmt.Parse(context.Background(), "click here", annotations, nil)
 
 	if strings.Contains(html, `"><script>`) {
 		t.Fatalf("href was not attribute-escaped, found raw injection payload in output: %q", html)
@@ -218,7 +218,7 @@ func TestParse_HyperlinkPlain(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeURLAnnotation(0, 8, "https://example.com/path?a=1&b=2", pb.Annotation_DO_NOT_RENDER),
 	}
-	body, html := gchatfmt.Parse(context.Background(), "click me", annotations, nil)
+	body, html, _ := gchatfmt.Parse(context.Background(), "click me", annotations, nil)
 
 	if body != "click me" {
 		t.Errorf("body = %q, want %q", body, "click me")
@@ -243,7 +243,7 @@ func TestParse_Mention_ResolvedPill(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeMentionAnnotation(0, 4, "123"),
 	}
-	_, html := gchatfmt.Parse(context.Background(), "@Bob hi", annotations, resolve)
+	_, html, _ := gchatfmt.Parse(context.Background(), "@Bob hi", annotations, resolve)
 
 	want := `<a href="https://matrix.to/#/@bob:example.com">Bob &lt;3</a> hi`
 	if html != want {
@@ -258,7 +258,7 @@ func TestParse_Mention_NilResolver(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeMentionAnnotation(0, 8, "123"),
 	}
-	body, html := gchatfmt.Parse(context.Background(), "@Charlie hi", annotations, nil)
+	body, html, _ := gchatfmt.Parse(context.Background(), "@Charlie hi", annotations, nil)
 
 	if body != "@Charlie hi" {
 		t.Errorf("body = %q, want %q", body, "@Charlie hi")
@@ -281,7 +281,7 @@ func TestParse_Mention_UnresolvedWithName(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeMentionAnnotation(0, 6, "456"),
 	}
-	_, html := gchatfmt.Parse(context.Background(), "@dana6 hi", annotations, resolve)
+	_, html, _ := gchatfmt.Parse(context.Background(), "@dana6 hi", annotations, resolve)
 
 	if html != "Dana hi" {
 		t.Errorf("html = %q, want %q", html, "Dana hi")
@@ -300,7 +300,7 @@ func TestParse_MalformedAnnotationFallsBackGracefully(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeFormatAnnotation(1, 5, pb.FormatMetadata_BOLD), // text is only 2 units long
 	}
-	body, html := gchatfmt.Parse(context.Background(), "hi", annotations, nil)
+	body, html, _ := gchatfmt.Parse(context.Background(), "hi", annotations, nil)
 
 	if body != "hi" {
 		t.Errorf("body = %q, want %q", body, "hi")
@@ -323,12 +323,147 @@ func TestParse_HugeLengthAnnotationFallsBackGracefully(t *testing.T) {
 		gchatfmt.MakeFormatAnnotation(5, 2147483647, pb.FormatMetadata_BOLD),
 	}
 
-	body, html := gchatfmt.Parse(context.Background(), text, annotations, nil)
+	body, html, _ := gchatfmt.Parse(context.Background(), text, annotations, nil)
 
 	if body != text {
 		t.Errorf("body = %q, want %q", body, text)
 	}
 	if html != "" {
 		t.Errorf("html = %q, want empty on malformed annotation fallback", html)
+	}
+}
+
+// --- ParsedMentions: the 3rd return value drives content.Mentions ----------
+// (phantom-ping fix -- the mentions gchatfmt reports it rendered must equal
+// the pills it actually emitted, and exclude any malformed/unresolved one.)
+
+func mustResolve(gaiaID string) (id.UserID, string, bool) {
+	if gaiaID == "200" {
+		return "@200_ghost:example.com", "", true
+	}
+	return "", "", false
+}
+
+// TestParse_MentionsMatchRenderedPills: for a normally-rendering message the
+// returned ParsedMentions.UserIDs are exactly the users whose pills appear
+// in the HTML.
+func TestParse_MentionsMatchRenderedPills(t *testing.T) {
+	annotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")}
+	_, html, mentions := gchatfmt.Parse(context.Background(), "@Bob hi", annotations, mustResolve)
+
+	wantHTML := `<a href="https://matrix.to/#/@200_ghost:example.com">@Bob</a> hi`
+	if html != wantHTML {
+		t.Errorf("html = %q, want %q", html, wantHTML)
+	}
+	if len(mentions.UserIDs) != 1 || mentions.UserIDs[0] != "@200_ghost:example.com" {
+		t.Errorf("mentions.UserIDs = %v, want exactly [@200_ghost:example.com] (== the rendered pill)", mentions.UserIDs)
+	}
+	if mentions.Room {
+		t.Error("mentions.Room = true, want false")
+	}
+}
+
+// TestParse_MentionAllSetsRoom: a valid MENTION_ALL sets ParsedMentions.Room.
+func TestParse_MentionAllSetsRoom(t *testing.T) {
+	annotations := []*pb.Annotation{gchatfmt.MakeMentionAllAnnotation(0, 4)}
+	_, _, mentions := gchatfmt.Parse(context.Background(), "@all hi", annotations, nil)
+	if !mentions.Room {
+		t.Error("mentions.Room = false, want true for a valid MENTION_ALL")
+	}
+	if len(mentions.UserIDs) != 0 {
+		t.Errorf("mentions.UserIDs = %v, want empty for a pure @room mention", mentions.UserIDs)
+	}
+}
+
+// TestParse_UnresolvedMentionNotCollected: a mention the resolver can't
+// resolve renders as plain text and is NOT in ParsedMentions.
+func TestParse_UnresolvedMentionNotCollected(t *testing.T) {
+	annotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "999")}
+	_, _, mentions := gchatfmt.Parse(context.Background(), "@Eve hi", annotations, mustResolve)
+	if len(mentions.UserIDs) != 0 || mentions.Room {
+		t.Errorf("mentions = %+v, want empty for an unresolvable mention", mentions)
+	}
+}
+
+// TestParse_NilResolverCollectsNoUsers: with no resolver, no user mention can
+// resolve, so ParsedMentions carries no UserIDs (a MENTION_ALL would still
+// set Room, but there's none here).
+func TestParse_NilResolverCollectsNoUsers(t *testing.T) {
+	annotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")}
+	_, _, mentions := gchatfmt.Parse(context.Background(), "@Bob hi", annotations, nil)
+	if len(mentions.UserIDs) != 0 {
+		t.Errorf("mentions.UserIDs = %v, want empty with a nil resolver", mentions.UserIDs)
+	}
+}
+
+// TestParse_MalformedMentionExcludedFromMentions is the core phantom-ping
+// unit test: an out-of-bounds mention annotation (no corresponding body
+// text) forces the plain-text fallback AND must NOT appear in the returned
+// ParsedMentions -- even though its gaia id resolves fine, its span is
+// invalid so no pill is (or could be) rendered for it.
+func TestParse_MalformedMentionExcludedFromMentions(t *testing.T) {
+	// "hi" is 2 UTF-16 units; the mention claims [0,50).
+	annotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 50, "200")}
+	_, html, mentions := gchatfmt.Parse(context.Background(), "hi", annotations, mustResolve)
+
+	if html != "" {
+		t.Errorf("html = %q, want empty (out-of-bounds annotation -> fallback)", html)
+	}
+	if len(mentions.UserIDs) != 0 || mentions.Room {
+		t.Errorf("mentions = %+v, want empty -- a malformed mention must not ping (phantom ping)", mentions)
+	}
+}
+
+// TestParse_ValidMentionCollectedDespiteUnrelatedMalformedAnnotation: a valid
+// mention alongside an unrelated malformed FORMAT annotation. The malformed
+// annotation forces the whole HTML render to fall back to plain text, but the
+// plain body still contains the mention's "@Bob" text -- so the valid mention
+// IS collected (keyed on its own validity, not the overall render result).
+func TestParse_ValidMentionCollectedDespiteUnrelatedMalformedAnnotation(t *testing.T) {
+	annotations := []*pb.Annotation{
+		gchatfmt.MakeFormatAnnotation(0, 2147483647, pb.FormatMetadata_BOLD),
+		gchatfmt.MakeMentionAnnotation(3, 4, "200"),
+	}
+	_, html, mentions := gchatfmt.Parse(context.Background(), "hi @Bob", annotations, mustResolve)
+
+	if html != "" {
+		t.Errorf("html = %q, want empty (malformed FORMAT annotation -> fallback)", html)
+	}
+	if len(mentions.UserIDs) != 1 || mentions.UserIDs[0] != "@200_ghost:example.com" {
+		t.Errorf("mentions.UserIDs = %v, want [@200_ghost:example.com] -- the valid mention still pings", mentions.UserIDs)
+	}
+}
+
+// TestParse_MentionChipRenderTypeFilteredOut: a mention annotation whose chip
+// type isn't DO_NOT_RENDER is a preview chip (M5), not an inline mention --
+// gchatfmt renders no pill for it, so it must not be collected either.
+func TestParse_MentionChipRenderTypeFilteredOut(t *testing.T) {
+	chip := gchatfmt.MakeMentionAnnotation(0, 4, "200")
+	chip.ChipRenderType = pb.Annotation_RENDER.Enum()
+	_, _, mentions := gchatfmt.Parse(context.Background(), "@Bob hi", []*pb.Annotation{chip}, mustResolve)
+	if len(mentions.UserIDs) != 0 {
+		t.Errorf("mentions.UserIDs = %v, want empty for a RENDER-chip mention", mentions.UserIDs)
+	}
+}
+
+// TestParse_MentionsDeduped: the same gaia id mentioned twice yields exactly
+// one entry in ParsedMentions.UserIDs.
+func TestParse_MentionsDeduped(t *testing.T) {
+	annotations := []*pb.Annotation{
+		gchatfmt.MakeMentionAnnotation(0, 4, "200"),
+		gchatfmt.MakeMentionAnnotation(5, 4, "200"),
+	}
+	_, _, mentions := gchatfmt.Parse(context.Background(), "@Bob @Bob", annotations, mustResolve)
+	if len(mentions.UserIDs) != 1 {
+		t.Errorf("mentions.UserIDs = %v, want exactly one entry (deduped)", mentions.UserIDs)
+	}
+}
+
+// TestParse_NoAnnotationsEmptyMentions: the empty-annotations fast path
+// returns an empty ParsedMentions.
+func TestParse_NoAnnotationsEmptyMentions(t *testing.T) {
+	_, _, mentions := gchatfmt.Parse(context.Background(), "plain text", nil, mustResolve)
+	if len(mentions.UserIDs) != 0 || mentions.Room {
+		t.Errorf("mentions = %+v, want empty for a message with no annotations", mentions)
 	}
 }

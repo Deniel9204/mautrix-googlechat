@@ -111,8 +111,38 @@ import (
 // check.
 type MentionResolver func(gaiaID string) (mxid id.UserID, name string, ok bool)
 
-// Parse renders a Google Chat message's text + annotations into Matrix
-// HTML. Returns (plainBody, htmlBody).
+// ParsedMentions is the set of mentions Parse determined a message genuinely
+// mentions: the resolved Matrix user MXIDs it would emit pills for (UserIDs,
+// deduplicated) and Room=true when it saw a valid MENTION_ALL ("@room").
+//
+// This is the single source of truth for "who should this message ping"
+// (content.Mentions / m.mentions), replacing the connector's former
+// independent annotation re-walk (pkg/connector/mentions.go's inboundMentions,
+// removed in the phantom-ping fix). A gaia id is in UserIDs iff the SAME
+// per-annotation validity gate the HTML renderer applies (spanWithinParent
+// bounds check + chip_render_type == DO_NOT_RENDER + resolver ok==true) would
+// have emitted a pill for it -- so a malformed/out-of-bounds mention
+// annotation (bogus StartIndex/Length, no corresponding body text) is never
+// in UserIDs, eliminating phantom pings where the body contains zero
+// reference to the pinged user.
+type ParsedMentions struct {
+	UserIDs []id.UserID
+	Room    bool
+}
+
+// addUser appends mxid unless it is already present (dedup), matching
+// event.Mentions.Add's own dedup contract.
+func (pm *ParsedMentions) addUser(mxid id.UserID) {
+	for _, existing := range pm.UserIDs {
+		if existing == mxid {
+			return
+		}
+	}
+	pm.UserIDs = append(pm.UserIDs, mxid)
+}
+
+// Parse renders a Google Chat message's text + annotations into Matrix HTML.
+// Returns (plainBody, htmlBody, mentions).
 //
 // body is always text, unmodified -- see the package doc comment's note on
 // googlechat_to_matrix; unlike Python (which re-derives content.body from
@@ -128,29 +158,105 @@ type MentionResolver func(gaiaID string) (mxid id.UserID, name string, ok bool)
 // Python always-truthy-annotations bug documented in the package comment
 // and docs/research/07-gap-analysis.md §1.2/§5 risk #5: Google Chat
 // messages with zero annotations must never get an HTML formatted_body.
-func Parse(ctx context.Context, text string, annotations []*pb.Annotation, mention MentionResolver) (body, html string) {
+//
+// mentions (ParsedMentions) is computed by collectMentions, a DELIBERATELY
+// SEPARATE deterministic pass over the annotations, run BEFORE the recursive
+// HTML render and returned even when the render itself falls back to plain
+// text. It is not accumulated inside renderMention during the render walk
+// for one specific reason: a message can validly ping a resolvable mention
+// while STILL falling back to plain HTML because of an UNRELATED malformed
+// formatting annotation elsewhere (renderAnnotations aborts the whole render
+// on the first out-of-bounds annotation, in annotation-sorted order, so a
+// perfectly valid mention that happens to sort after the bad annotation
+// would never reach renderMention). In that case the plain body still
+// literally contains the mention's "@Name" text, so pinging that user is
+// correct, not phantom -- collectMentions keys the ping on each mention
+// annotation's OWN validity, independent of whether the overall HTML render
+// succeeded, so the valid mention pings regardless. The two walks share the
+// same validity gate (spanWithinParent + the chip filter + the resolver), so
+// for a normally-rendering message the returned UserIDs exactly match the
+// pills the HTML actually contains.
+func Parse(ctx context.Context, text string, annotations []*pb.Annotation, mention MentionResolver) (body, html string, mentions ParsedMentions) {
 	body = text
 	if len(annotations) == 0 {
-		return body, ""
+		return body, "", ParsedMentions{}
 	}
 
 	units := utf16Encode(text)
+	mentions = collectMentions(units, annotations, mention)
 	cloned := cloneAnnotations(annotations)
 	rendered, err := renderAnnotations(mention, units, cloned, 0, int32(len(units)))
 	if err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).
 			Msg("googlechat: gchatfmt: annotation conversion failed, falling back to plain text")
-		return body, ""
+		return body, "", mentions
 	}
 	if rendered == "" {
-		return body, ""
+		return body, "", mentions
 	}
 
 	// from_googlechat.py:52 -- literal newlines become <br/> in the final
 	// HTML string. A blanket post-hoc replace, not HTML-context-aware;
 	// ported as-is (see package doc comment).
 	html = strings.ReplaceAll(rendered, "\n", "<br/>")
-	return body, html
+	return body, html, mentions
+}
+
+// spanWithinParent reports whether an annotation covering [start, start+length)
+// fits entirely inside the parent span [offset, offset+parentLen) -- the
+// single bounds/validity gate shared by renderAnnotations (which errors and
+// falls back to plain text when it fails) and collectMentions (which skips a
+// mention that fails it, so it is never pinged). Arithmetic is promoted to
+// int64 before the sum because StartIndex/Length are wire-controlled int32
+// fields: a malformed/adversarial annotation with Length near int32 max would
+// otherwise overflow a naive int32 sum and wrap to a value that spuriously
+// passes the check, then panics as an out-of-range slice bound downstream.
+// Python's equivalent assert (from_googlechat.py:137) can't overflow since
+// Python ints are arbitrary precision; this is Go's equivalent safety net.
+func spanWithinParent(start, length, offset, parentLen int32) bool {
+	if start < offset || length < 0 {
+		return false
+	}
+	return int64(start)+int64(length) <= int64(offset)+int64(parentLen)
+}
+
+// collectMentions walks annotations once, independently of the HTML render,
+// and returns exactly the mentions that would produce a pill / "@room" in a
+// successful render (see Parse's doc comment for why this is a separate pass).
+// It applies the identical gate renderAnnotations/renderMention apply, in the
+// same order: chip_render_type must be DO_NOT_RENDER (RENDER/RENDER_IF_POSSIBLE
+// chips are link/upload previews, M5, never inline mentions); the annotation's
+// span must be in-bounds (spanWithinParent, at the top level offset=0); and a
+// specific-user MENTION must resolve via mention (ok==true) -- MENTION_ALL sets
+// Room without consulting the resolver, exactly as renderMention hardcodes
+// "@room" for it. text length is measured in UTF-16 code units (units), the
+// same space annotation offsets live in.
+func collectMentions(units []uint16, annotations []*pb.Annotation, mention MentionResolver) ParsedMentions {
+	var pm ParsedMentions
+	textLen := int32(len(units))
+	for _, a := range annotations {
+		if a.GetChipRenderType() != pb.Annotation_DO_NOT_RENDER {
+			continue
+		}
+		um := a.GetUserMentionMetadata()
+		if um == nil {
+			continue
+		}
+		if !spanWithinParent(a.GetStartIndex(), a.GetLength(), 0, textLen) {
+			continue
+		}
+		if um.GetType() == pb.UserMentionMetadata_MENTION_ALL {
+			pm.Room = true
+			continue
+		}
+		if mention == nil {
+			continue
+		}
+		if mxid, _, ok := mention(um.GetId().GetId()); ok {
+			pm.addUser(mxid)
+		}
+	}
+	return pm
 }
 
 // cloneAnnotations deep-copies every annotation so normalizeAnnotations can
@@ -309,24 +415,22 @@ func renderAnnotations(
 			// M5. Leave the underlying text as plain, unwrapped content.
 			continue
 		}
-		// int64: start/annLen are wire-controlled int32 fields, and a
-		// malformed/adversarial annotation (e.g. Length near int32 max)
-		// makes the naive int32 sum `start+annLen` silently wrap, which can
-		// produce a negative value that passes the `> offset+length` check
-		// and then panics as an out-of-range slice bound below. Python's
-		// equivalent assert (from_googlechat.py:137) can't overflow since
-		// Python ints are arbitrary precision; this promotion is Go's
-		// equivalent safety net -- the actual backstop against untrusted
-		// server data, since normalizeAnnotations only truncates an
-		// annotation when it finds ANOTHER one to compare it against.
-		annEnd := int64(start) + int64(annLen)
-		if start < offset || annLen < 0 || annEnd > int64(offset)+int64(length) {
+		// spanWithinParent is the shared int64-promoted bounds gate (see its
+		// doc comment) -- the actual backstop against untrusted server data,
+		// since normalizeAnnotations only truncates an annotation when it
+		// finds ANOTHER one to compare it against. It is the SAME gate
+		// collectMentions applies, so a mention that survives here (renders a
+		// pill) is exactly one collectMentions would have collected, and one
+		// rejected here is one it drops -- the two can never disagree about
+		// which mentions the message "contains".
+		if !spanWithinParent(start, annLen, offset, length) {
 			// Overlapping/out-of-bounds annotations should have been
 			// resolved by normalizeAnnotations; malformed server data
 			// (or a bug) could still violate this. Python asserts here;
 			// Go must not panic on untrusted input, so this degrades to
 			// an error that Parse catches and falls back to plain text
 			// for the whole message.
+			annEnd := int64(start) + int64(annLen)
 			return "", fmt.Errorf("gchatfmt: annotation [%d,%d) out of parent bounds [%d,%d)", start, annEnd, offset, offset+length)
 		}
 

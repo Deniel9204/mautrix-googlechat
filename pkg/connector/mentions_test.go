@@ -114,108 +114,47 @@ func TestGChatMentionResolver_LoginWithoutUserMXIDFallsBackToGhost(t *testing.T)
 	}
 }
 
-// --- inboundMentions (content.Mentions / m.mentions builder) --------------
+// --- mentionsFromParsed (ParsedMentions -> content.Mentions) --------------
+// The chip-filter / bounds / dedup / MENTION_ALL logic itself now lives in
+// gchatfmt.collectMentions (exercised via gchatfmt.Parse's 3rd return in
+// pkg/msgconv/gchatfmt/convert_test.go); mentionsFromParsed is the thin
+// ParsedMentions -> *event.Mentions adapter, so its tests focus on that
+// mapping. The end-to-end tests further down prove the whole
+// resolver+Parse+mentionsFromParsed chain agrees with the rendered pills.
 
-func TestInboundMentions_NoAnnotations(t *testing.T) {
-	if got := inboundMentions(nil, gchatMentionResolver(nil, nil)); got != nil {
-		t.Errorf("inboundMentions(nil, _) = %+v, want nil", got)
+func TestMentionsFromParsed_EmptyReturnsNil(t *testing.T) {
+	if got := mentionsFromParsed(gchatfmt.ParsedMentions{}); got != nil {
+		t.Errorf("mentionsFromParsed(empty) = %+v, want nil (absent m.mentions)", got)
 	}
 }
 
-func TestInboundMentions_NilResolver(t *testing.T) {
-	anns := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")}
-	if got := inboundMentions(anns, nil); got != nil {
-		t.Errorf("inboundMentions(_, nil) = %+v, want nil", got)
-	}
-}
-
-func TestInboundMentions_MentionAllSetsRoom(t *testing.T) {
-	anns := []*pb.Annotation{gchatfmt.MakeMentionAllAnnotation(0, 4)}
-	resolve := gchatMentionResolver(nil, nil)
-
-	got := inboundMentions(anns, resolve)
+func TestMentionsFromParsed_Room(t *testing.T) {
+	got := mentionsFromParsed(gchatfmt.ParsedMentions{Room: true})
 	if got == nil || !got.Room {
-		t.Fatalf("inboundMentions(@room) = %+v, want Room=true", got)
+		t.Fatalf("mentionsFromParsed(Room) = %+v, want Room=true", got)
 	}
 	if len(got.UserIDs) != 0 {
 		t.Errorf("UserIDs = %v, want empty for a pure @room mention", got.UserIDs)
 	}
 }
 
-func TestInboundMentions_ResolvedUserMention(t *testing.T) {
-	anns := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")}
-	resolve := gchatMentionResolver(
-		func(networkid.UserID) id.UserID { return "@200_ghost:example.com" },
-		nil,
-	)
-
-	got := inboundMentions(anns, resolve)
+func TestMentionsFromParsed_UserIDs(t *testing.T) {
+	got := mentionsFromParsed(gchatfmt.ParsedMentions{UserIDs: []id.UserID{"@200_ghost:example.com"}})
 	if got == nil || got.Room {
-		t.Fatalf("inboundMentions(mention 200) = %+v, want Room=false with a UserID", got)
+		t.Fatalf("mentionsFromParsed(user) = %+v, want Room=false with a UserID", got)
 	}
 	if !got.Has("@200_ghost:example.com") {
 		t.Errorf("UserIDs = %v, want to include @200_ghost:example.com", got.UserIDs)
 	}
 }
 
-func TestInboundMentions_UnresolvedMentionSkipped(t *testing.T) {
-	anns := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "unknown-gaia")}
-	resolve := gchatMentionResolver(nil, nil) // never resolves anything
-
-	if got := inboundMentions(anns, resolve); got != nil {
-		t.Errorf("inboundMentions(unresolved mention) = %+v, want nil (nothing to report)", got)
-	}
-}
-
-func TestInboundMentions_DedupesRepeatedMentions(t *testing.T) {
-	anns := []*pb.Annotation{
-		gchatfmt.MakeMentionAnnotation(0, 4, "200"),
-		gchatfmt.MakeMentionAnnotation(10, 4, "200"),
-	}
-	resolve := gchatMentionResolver(
-		func(networkid.UserID) id.UserID { return "@200_ghost:example.com" },
-		nil,
-	)
-
-	got := inboundMentions(anns, resolve)
-	if got == nil || len(got.UserIDs) != 1 {
-		t.Fatalf("inboundMentions(dup mentions) UserIDs = %v, want exactly one entry", got)
-	}
-}
-
-// TestInboundMentions_RespectsChipRenderTypeFilter mirrors
-// gchatfmt.renderAnnotations's own chip_render_type filter (convert.go):
-// an annotation whose ChipRenderType isn't DO_NOT_RENDER is a link/upload
-// preview chip (M5), not inline formatting -- gchatfmt renders no pill for
-// it, so content.Mentions must not ping/flag the mentioned user either, or
-// the two independent annotation walks would silently disagree about what
-// the message "contains".
-func TestInboundMentions_RespectsChipRenderTypeFilter(t *testing.T) {
-	renderChip := gchatfmt.MakeMentionAnnotation(0, 4, "200")
-	renderChip.ChipRenderType = pb.Annotation_RENDER.Enum()
-	resolve := gchatMentionResolver(
-		func(networkid.UserID) id.UserID { return "@200_ghost:example.com" },
-		nil,
-	)
-
-	if got := inboundMentions([]*pb.Annotation{renderChip}, resolve); got != nil {
-		t.Errorf("inboundMentions(RENDER chip mention) = %+v, want nil (gchatfmt renders no pill for this either)", got)
-	}
-}
-
-func TestInboundMentions_MixedRoomAndUserMention(t *testing.T) {
-	anns := []*pb.Annotation{
-		gchatfmt.MakeMentionAllAnnotation(0, 4),
-		gchatfmt.MakeMentionAnnotation(10, 4, "200"),
-	}
-	resolve := gchatMentionResolver(
-		func(networkid.UserID) id.UserID { return "@200_ghost:example.com" },
-		nil,
-	)
-
-	got := inboundMentions(anns, resolve)
+func TestMentionsFromParsed_RoomAndUser(t *testing.T) {
+	got := mentionsFromParsed(gchatfmt.ParsedMentions{
+		UserIDs: []id.UserID{"@200_ghost:example.com"},
+		Room:    true,
+	})
 	if got == nil || !got.Room || !got.Has("@200_ghost:example.com") {
-		t.Fatalf("inboundMentions(mixed) = %+v, want Room=true and the resolved UserID", got)
+		t.Fatalf("mentionsFromParsed(room+user) = %+v, want Room=true and the UserID", got)
 	}
 }
 
@@ -244,9 +183,10 @@ func TestCloneMentions_IndependentBackingArray(t *testing.T) {
 	}
 }
 
-// --- End-to-end: gchatMentionResolver + gchatfmt.Parse + inboundMentions --
+// --- End-to-end: gchatMentionResolver + gchatfmt.Parse + mentionsFromParsed
 // (the brief's headline requirement: "GC mention gaia -> correct ghost MXID
-// pill + content.Mentions populated")
+// pill + content.Mentions populated" -- now from the SAME rendered-mention
+// output, so the pill and the ping can never disagree).
 
 func TestGChatMention_EndToEnd_PillAndMentionsBothCorrect(t *testing.T) {
 	resolve := gchatMentionResolver(
@@ -260,13 +200,13 @@ func TestGChatMention_EndToEnd_PillAndMentionsBothCorrect(t *testing.T) {
 	)
 	anns := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")}
 
-	_, html := gchatfmt.Parse(context.Background(), "@Bob hi", anns, resolve)
+	_, html, parsed := gchatfmt.Parse(context.Background(), "@Bob hi", anns, resolve)
 	wantHTML := `<a href="https://matrix.to/#/@200_ghost:example.com">@Bob</a> hi`
 	if html != wantHTML {
 		t.Errorf("html = %q, want %q", html, wantHTML)
 	}
 
-	mentions := inboundMentions(anns, resolve)
+	mentions := mentionsFromParsed(parsed)
 	if mentions == nil || !mentions.Has("@200_ghost:example.com") {
 		t.Errorf("content.Mentions = %+v, want to include @200_ghost:example.com (fix B2)", mentions)
 	}
@@ -276,12 +216,12 @@ func TestGChatMention_EndToEnd_RoomMention(t *testing.T) {
 	resolve := gchatMentionResolver(nil, nil)
 	anns := []*pb.Annotation{gchatfmt.MakeMentionAllAnnotation(0, 4)}
 
-	_, html := gchatfmt.Parse(context.Background(), "@all hi", anns, resolve)
+	_, html, parsed := gchatfmt.Parse(context.Background(), "@all hi", anns, resolve)
 	if html != "@room hi" {
 		t.Errorf("html = %q, want literal @room substitution", html)
 	}
 
-	mentions := inboundMentions(anns, resolve)
+	mentions := mentionsFromParsed(parsed)
 	if mentions == nil || !mentions.Room {
 		t.Errorf("content.Mentions = %+v, want Room=true", mentions)
 	}
@@ -291,12 +231,72 @@ func TestGChatMention_EndToEnd_UnknownGaiaFallsBackToPlainText(t *testing.T) {
 	resolve := gchatMentionResolver(nil, nil) // resolves nothing
 	anns := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "999")}
 
-	_, html := gchatfmt.Parse(context.Background(), "@Eve hi", anns, resolve)
+	_, html, parsed := gchatfmt.Parse(context.Background(), "@Eve hi", anns, resolve)
 	if html != "@Eve hi" {
 		t.Errorf("html = %q, want the original entity_text left unpilled", html)
 	}
-	if got := inboundMentions(anns, resolve); got != nil {
+	if got := mentionsFromParsed(parsed); got != nil {
 		t.Errorf("content.Mentions = %+v, want nil for an unresolvable mention", got)
+	}
+}
+
+// TestGChatMention_EndToEnd_PhantomPingPrevented is the headline regression
+// test for this fix: a mention annotation whose span is out of bounds (no
+// corresponding "@Name" text in the body) forces gchatfmt to fall back to
+// plain text AND must NOT ping the user -- previously the connector's
+// independent annotation walk (inboundMentions) had no bounds gate and would
+// have pinged them regardless (a phantom notification).
+func TestGChatMention_EndToEnd_PhantomPingPrevented(t *testing.T) {
+	resolve := gchatMentionResolver(
+		func(networkid.UserID) id.UserID { return "@200_ghost:example.com" },
+		nil,
+	)
+	// Body is 2 UTF-16 units ("hi"), but the mention claims [0,50): out of
+	// bounds -> no pill rendered, no reference to the user in the body.
+	anns := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 50, "200")}
+
+	_, html, parsed := gchatfmt.Parse(context.Background(), "hi", anns, resolve)
+	if html != "" {
+		t.Errorf("html = %q, want empty (out-of-bounds annotation -> plain-text fallback)", html)
+	}
+	if got := mentionsFromParsed(parsed); got != nil {
+		t.Errorf("content.Mentions = %+v, want nil -- a mention with no body text must not ping (phantom ping)", got)
+	}
+}
+
+// TestGChatMention_EndToEnd_ValidMentionStillPingsDespiteUnrelatedMalformedAnnotation
+// pins the subtle case: a VALID mention alongside an UNRELATED malformed
+// FORMAT annotation. The malformed annotation forces the whole HTML render
+// to fall back to plain text, but the plain body still literally contains
+// the mention's "@Bob" text, so pinging Bob is correct, not phantom --
+// mentions are keyed on each mention annotation's own validity, independent
+// of overall render success.
+func TestGChatMention_EndToEnd_ValidMentionStillPingsDespiteUnrelatedMalformedAnnotation(t *testing.T) {
+	resolve := gchatMentionResolver(
+		func(gaiaID networkid.UserID) id.UserID {
+			if gaiaID == "200" {
+				return "@200_ghost:example.com"
+			}
+			return ""
+		},
+		nil,
+	)
+	body := "hi @Bob" // 7 UTF-16 units; "@Bob" is [3,7)
+	anns := []*pb.Annotation{
+		// A malformed FORMAT annotation (huge length, out of bounds) that
+		// makes renderAnnotations error -> whole message falls back to plain.
+		gchatfmt.MakeFormatAnnotation(0, 2147483647, pb.FormatMetadata_BOLD),
+		// A perfectly valid, resolvable mention over the real "@Bob" text.
+		gchatfmt.MakeMentionAnnotation(3, 4, "200"),
+	}
+
+	_, html, parsed := gchatfmt.Parse(context.Background(), body, anns, resolve)
+	if html != "" {
+		t.Errorf("html = %q, want empty (the malformed FORMAT annotation forces plain-text fallback)", html)
+	}
+	mentions := mentionsFromParsed(parsed)
+	if mentions == nil || !mentions.Has("@200_ghost:example.com") {
+		t.Errorf("content.Mentions = %+v, want to still include @200_ghost:example.com (body still shows @Bob)", mentions)
 	}
 }
 

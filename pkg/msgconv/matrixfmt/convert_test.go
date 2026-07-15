@@ -499,7 +499,7 @@ func TestEntityString_TrimSpace_KeepsEntityOffsetsCorrect(t *testing.T) {
 
 func TestRoundTrip_Bold(t *testing.T) {
 	text, annotations := matrixfmt.Parse(context.Background(), htmlContent("<strong>hi</strong>"), nil)
-	body, html := gchatfmt.Parse(context.Background(), text, annotations, nil)
+	body, html, _ := gchatfmt.Parse(context.Background(), text, annotations, nil)
 	if body != "hi" {
 		t.Errorf("body = %q, want %q", body, "hi")
 	}
@@ -510,7 +510,7 @@ func TestRoundTrip_Bold(t *testing.T) {
 
 func TestRoundTrip_NestedBoldItalic(t *testing.T) {
 	text, annotations := matrixfmt.Parse(context.Background(), htmlContent("<strong>a<em>b</em></strong>"), nil)
-	_, html := gchatfmt.Parse(context.Background(), text, annotations, nil)
+	_, html, _ := gchatfmt.Parse(context.Background(), text, annotations, nil)
 	want := "<strong>a<em>b</em></strong>"
 	if html != want {
 		t.Errorf("html = %q, want %q", html, want)
@@ -519,7 +519,7 @@ func TestRoundTrip_NestedBoldItalic(t *testing.T) {
 
 func TestRoundTrip_FontColor(t *testing.T) {
 	text, annotations := matrixfmt.Parse(context.Background(), htmlContent(`<span data-mx-color="#ff0000">red</span>`), nil)
-	_, html := gchatfmt.Parse(context.Background(), text, annotations, nil)
+	_, html, _ := gchatfmt.Parse(context.Background(), text, annotations, nil)
 	want := `<span data-mx-color="#ff0000">red</span>`
 	if html != want {
 		t.Errorf("html = %q, want %q", html, want)
@@ -528,7 +528,7 @@ func TestRoundTrip_FontColor(t *testing.T) {
 
 func TestRoundTrip_RoomMention(t *testing.T) {
 	text, annotations := matrixfmt.Parse(context.Background(), htmlContent("hey @room x"), nil)
-	_, html := gchatfmt.Parse(context.Background(), text, annotations, nil)
+	_, html, _ := gchatfmt.Parse(context.Background(), text, annotations, nil)
 	want := "hey @room x"
 	if html != want {
 		t.Errorf("html = %q, want %q", html, want)
@@ -552,7 +552,7 @@ func TestRoundTrip_UserMention(t *testing.T) {
 		}
 		return "", "", false
 	}
-	_, html := gchatfmt.Parse(context.Background(), text, annotations, toMXID)
+	_, html, _ := gchatfmt.Parse(context.Background(), text, annotations, toMXID)
 	want := `<a href="https://matrix.to/#/@alice:example.com">Alice</a>`
 	if html != want {
 		t.Errorf("html = %q, want %q", html, want)

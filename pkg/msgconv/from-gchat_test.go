@@ -21,7 +21,7 @@ func TestToMatrix_PlainText(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hello world")}
 
-	cm := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 
 	if cm == nil {
 		t.Fatal("ToMatrix returned nil")
@@ -59,7 +59,7 @@ func TestToMatrix_EmptyBody(t *testing.T) {
 
 	t.Run("explicit empty string", func(t *testing.T) {
 		msg := &pb.Message{TextBody: proto.String("")}
-		cm := mc.ToMatrix(context.Background(), msg, nil)
+		cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 		if len(cm.Parts) != 0 {
 			t.Fatalf("expected 0 parts for empty text_body, got %d", len(cm.Parts))
 		}
@@ -67,7 +67,7 @@ func TestToMatrix_EmptyBody(t *testing.T) {
 
 	t.Run("field absent", func(t *testing.T) {
 		msg := &pb.Message{}
-		cm := mc.ToMatrix(context.Background(), msg, nil)
+		cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 		if len(cm.Parts) != 0 {
 			t.Fatalf("expected 0 parts when text_body is unset, got %d", len(cm.Parts))
 		}
@@ -81,7 +81,7 @@ func TestToMatrix_WhitespaceBody(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("   ")}
 
-	cm := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part for whitespace-only text_body, got %d", len(cm.Parts))
@@ -99,7 +99,7 @@ func TestToMatrix_UnicodeEmoji(t *testing.T) {
 	want := "héllo 👋🏽 世界 🇺🇳"
 	msg := &pb.Message{TextBody: proto.String(want)}
 
-	cm := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -118,7 +118,7 @@ func TestToMatrix_NoAnnotationsStaysPlain(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("plain text, nothing special")}
 
-	cm := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -145,7 +145,7 @@ func TestToMatrix_FormatAnnotationsProduceHTML(t *testing.T) {
 		},
 	}
 
-	cm := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -166,7 +166,8 @@ func TestToMatrix_FormatAnnotationsProduceHTML(t *testing.T) {
 // TestToMatrix_MentionAnnotationUsesPassedResolver proves ToMatrix actually
 // threads the mention parameter into gchatfmt.Parse (not just accepting and
 // ignoring it): a resolver that knows the gaia id must produce a pill in
-// FormattedBody.
+// FormattedBody AND surface the resolved mention in the returned
+// ParsedMentions (the source content.Mentions is later built from).
 func TestToMatrix_MentionAnnotationUsesPassedResolver(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -180,7 +181,7 @@ func TestToMatrix_MentionAnnotationUsesPassedResolver(t *testing.T) {
 		return "", "", false
 	}
 
-	cm := mc.ToMatrix(context.Background(), msg, resolve)
+	cm, mentions := mc.ToMatrix(context.Background(), msg, resolve)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -188,6 +189,12 @@ func TestToMatrix_MentionAnnotationUsesPassedResolver(t *testing.T) {
 	want := `<a href="https://matrix.to/#/@200_ghost:example.com">@Bob</a> hi`
 	if got := cm.Parts[0].Content.FormattedBody; got != want {
 		t.Errorf("FormattedBody = %q, want %q", got, want)
+	}
+	if len(mentions.UserIDs) != 1 || mentions.UserIDs[0] != "@200_ghost:example.com" {
+		t.Errorf("ParsedMentions.UserIDs = %v, want exactly [@200_ghost:example.com]", mentions.UserIDs)
+	}
+	if mentions.Room {
+		t.Error("ParsedMentions.Room = true, want false for a specific-user mention")
 	}
 }
 
@@ -201,7 +208,7 @@ func TestToMatrix_NilResolverDoesNotPanic(t *testing.T) {
 		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")},
 	}
 
-	cm := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -220,7 +227,7 @@ func TestToMatrix_PartID(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hi")}
 
-	cm := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -244,7 +251,7 @@ func TestToMatrix_TextPartAppendedNotOverwritten(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("a caption")}
 
-	cm := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 text part, got %d", len(cm.Parts))
 	}

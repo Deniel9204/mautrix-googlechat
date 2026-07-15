@@ -55,16 +55,27 @@ import (
 // Content.FormattedBody to html, while Content.Body always stays the plain
 // body gchatfmt.Parse returns (which is text_body verbatim -- see its own
 // doc comment on why plain-body derivation is left to the caller).
-func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, mention gchatfmt.MentionResolver) *bridgev2.ConvertedMessage {
+//
+// The returned gchatfmt.ParsedMentions is the set of mentions gchatfmt
+// ACTUALLY rendered (resolved user MXIDs + a MENTION_ALL/@room flag),
+// surfaced to the connector so it can set content.Mentions ("m.mentions")
+// from exactly that set -- see the connector adapter (msgconv_adapter.go)
+// and the phantom-ping fix. Returning it separately (rather than setting
+// content.Mentions here) keeps the per-part content.Mentions cloning
+// discipline in the connector, where the rest of the per-part bookkeeping
+// (MessageMetadata) already lives; msgconv stays a pure data-in/data-out
+// converter. An empty ParsedMentions is returned for the empty-text
+// early-return path, since a message with no text part pings no one.
+func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, mention gchatfmt.MentionResolver) (*bridgev2.ConvertedMessage, gchatfmt.ParsedMentions) {
 	cm := &bridgev2.ConvertedMessage{
 		Parts: make([]*bridgev2.ConvertedMessagePart, 0, 1),
 	}
 	text := msg.GetTextBody()
 	if text == "" {
-		return cm
+		return cm, gchatfmt.ParsedMentions{}
 	}
 
-	body, html := gchatfmt.Parse(ctx, text, msg.GetAnnotations(), mention)
+	body, html, mentions := gchatfmt.Parse(ctx, text, msg.GetAnnotations(), mention)
 	content := &event.MessageEventContent{
 		MsgType: event.MsgText,
 		Body:    body,
@@ -88,5 +99,5 @@ func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, menti
 		Type:    event.EventMessage,
 		Content: content,
 	})
-	return cm
+	return cm, mentions
 }

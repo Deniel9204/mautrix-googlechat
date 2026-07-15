@@ -32,27 +32,36 @@ import (
 // pointer) so a future per-part mutation (e.g. M4's edit-dedup LastEditTime
 // bump on a single part) can never alias into a sibling part's metadata.
 //
-// It also builds content.Mentions ("m.mentions") from msg's annotations via
-// newInboundMentionResolver + inboundMentions (mentions.go, M3 Task 3, fix
-// B2/gap G4 -- docs/research/08d §1.7/§6): every mention every converted
-// part carries (there is normally exactly one text part, but this loop
-// covers M5's future multi-part messages too) gets its OWN cloneMentions
-// copy of the same resolved Mentions block (content.Mentions describes the
-// whole event's mentions, not a per-part concept, but each part still gets
-// an independent object) -- matching the adjacent *MessageMetadata
-// allocation's own "never alias into a sibling part" rule, just above.
+// It also builds content.Mentions ("m.mentions") from the mentions
+// conv.ToMatrix reports it ACTUALLY rendered (gchatfmt.ParsedMentions, fix
+// B2/gap G4 -- docs/research/08d §1.7/§6): every converted part (there is
+// normally exactly one text part, but this loop covers M5's future
+// multi-part messages too) gets its OWN cloneMentions copy of the same
+// resolved Mentions block (content.Mentions describes the whole event's
+// mentions, not a per-part concept, but each part still gets an independent
+// object) -- matching the adjacent *MessageMetadata allocation's own "never
+// alias into a sibling part" rule, just above.
 //
-// The SAME resolver (built once, below) feeds both conv.ToMatrix -- which,
-// as of M3 Task 4, uses it to render mention pills into HTML via
-// gchatfmt.Parse -- and inboundMentions' content.Mentions walk, so the two
-// can never disagree about which gaia ids resolve to which MXIDs within a
-// single conversion.
+// Deriving content.Mentions from ParsedMentions (rather than an independent
+// second walk of msg.GetAnnotations(), as an earlier version did via the
+// now-removed inboundMentions) is the phantom-ping fix: "who gets pinged" is
+// now, by construction, exactly "whose mention pill gchatfmt would emit for
+// this message" -- both keyed on the same per-annotation validity gate
+// (spanWithinParent bounds + chip filter + resolver ok) inside gchatfmt. A
+// malformed/out-of-bounds mention annotation that renders no pill (and whose
+// "@Name" text is therefore absent from the body) can no longer sneak a
+// ping into content.Mentions.
+//
+// The resolver (built once, below) is still passed INTO conv.ToMatrix, which
+// threads it through gchatfmt.Parse to both render pills and resolve the
+// ParsedMentions gaia ids -- so a single resolver instance drives both
+// within one conversion.
 func convertMessageToMatrix(conv *msgconv.MessageConverter) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
 	return func(ctx context.Context, portal *bridgev2.Portal, _ bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
 		resolve := newInboundMentionResolver(portal)
-		cm := conv.ToMatrix(ctx, msg, resolve)
+		cm, parsed := conv.ToMatrix(ctx, msg, resolve)
 		ts := msg.GetCreateTime()
-		mentions := inboundMentions(msg.GetAnnotations(), resolve)
+		mentions := mentionsFromParsed(parsed)
 		for _, part := range cm.Parts {
 			part.DBMetadata = &MessageMetadata{TimestampMicro: ts}
 			if mentions != nil {
