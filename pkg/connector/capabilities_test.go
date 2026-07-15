@@ -28,10 +28,18 @@ func TestGetCapabilitiesThreadedSpaceAdvertisesThread(t *testing.T) {
 	if !caps.Thread.Full() {
 		t.Errorf("Thread = %v, want fully supported", caps.Thread)
 	}
-	if caps.Reply.Partial() {
-		t.Errorf("Reply = %v, want NOT partial/full -- Reply must stay below Partial so bridgev2's "+
-			"reply-in-thread auto-conversion (portal.go: caps.Thread.Partial() && !caps.Reply.Partial()) fires",
-			caps.Reply)
+	// Reply must ALSO stay fully supported in a threaded space: Google
+	// Chat's wire protocol composes reply_to with a thread message
+	// (maugclib/client.py's send_message sets message_info.reply_to on
+	// both the threaded and flat request branches), and Python's own
+	// handle_matrix_message (portal.py:891-907) sends a plain reply to a
+	// standalone (non-thread) message as a genuine cross-topic reply with
+	// no thread at all. Forcing Reply=Unsupported here would make
+	// bridgev2 unconditionally discard every reply pointer and always
+	// start a new thread instead -- see capabilities.go's gchatCapsThreaded
+	// doc comment.
+	if !caps.Reply.Full() {
+		t.Errorf("Reply = %v, want fully supported (GC composes reply_to with thread messages)", caps.Reply)
 	}
 }
 
@@ -110,6 +118,36 @@ func TestGetCapabilitiesWrongMetadataTypeDoesNotPanic(t *testing.T) {
 	}
 }
 
+func TestGetCapabilitiesNilPortalDoesNotPanic(t *testing.T) {
+	caps := roomFeatures(nil)
+
+	if caps == nil {
+		t.Fatal("roomFeatures(nil) returned nil")
+	}
+	if !caps.Reply.Full() {
+		t.Errorf("Reply = %v, want fully supported (nil portal falls back to flat)", caps.Reply)
+	}
+}
+
+func TestGetCapabilitiesTypedNilMetadataDoesNotPanic(t *testing.T) {
+	// A typed-nil *PortalMetadata boxed into the Metadata `any` field is a
+	// distinct case from an untyped-nil interface (portalWithMeta(nil)
+	// above): the type assertion `meta, ok := portal.Metadata.(*PortalMetadata)`
+	// succeeds with ok=true and meta==nil here, so roomFeatures' `meta !=
+	// nil` guard must catch it before dereferencing meta.ThreadsOnly.
+	var typedNil *PortalMetadata
+	portal := &bridgev2.Portal{Portal: &database.Portal{Metadata: typedNil}}
+
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	if caps == nil {
+		t.Fatal("GetCapabilities returned nil for typed-nil metadata")
+	}
+	if !caps.Reply.Full() {
+		t.Errorf("Reply = %v, want fully supported (typed-nil metadata falls back to flat)", caps.Reply)
+	}
+}
+
 func TestGetCapabilitiesMaxTextLength(t *testing.T) {
 	for _, threadsOnly := range []bool{true, false} {
 		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
@@ -137,6 +175,7 @@ func TestGetCapabilitiesFormattingSupportedKeys(t *testing.T) {
 		event.FmtInlineLink,
 		event.FmtAtRoomMention,
 		event.FmtTextForegroundColor,
+		event.FmtUnorderedList,
 	}
 
 	portal := portalWithMeta(&PortalMetadata{})

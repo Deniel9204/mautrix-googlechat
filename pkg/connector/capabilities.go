@@ -46,6 +46,10 @@ const MaxTextLength = 4096
 //     FORMAT_DATA FONT_COLOR via the (rgb+2^31)&0xFFFFFF transform, both
 //     ways (matrixfmt/html.go's colorAttribute+colorToFontColor,
 //     gchatfmt's FONT_COLOR case).
+//   - FmtUnorderedList: FORMAT_DATA BULLETED_LIST/BULLETED_LIST_ITEM both
+//     ways (matrixfmt/html.go's unorderedListToString + tags.go's
+//     StyleList/StyleListItem, gchatfmt/convert.go's renderFormat) -- a
+//     real annotation, unlike FmtOrderedList below.
 //
 // Deliberately NOT claimed here (left absent, which bridgev2 treats as
 // CapLevelUnsupported -- "may have a fallback" -- the accurate default for
@@ -77,6 +81,7 @@ var gchatFormatting = event.FormattingFeatureMap{
 	event.FmtInlineLink:          event.CapLevelFullySupported,
 	event.FmtAtRoomMention:       event.CapLevelFullySupported,
 	event.FmtTextForegroundColor: event.CapLevelFullySupported,
+	event.FmtUnorderedList:       event.CapLevelFullySupported,
 }
 
 // gchatCapsFlat is advertised for every portal that is not a 2023+
@@ -96,24 +101,38 @@ var gchatCapsFlat = &event.RoomFeatures{
 
 // gchatCapsThreaded is advertised for a threaded space
 // (PortalMetadata.ThreadsOnly == true, the 2023+ "threads only" model).
-// Thread is fully supported; Reply is deliberately left at its zero value
-// (CapLevelUnsupported) rather than also being marked supported, because
-// bridgev2's HandleMatrixMessage (bridgev2/portal.go) only auto-converts a
-// plain Matrix reply into a new GC thread when the network ONLY supports
-// threads:
+// Both Thread AND Reply are fully supported here -- they are NOT mutually
+// exclusive on Google Chat's wire protocol: maugclib/client.py's
+// send_message sets message_info.reply_to on BOTH the threaded
+// (CreateMessageRequest, parent_id.topic_id set) and flat
+// (CreateTopicRequest) branches, and the Python bridge's own
+// handle_matrix_message (portal.py:891-907) composes them per-message:
+//   - an explicit Matrix thread reply always becomes a GC thread message,
+//     and ALSO keeps any additional non-fallback reply pointer;
+//   - a plain (non-thread) Matrix reply whose target is itself already
+//     inside a GC thread gets redirected into that thread (dropping the
+//     reply pointer, since GC groups it structurally instead);
+//   - a plain Matrix reply to a standalone/top-level message stays a
+//     genuine cross-topic quote-reply, with NO thread at all.
 //
-//	if caps.Thread.Partial() && threadRoot == nil &&
-//	    (replyTo.ThreadRoot != "" || !caps.Reply.Partial()) { ... }
-//
-// i.e. "assume the user wants to start a new thread" fires precisely
-// because caps.Reply.Partial() is false here -- this is the
-// "reply-in-thread auto-conversion is bridgev2's job when threads-only"
-// behavior called out in the M3 plan.
+// Setting Reply=Unsupported here (an earlier revision of this file did,
+// mirroring a misreading of "reply-in-thread auto-conversion is bridgev2's
+// job") would make bridgev2's generic HandleMatrixMessage
+// (bridgev2/portal.go) unconditionally discard every reply pointer via its
+// `if !caps.Reply.Partial() { replyTo = nil }` and always start a brand
+// new thread, even for the common "quote-reply to a top-level message"
+// case Python instead sends as a flat cross-topic reply. Keeping both
+// capabilities fully supported instead matches mautrix-meta's own
+// precedent (metaCapsWithThreads keeps Reply fully supported alongside
+// Thread) and lets bridgev2 hand Task 6/7's connector code BOTH ThreadRoot
+// and ReplyTo when relevant, so the exact portal.py:891-907 composition
+// logic above can be replicated precisely at the point that actually
+// builds the CreateMessageRequest/CreateTopicRequest (M3 Task 6/7), rather
+// than being lossily approximated by this generic per-portal toggle.
 var gchatCapsThreaded *event.RoomFeatures
 
 func init() {
 	gchatCapsThreaded = gchatCapsFlat.Clone()
-	gchatCapsThreaded.Reply = event.CapLevelUnsupported
 	gchatCapsThreaded.Thread = event.CapLevelFullySupported
 }
 
