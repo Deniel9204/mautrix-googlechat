@@ -102,7 +102,7 @@ func (c *GChatClient) trySystemMessage(ctx context.Context, evt *pb.Event) (res 
 }
 
 // tryRoomUpdated handles the ROOM_UPDATED annotation type, porting
-// handle_googlechat_room_update (portal.py:1261-1279) exactly: a rename (if
+// handle_googlechat_room_update (portal.py:1262-1279) exactly: a rename (if
 // rename_metadata is present AND carries a non-empty new_name -- Python's
 // `update.HasField("rename_metadata") and update.rename_metadata.new_name`,
 // the second half filtering out an explicitly-empty new_name the same way a
@@ -134,7 +134,7 @@ func (c *GChatClient) tryRoomUpdated(ctx context.Context, evt *pb.Event, msg *pb
 // BOT_REMOVED(7) KICKED_DUE_TO_OTR_CONFLICT(8) ROLE_UPDATED(9)) onto the
 // (Membership, PrevMembership, ok) triple every affected member's
 // bridgev2.ChatMember delta needs, porting Python's own per-type dispatch
-// (handle_googlechat_membership_change, portal.py:1296-1335) one arm at a
+// (handle_googlechat_membership_change, portal.py:1295-1335) one arm at a
 // time -- ok=false means "no Matrix membership action", matching whichever
 // of Python's if/elif arms (or lack thereof) took no action for that type.
 func membershipChangeDelta(t pb.MembershipChangedMetadata_Type) (membership, prevMembership event.Membership, ok bool) {
@@ -151,7 +151,7 @@ func membershipChangeDelta(t pb.MembershipChangedMetadata_Type) (membership, pre
 		// from it.
 		return event.MembershipInvite, event.MembershipLeave, true
 	case pb.MembershipChangedMetadata_JOINED:
-		// portal.py:1304-1305: target_intent.ensure_joined -- unconditional
+		// portal.py:1295-1296: target_intent.ensure_joined -- unconditional
 		// and idempotent regardless of the ghost's current Matrix
 		// membership. PrevMembership is deliberately left unset (NOT
 		// "invite"): gating this on an assumed prior "invite" state would
@@ -163,7 +163,7 @@ func membershipChangeDelta(t pb.MembershipChangedMetadata_Type) (membership, pre
 		// neither does this.
 		return event.MembershipJoin, "", true
 	case pb.MembershipChangedMetadata_ADDED, pb.MembershipChangedMetadata_BOT_ADDED:
-		// portal.py:1306-1313: sender_intent.invite_user (tolerating
+		// portal.py:1304-1312: sender_intent.invite_user (tolerating
 		// MForbidden -- "will auto-invite in ensure_joined") immediately
 		// followed by target_intent.ensure_joined -- a direct add skips
 		// the separate accept step JOINED represents, but the net Matrix
@@ -171,7 +171,7 @@ func membershipChangeDelta(t pb.MembershipChangedMetadata_Type) (membership, pre
 		// left unset for the same reason as JOINED above.
 		return event.MembershipJoin, "", true
 	case pb.MembershipChangedMetadata_LEFT:
-		// portal.py:1315-1316: target_intent.leave_room -- self-initiated
+		// portal.py:1313-1314: target_intent.leave_room -- self-initiated
 		// departure. PrevMembership=join matches mautrix-meta's own
 		// handleRemoveParticipant precedent for the identical "someone
 		// left the room" shape (_reference/meta/pkg/connector/handlemeta.go):
@@ -180,7 +180,7 @@ func membershipChangeDelta(t pb.MembershipChangedMetadata_Type) (membership, pre
 		// notice from re-leaving an already-left (or never-joined) ghost.
 		return event.MembershipLeave, event.MembershipJoin, true
 	case pb.MembershipChangedMetadata_REMOVED, pb.MembershipChangedMetadata_BOT_REMOVED:
-		// portal.py:1317-1324: sender_intent.kick_user, falling back to
+		// portal.py:1315-1324: sender_intent.kick_user, falling back to
 		// main_intent on MForbidden. Same PrevMembership=join reasoning as
 		// LEFT above -- REMOVED/BOT_REMOVED and LEFT differ only in who
 		// initiated the departure, not in its Matrix membership shape.
@@ -196,7 +196,7 @@ func membershipChangeDelta(t pb.MembershipChangedMetadata_Type) (membership, pre
 	default:
 		// ROLE_UPDATED (9 -- a member's ROLE changed, not their membership)
 		// and TYPE_UNSPECIFIED (0) both fall outside Python's own
-		// if/elif chain (portal.py:1296-1335): Python takes no Matrix
+		// if/elif chain (portal.py:1295-1335): Python takes no Matrix
 		// membership action for either (the per-member ghost-profile sync
 		// that precedes the chain, `await target.update_info(source, info)`,
 		// still runs there, but that is puppet-info sync handled elsewhere
@@ -210,7 +210,7 @@ func membershipChangeDelta(t pb.MembershipChangedMetadata_Type) (membership, pre
 
 // queueMembershipChanged handles the MEMBERSHIP_CHANGED annotation type,
 // porting handle_googlechat_membership_change's own member loop
-// (portal.py:1287-1335): update.affected_members (MemberId list, proto
+// (portal.py:1281-1335): update.affected_members (MemberId list, proto
 // field 3) is the SAME field Python iterates
 // (`for member_id, info in zip(update.affected_members, infos)`) -- the
 // newer, richer affected_memberships list (field 6, which additionally
@@ -294,10 +294,11 @@ func (c *GChatClient) queueMembershipChanged(ctx context.Context, evt *pb.Event,
 //   - sender: msg.creator.user_id.id -- the SAME field/derivation
 //     queueMessagePosted uses, and the SAME `sender` local variable Python
 //     passes into BOTH handle_googlechat_room_update and
-//     handle_googlechat_membership_change (portal.py:1231's
-//     `sender = await p.Puppet.get_by_gcid(evt.creator.user_id.id)`) --
-//     NOT MembershipChangedMetadata's own `initiator` field (proto field 2),
-//     which Python never reads for this purpose either.
+//     handle_googlechat_membership_change (portal.py:1338's
+//     `sender = await p.Puppet.get_by_gcid(evt.creator.user_id.id)`, at the
+//     top of handle_googlechat_message) -- NOT MembershipChangedMetadata's
+//     own `initiator` field (proto field 2), which Python never reads for
+//     this purpose either.
 //   - timestamp: msg.create_time, converted via gchatmeow.MicrosToTime --
 //     Python's own `matrix_ts = evt.create_time // 1000`
 //     (portal.py:1360), computed once and reused for both the ROOM_UPDATED
