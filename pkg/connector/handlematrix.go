@@ -59,6 +59,19 @@ package connector
 //   - topic_and_message_id is never set by send_message either (proto field
 //     7, unused by this call site in Python) and is likewise left unset
 //     here.
+//
+// Known gap, tracked rather than fixed here (gchat-port-auditor, M2 Task 5
+// review): portal.py's _handle_matrix_text also unconditionally calls
+// `sender.client.mark_typing(self.gcid, typing=False)` immediately before
+// every send (portal.py:1061-1065, best-effort/log-only on failure) to
+// force-clear a lingering "typing..." indicator before the message lands.
+// There is no equivalent call here -- this bridge has no
+// TypingHandlingNetworkAPI/HandleMatrixTyping implementation yet for it to
+// piggyback on, though the RPC primitive already exists
+// (gchatmeow.Client.SetTypingState, pkg/gchatmeow/api.go). Pick this up
+// alongside that future typing-support task rather than as a standalone
+// fix: no data loss results from its absence (P2, not required for M2's
+// plain-text send correctness).
 import (
 	"context"
 	"fmt"
