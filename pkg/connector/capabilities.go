@@ -90,10 +90,19 @@ var gchatFormatting = event.FormattingFeatureMap{
 // at its zero value (CapLevelUnsupported), which is what makes bridgev2's
 // portal.go route a Matrix reply as caps.Reply.Partial() rather than
 // starting a new GC thread.
+// Edit is fully supported with no age/count limit: handle_matrix_edit
+// (portal.py:840-878) never checks how old the target message is or how many
+// times it has already been edited -- unlike mautrix-meta's Messenger
+// capabilities (EditMaxCount: 5, EditMaxAge: 15m), which mirror real
+// Messenger-imposed server limits that have no Google Chat equivalent in
+// this project's protocol research (docs/research). Leaving
+// EditMaxCount/EditMaxAge at their zero values means "unlimited", matching
+// Python exactly rather than inventing a limit it never enforced (M4 Task 1).
 var gchatCapsFlat = &event.RoomFeatures{
 	Formatting:    gchatFormatting,
 	MaxTextLength: MaxTextLength,
 	Reply:         event.CapLevelFullySupported,
+	Edit:          event.CapLevelFullySupported,
 }
 
 // gchatCapsThreaded is advertised for any portal with PortalMetadata.

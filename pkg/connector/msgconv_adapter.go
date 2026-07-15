@@ -14,8 +14,10 @@ package connector
 // all.
 import (
 	"context"
+	"fmt"
 
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv"
@@ -84,5 +86,106 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter) func(ctx context.Con
 			}
 		}
 		return cm, nil
+	}
+}
+
+// convertEditToMatrix returns a simplevent.Message[*pb.Message].ConvertEditFunc
+// (see simplevent's own doc comment on the shape this must match) for the
+// MESSAGE_UPDATED body arm (events.go's queueMessageEdit, M4 Task 1),
+// porting handle_googlechat_edit's dedup + re-conversion (portal.py:1228-1260):
+//
+//	edit_ts = evt.last_edit_time or evt.last_update_time
+//	if self._edit_dedup[msg_id] >= edit_ts: return  # dedup, portal.py:1238-1240
+//	...
+//	elif target.msgtype != "m.text" or not evt.text_body: return  # portal.py:1248-1251
+//	content = await fmt.googlechat_to_matrix(source, evt, self)
+//	content.set_edit(target.mxid)
+//
+// Dedup compares editTS (msg.GetLastEditTime(), or msg.GetLastUpdateTime()
+// when LastEditTime is unset -- exactly Python's `or` fallback,
+// portal.py:1236) against the edit target's OWN stored
+// MessageMetadata.LastEditTime (dbmeta.go): the Go equivalent of Python's
+// process-local self._edit_dedup dict, except persisted on the message row
+// itself rather than an in-memory map, so it survives a bridge restart. A
+// duplicate/stale edit (editTS <= stored) is reported via
+// bridgev2.ErrIgnoringRemoteEvent -- the exact same signal
+// mautrix-meta's own WhatsApp edit dedup uses
+// (_reference/meta/pkg/connector/events.go's WAMessageEvent.ConvertEdit) --
+// which portal.handleRemoteEdit (mautrix-go bridgev2/portal.go) treats as
+// EventHandlingResultIgnored, not a failure.
+//
+// Only part 0 (existing[0]) is ever read or modified -- matching Python's
+// `target = await DBMessage.get_by_gcid(msg_id, ..., index=0)`: this bridge
+// has no multi-part text messages to disambiguate between yet (M5's
+// attachments), so existing[0] is always the message's one and only part.
+//
+// Unlike convertMessageToMatrix above, this does NOT stamp a fresh
+// *MessageMetadata onto the converted part's DBMetadata: conv.ToMatrix is
+// called directly (not through convertMessageToMatrix), so the returned
+// part's DBMetadata is nil, and ToEditPart's "cmp.DBMetadata != nil" branch
+// is skipped -- existing[0].Metadata is left as-is by ToEditPart, and only
+// its LastEditTime field is bumped afterward, in place, below. This
+// preserves TimestampMicro/TopicID untouched (an edit never changes a
+// message's original create_time or the topic it belongs to) without
+// needing a database.MetaMerger implementation on *MessageMetadata --
+// mirroring WAMessageEvent.ConvertEdit's identical
+// "ToEditPart with no DBMetadata set, mutate existing[0].Metadata directly
+// afterward" pattern.
+//
+// content.Mentions is deliberately left unset on the returned part (and
+// ConvertedEditPart.NewMentions is left nil): mautrix-go's own
+// sendConvertedEdit (bridgev2/portal.go) always resets Content.Mentions to
+// either NewMentions (if set) or an empty *event.Mentions{} before sending,
+// regardless of what this function puts there -- so a re-ping only happens
+// when NewMentions is explicitly populated. This intentionally diverges from
+// portal.py's content.mentions (built the same way as a brand new message,
+// which WOULD re-ping every mentioned user on every edit): leaving
+// NewMentions nil here instead matches the wider bridgev2 ecosystem's
+// deliberate "edits don't re-notify" convention (mautrix-meta's own
+// WAMessageEvent.ConvertEdit does not set NewMentions either) rather than
+// Python's older behavior -- a documented, intentional UX deviation, not a
+// fidelity gap: the mention PILL in the edited HTML body (rendered by
+// gchatfmt.Parse via conv.ToMatrix, same as any other message) is
+// unaffected either way.
+func convertEditToMatrix(conv *msgconv.MessageConverter) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message, msg *pb.Message) (*bridgev2.ConvertedEdit, error) {
+	return func(ctx context.Context, portal *bridgev2.Portal, _ bridgev2.MatrixAPI, existing []*database.Message, msg *pb.Message) (*bridgev2.ConvertedEdit, error) {
+		if len(existing) == 0 {
+			return nil, fmt.Errorf("googlechat: edit target has no parts")
+		}
+		target := existing[0]
+
+		editTS := msg.GetLastEditTime()
+		if editTS == 0 {
+			editTS = msg.GetLastUpdateTime()
+		}
+		if meta, ok := target.Metadata.(*MessageMetadata); ok && meta != nil && meta.LastEditTime >= editTS {
+			return nil, fmt.Errorf("%w: duplicate/stale googlechat edit (edit_ts=%d, stored_last_edit_time=%d)", bridgev2.ErrIgnoringRemoteEvent, editTS, meta.LastEditTime)
+		}
+
+		resolve := newInboundMentionResolver(portal)
+		threadsOnly := false
+		if portal != nil {
+			if meta, ok := portal.Metadata.(*PortalMetadata); ok && meta != nil {
+				threadsOnly = meta.ThreadsOnly
+			}
+		}
+		cm, _ := conv.ToMatrix(ctx, msg, threadsOnly, resolve)
+		if len(cm.Parts) == 0 {
+			// evt.text_body empty -- matches portal.py's
+			// `elif target.msgtype != "m.text" or not evt.text_body:` drop
+			// (the msgtype half is covered generically: this bridge stores
+			// no non-text message parts to edit yet).
+			return nil, fmt.Errorf("%w: googlechat edit has no text body", bridgev2.ErrIgnoringRemoteEvent)
+		}
+
+		editPart := cm.Parts[0].ToEditPart(target)
+
+		if meta, ok := target.Metadata.(*MessageMetadata); ok && meta != nil {
+			meta.LastEditTime = editTS
+		} else {
+			target.Metadata = &MessageMetadata{LastEditTime: editTS}
+		}
+
+		return &bridgev2.ConvertedEdit{ModifiedParts: []*bridgev2.ConvertedEditPart{editPart}}, nil
 	}
 }

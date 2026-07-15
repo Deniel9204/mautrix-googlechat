@@ -6,15 +6,18 @@ package connector
 // wiring fix for B2 (mentions.go, msgconv_adapter.go).
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
@@ -297,6 +300,207 @@ func TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot(t *te
 // Metadata isn't yet a *PortalMetadata (e.g. a brand new portal before its
 // first chat_info sync) must be treated as flat/non-threads-only, matching
 // roomFeatures' own nil-safe default (capabilities.go).
+// --- convertEditToMatrix (M4 Task 1: inbound MESSAGE_UPDATED) ---------------
+//
+// Ports handle_googlechat_edit's dedup + re-conversion (portal.py:1228-1260).
+
+// editMsg builds a *pb.Message shaped like a MESSAGE_UPDATED body's payload:
+// the same message id as the original (edits never change the id), a new
+// text_body, and last_edit_time/last_update_time for the dedup gate.
+func editMsg(messageID, topicID, text string, lastEditTime, lastUpdateTime int64) *pb.Message {
+	msg := topicMsg(messageID, topicID, text)
+	if lastEditTime != 0 {
+		msg.LastEditTime = proto.Int64(lastEditTime)
+	}
+	if lastUpdateTime != 0 {
+		msg.LastUpdateTime = proto.Int64(lastUpdateTime)
+	}
+	return msg
+}
+
+func TestConvertEditToMatrix_ReconvertsBody(t *testing.T) {
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg1"),
+		Metadata: &MessageMetadata{TimestampMicro: 111, TopicID: "msg1", LastEditTime: 0},
+	}}
+	msg := editMsg("msg1", "msg1", "edited text", 5000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	converted, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if err != nil {
+		t.Fatalf("convertEditToMatrix returned error: %v", err)
+	}
+	if len(converted.ModifiedParts) != 1 {
+		t.Fatalf("len(ModifiedParts) = %d, want 1", len(converted.ModifiedParts))
+	}
+	part := converted.ModifiedParts[0]
+	if part.Part != existing[0] {
+		t.Error("ModifiedParts[0].Part is not the existing[0] pointer -- only part 0 must ever be touched")
+	}
+	if got := part.Content.Body; got != "edited text" {
+		t.Errorf("Content.Body = %q, want %q", got, "edited text")
+	}
+}
+
+// TestConvertEditToMatrix_DedupSkipsStaleEdit pins portal.py:1238-1240's
+// `if self._edit_dedup[msg_id] >= edit_ts: ... return` -- an edit whose
+// last_edit_time is EQUAL to the stored value is a duplicate and must be
+// ignored via bridgev2.ErrIgnoringRemoteEvent, leaving the stored metadata
+// untouched.
+func TestConvertEditToMatrix_DedupSkipsStaleEdit(t *testing.T) {
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg1"),
+		Metadata: &MessageMetadata{LastEditTime: 5000},
+	}}
+	msg := editMsg("msg1", "msg1", "duplicate edit", 5000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	_, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if !errors.Is(err, bridgev2.ErrIgnoringRemoteEvent) {
+		t.Errorf("error = %v, want wrapping bridgev2.ErrIgnoringRemoteEvent", err)
+	}
+	if existing[0].Metadata.(*MessageMetadata).LastEditTime != 5000 {
+		t.Errorf("LastEditTime = %d, want unchanged 5000 after a duplicate edit", existing[0].Metadata.(*MessageMetadata).LastEditTime)
+	}
+}
+
+// TestConvertEditToMatrix_DedupSkipsOlderEdit: an edit_ts strictly OLDER
+// than the stored value (an out-of-order redelivery) must also be ignored.
+func TestConvertEditToMatrix_DedupSkipsOlderEdit(t *testing.T) {
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg1"),
+		Metadata: &MessageMetadata{LastEditTime: 5000},
+	}}
+	msg := editMsg("msg1", "msg1", "stale edit", 3000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	_, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if !errors.Is(err, bridgev2.ErrIgnoringRemoteEvent) {
+		t.Errorf("error = %v, want wrapping bridgev2.ErrIgnoringRemoteEvent", err)
+	}
+}
+
+// TestConvertEditToMatrix_AppliesNewerEditAndUpdatesLastEditTime is the
+// converse: a genuinely newer edit_ts must apply AND bump the stored
+// LastEditTime so a later duplicate of THIS edit dedups correctly.
+func TestConvertEditToMatrix_AppliesNewerEditAndUpdatesLastEditTime(t *testing.T) {
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg1"),
+		Metadata: &MessageMetadata{TimestampMicro: 111, TopicID: "msg1", LastEditTime: 3000},
+	}}
+	msg := editMsg("msg1", "msg1", "newer edit", 5000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	converted, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if err != nil {
+		t.Fatalf("convertEditToMatrix returned error: %v", err)
+	}
+	if len(converted.ModifiedParts) != 1 {
+		t.Fatalf("len(ModifiedParts) = %d, want 1", len(converted.ModifiedParts))
+	}
+	meta := existing[0].Metadata.(*MessageMetadata)
+	if meta.LastEditTime != 5000 {
+		t.Errorf("LastEditTime = %d, want 5000", meta.LastEditTime)
+	}
+	// TimestampMicro/TopicID must survive untouched -- an edit never
+	// changes a message's original create_time or the topic it belongs to.
+	if meta.TimestampMicro != 111 {
+		t.Errorf("TimestampMicro = %d, want unchanged 111", meta.TimestampMicro)
+	}
+	if meta.TopicID != "msg1" {
+		t.Errorf("TopicID = %q, want unchanged %q", meta.TopicID, "msg1")
+	}
+}
+
+// TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset
+// pins portal.py:1236's `edit_ts = evt.last_edit_time or evt.last_update_time`
+// fallback.
+func TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset(t *testing.T) {
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg1"),
+		Metadata: &MessageMetadata{LastEditTime: 3000},
+	}}
+	msg := editMsg("msg1", "msg1", "no last_edit_time", 0, 7000)
+
+	convert := convertEditToMatrix(msgconv.New())
+	converted, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if err != nil {
+		t.Fatalf("convertEditToMatrix returned error: %v", err)
+	}
+	if len(converted.ModifiedParts) != 1 {
+		t.Fatalf("len(ModifiedParts) = %d, want 1", len(converted.ModifiedParts))
+	}
+	if got := existing[0].Metadata.(*MessageMetadata).LastEditTime; got != 7000 {
+		t.Errorf("LastEditTime = %d, want 7000 (fell back to last_update_time)", got)
+	}
+}
+
+// TestConvertEditToMatrix_EmptyTextBodyIgnored pins portal.py:1248-1251's
+// `elif target.msgtype != "m.text" or not evt.text_body: ... return` --  an
+// edit with no text_body at all (msgconv.ToMatrix's empty-text early return,
+// from-gchat.go) must be dropped via ErrIgnoringRemoteEvent, not applied as
+// an empty-body edit.
+func TestConvertEditToMatrix_EmptyTextBodyIgnored(t *testing.T) {
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg1"),
+		Metadata: &MessageMetadata{LastEditTime: 0},
+	}}
+	msg := editMsg("msg1", "msg1", "", 5000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	_, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if !errors.Is(err, bridgev2.ErrIgnoringRemoteEvent) {
+		t.Errorf("error = %v, want wrapping bridgev2.ErrIgnoringRemoteEvent", err)
+	}
+}
+
+// TestConvertEditToMatrix_NoExistingMetadataStillWorks covers a target with
+// no prior MessageMetadata at all: LastEditTime dedup must treat that as "no
+// edit ever applied" (0), apply the edit, and create a fresh *MessageMetadata
+// rather than panicking on the type assertion.
+func TestConvertEditToMatrix_NoExistingMetadataStillWorks(t *testing.T) {
+	existing := []*database.Message{{ID: gcid.MakeMessageID("msg1")}} // Metadata is nil
+	msg := editMsg("msg1", "msg1", "first edit", 5000, 0)
+
+	convert := convertEditToMatrix(msgconv.New())
+	converted, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if err != nil {
+		t.Fatalf("convertEditToMatrix returned error: %v", err)
+	}
+	if len(converted.ModifiedParts) != 1 {
+		t.Fatalf("len(ModifiedParts) = %d, want 1", len(converted.ModifiedParts))
+	}
+	meta, ok := existing[0].Metadata.(*MessageMetadata)
+	if !ok {
+		t.Fatalf("Metadata type = %T, want *MessageMetadata", existing[0].Metadata)
+	}
+	if meta.LastEditTime != 5000 {
+		t.Errorf("LastEditTime = %d, want 5000", meta.LastEditTime)
+	}
+}
+
+// TestConvertEditToMatrix_FormattingRoundTrips proves an edit's new
+// annotations still drive gchatfmt.Parse (M3 composition: formatting works
+// on edits too, both directions).
+func TestConvertEditToMatrix_FormattingRoundTrips(t *testing.T) {
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg1"),
+		Metadata: &MessageMetadata{LastEditTime: 0},
+	}}
+	msg := editMsg("msg1", "msg1", "a b c", 5000, 0)
+	msg.Annotations = []*pb.Annotation{gchatfmt.MakeFormatAnnotation(2, 1, pb.FormatMetadata_BOLD)}
+
+	convert := convertEditToMatrix(msgconv.New())
+	converted, err := convert(context.Background(), flatPortal(), nil, existing, msg)
+	if err != nil {
+		t.Fatalf("convertEditToMatrix returned error: %v", err)
+	}
+	content := converted.ModifiedParts[0].Content
+	if content.Format != event.FormatHTML || content.FormattedBody != "a <strong>b</strong> c" {
+		t.Errorf("Content = {Format:%q FormattedBody:%q}, want HTML with bold %q", content.Format, content.FormattedBody, "b")
+	}
+}
+
 func TestConvertMessageToMatrix_NilPortalMetadataTreatedAsFlat(t *testing.T) {
 	portal := &bridgev2.Portal{
 		Portal: &database.Portal{},

@@ -124,18 +124,47 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 // type that isn't MESSAGE_UPDATED) is what keeps this correct as Google adds
 // new event types to the enum.
 //
-// M2 Task 4 only builds a RemoteMessage for the new-message case
-// (queueMessagePosted). MESSAGE_UPDATED (RemoteEdit) is M4's job. Returns the
-// handling result so handleGChatEvent can gate the watermark advance on it;
-// the MESSAGE_UPDATED/edit no-op reports Ignored (Success) -- it is a
-// deliberate deferral to M4, not a failure, so the watermark still advances
-// past it (the live edit already happened; M2 simply does not mirror it yet).
+// M2 Task 4 built a RemoteMessage for the new-message case (queueMessagePosted,
+// below). M4 Task 1 adds the MESSAGE_UPDATED (RemoteEdit) arm
+// (queueMessageEdit, below) -- see queueMessageEdit's own doc comment for the
+// edit-specific extraction/dedup this shares with, and differs from,
+// queueMessagePosted. Returns the handling result so handleGChatEvent can
+// gate the watermark advance on it.
 func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	if evt.GetType() == pb.Event_MESSAGE_UPDATED {
-		zerolog.Ctx(ctx).Debug().Msg("googlechat: unhandled MessagePosted/MESSAGE_UPDATED (edit) event (M4)")
-		return bridgev2.EventHandlingResultIgnored
+		return c.queueMessageEdit(ctx, evt)
 	}
 	return c.queueMessagePosted(ctx, evt)
+}
+
+// extractPostedMessage pulls the (msg, group, gcMessageID) triple every
+// MessagePosted-bodied event needs, shared between queueMessagePosted (new
+// messages) and queueMessageEdit (M4 Task 1, MESSAGE_UPDATED) -- both read
+// off the exact same evt.GetBody().GetMessagePosted().GetMessage() /
+// evt.GetGroupId() shape (see handleMessagePosted's doc comment on why one
+// body arm covers both). ok is false (already logged, matching how
+// sync.go's syncChats skips a world item with no usable group id) for any of
+// three malformed-payload cases: no message payload, no message id, or a
+// group id neither GroupIDToParts oneof arm sets.
+func (c *GChatClient) extractPostedMessage(ctx context.Context, evt *pb.Event) (msg *pb.Message, group gcid.GroupID, gcMessageID string, ok bool) {
+	log := zerolog.Ctx(ctx)
+	msg = evt.GetBody().GetMessagePosted().GetMessage()
+	if msg == nil {
+		log.Warn().Msg("googlechat: MessagePosted event with no message payload, skipping")
+		return nil, gcid.GroupID{}, "", false
+	}
+	gcMessageID = msg.GetId().GetMessageId()
+	if gcMessageID == "" {
+		log.Warn().Msg("googlechat: MessagePosted event with no message id, skipping")
+		return nil, gcid.GroupID{}, "", false
+	}
+	id, isDM, groupOK := gchatmeow.GroupIDToParts(evt.GetGroupId())
+	if !groupOK {
+		log.Warn().Str("gc_message_id", gcMessageID).
+			Msg("googlechat: MessagePosted event with no usable group id, skipping")
+		return nil, gcid.GroupID{}, "", false
+	}
+	return msg, gcid.GroupID{ID: id, IsDM: isDM}, gcMessageID, true
 }
 
 // queueMessagePosted extracts the sender, group, and timestamp from evt's
@@ -158,33 +187,18 @@ func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) br
 //     quote-reply support, which needs the original Google Chat unit back,
 //     not Matrix's derived millisecond one.
 //
-// A missing/malformed payload (nil message, empty message id, or a group id
-// neither GroupIDToParts oneof arm sets) is logged and dropped rather than
-// queuing a broken RemoteMessage -- matching how sync.go's syncChats skips a
-// world item with no usable group id. These skips report Ignored (Success):
-// there is nothing deliverable, so the watermark should advance past the
-// garbage rather than re-fetch it on every reconnect. Only the actual
-// queue's result (which may be a genuine Failed) is returned as-is, so a real
-// delivery failure blocks the watermark advance (handleGChatEvent).
+// A missing/malformed payload is logged and dropped by extractPostedMessage
+// rather than queuing a broken RemoteMessage; these skips report Ignored
+// (Success): there is nothing deliverable, so the watermark should advance
+// past the garbage rather than re-fetch it on every reconnect. Only the
+// actual queue's result (which may be a genuine Failed) is returned as-is,
+// so a real delivery failure blocks the watermark advance (handleGChatEvent).
 func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
-	msg := evt.GetBody().GetMessagePosted().GetMessage()
-	if msg == nil {
-		log.Warn().Msg("googlechat: MessagePosted event with no message payload, skipping")
-		return bridgev2.EventHandlingResultIgnored
-	}
-	gcMessageID := msg.GetId().GetMessageId()
-	if gcMessageID == "" {
-		log.Warn().Msg("googlechat: MessagePosted event with no message id, skipping")
-		return bridgev2.EventHandlingResultIgnored
-	}
-	id, isDM, ok := gchatmeow.GroupIDToParts(evt.GetGroupId())
+	msg, group, gcMessageID, ok := c.extractPostedMessage(ctx, evt)
 	if !ok {
-		log.Warn().Str("gc_message_id", gcMessageID).
-			Msg("googlechat: MessagePosted event with no usable group id, skipping")
 		return bridgev2.EventHandlingResultIgnored
 	}
-	group := gcid.GroupID{ID: id, IsDM: isDM}
 	senderUserID := gcid.MakeUserID(msg.GetCreator().GetUserId().GetId())
 
 	res := c.queueRemoteEvent(&simplevent.Message[*pb.Message]{
@@ -218,9 +232,81 @@ func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bri
 	})
 	log.Debug().
 		Str("gc_message_id", gcMessageID).
-		Str("gc_group_id", id).
-		Bool("is_dm", isDM).
+		Str("gc_group_id", group.ID).
+		Bool("is_dm", group.IsDM).
 		Any("result", res).
 		Msg("googlechat: queued inbound message")
+	return res
+}
+
+// queueMessageEdit extracts the same (msg, group, gcMessageID) triple
+// queueMessagePosted does (via extractPostedMessage) and queues a
+// bridgev2.RemoteEdit for it, porting handle_googlechat_edit's own
+// extraction (portal.py:1228-1236):
+//
+//   - sender: evt.creator.user_id.id -- SAME field/derivation as
+//     queueMessagePosted (an edit's creator is always the original
+//     message's own author; Google Chat itself only allows the original
+//     author to edit their own message, so this is never a different user
+//     in practice, but nothing here assumes that -- portal.handleRemoteEdit,
+//     mautrix-go bridgev2/portal.go:3151-3158, independently verifies the
+//     resolved intent's MXID matches the stored original sender before
+//     bridging the edit at all, and drops it otherwise).
+//   - ID/TargetMessage: BOTH gcid.MakeMessageID(gcMessageID) -- a Google
+//     Chat edit reuses the SAME message id as the original (msg_id,
+//     portal.py:1232), never a new one, so this event's own ID and the
+//     message it targets are identical. TargetMessage is what bridgev2's
+//     handleRemoteEdit (mautrix-go bridgev2/portal.go:3121-3139) uses to
+//     fetch the target's existing DB rows (portal.py's own
+//     `DBMessage.get_by_gcid(msg_id, ..., index=0)`, portal.py:1244).
+//   - Timestamp: gchatmeow.MicrosToTime(editTS), the EDIT's own time (NOT
+//     msg.create_time, which is the ORIGINAL message's unchanged creation
+//     time) -- matching Python's own `edit_ts = evt.last_edit_time or
+//     evt.last_update_time` (portal.py:1236) feeding
+//     `timestamp=edit_ts // 1000` at the eventual _send_message call
+//     (portal.py:1257). The SAME editTS also drives convertEditToMatrix's
+//     dedup gate (msgconv_adapter.go) via msg itself (Data, below) --
+//     computed once here and left for ConvertEdit to re-derive from msg
+//     rather than threaded through as a separate field, since
+//     ConvertEditFunc's signature (simplevent.Message[T]) has no room for
+//     extra per-call data beyond T.
+//
+// Unlike queueMessagePosted, CreatePortal is left false (the zero value): an
+// edit target that doesn't already have a bridged portal has nothing to
+// attach the edit to (mirrors mautrix-meta's FBEditEvent, which likewise
+// does not implement RemoteEventThatMayCreatePortal).
+func (c *GChatClient) queueMessageEdit(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
+	log := zerolog.Ctx(ctx)
+	msg, group, gcMessageID, ok := c.extractPostedMessage(ctx, evt)
+	if !ok {
+		return bridgev2.EventHandlingResultIgnored
+	}
+	senderUserID := gcid.MakeUserID(msg.GetCreator().GetUserId().GetId())
+	editTS := msg.GetLastEditTime()
+	if editTS == 0 {
+		editTS = msg.GetLastUpdateTime()
+	}
+
+	res := c.queueRemoteEvent(&simplevent.Message[*pb.Message]{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventEdit,
+			PortalKey: gcid.MakePortalKey(group, c.UserLogin.ID),
+			Sender: bridgev2.EventSender{
+				Sender:   senderUserID,
+				IsFromMe: c.IsThisUser(ctx, senderUserID),
+			},
+			Timestamp: gchatmeow.MicrosToTime(editTS),
+		},
+		ID:              gcid.MakeMessageID(gcMessageID),
+		TargetMessage:   gcid.MakeMessageID(gcMessageID),
+		Data:            msg,
+		ConvertEditFunc: convertEditToMatrix(c.msgConverter()),
+	})
+	log.Debug().
+		Str("gc_message_id", gcMessageID).
+		Str("gc_group_id", group.ID).
+		Bool("is_dm", group.IsDM).
+		Any("result", res).
+		Msg("googlechat: queued inbound edit")
 	return res
 }

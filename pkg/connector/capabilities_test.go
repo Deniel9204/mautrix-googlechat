@@ -259,6 +259,28 @@ func TestGetCapabilitiesFormattingUnsupportedKeysNotClaimed(t *testing.T) {
 	}
 }
 
+// TestGetCapabilitiesEditFullySupportedNoLimits pins M4 Task 1's capability
+// wiring: Edit must be fully supported (otherwise bridgev2's own
+// handleMatrixEdit, mautrix-go bridgev2/portal.go:1530-1532, drops every
+// Matrix edit before ever calling HandleMatrixEdit), with no
+// EditMaxCount/EditMaxAge limit -- handle_matrix_edit (portal.py:840-878)
+// never enforces either.
+func TestGetCapabilitiesEditFullySupportedNoLimits(t *testing.T) {
+	for _, threadsOnly := range []bool{true, false} {
+		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
+		caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+		if !caps.Edit.Full() {
+			t.Errorf("ThreadsOnly=%v: Edit = %v, want fully supported", threadsOnly, caps.Edit)
+		}
+		if caps.EditMaxCount != 0 {
+			t.Errorf("EditMaxCount = %d, want 0 (unlimited, Python never enforces one)", caps.EditMaxCount)
+		}
+		if caps.EditMaxAge != nil {
+			t.Errorf("EditMaxAge = %v, want nil (unlimited)", caps.EditMaxAge)
+		}
+	}
+}
+
 func TestGetCapabilitiesFormattingSameAcrossThreadModes(t *testing.T) {
 	flat := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{ThreadsOnly: false}))
 	threaded := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{ThreadsOnly: true}))

@@ -161,6 +161,15 @@ type GChatClient struct {
 	// package's tests).
 	createMessageFn func(ctx context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error)
 
+	// editMessageFn issues the edit_message RPC that handleedit.go's
+	// HandleMatrixEdit needs to push a Matrix edit of a previously bridged
+	// message to Google Chat (M4 Task 1). Defaults to conn.EditMessage;
+	// overridden in tests so the outbound edit path (request construction,
+	// response -> MessageMetadata.LastEditTime mapping) can be exercised
+	// without a live gchatmeow.Client connection -- mirrors
+	// createTopicFn/createMessageFn above.
+	editMessageFn func(ctx context.Context, req *pb.EditMessageRequest) (*pb.EditMessageResponse, error)
+
 	// addPendingToIgnoreFn registers a send's local_id as a pending-to-ignore
 	// transaction on msg.Portal (handlematrix.go's HandleMatrixMessage, Task
 	// 6's echo-dedup mechanism), BEFORE the create_topic RPC is issued --

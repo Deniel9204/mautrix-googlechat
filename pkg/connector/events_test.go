@@ -8,10 +8,12 @@ package connector
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
@@ -211,19 +213,138 @@ func TestHandleGChatEventMessagePostedNilMessageSkipped(t *testing.T) {
 	}
 }
 
-// --- MESSAGE_UPDATED (edit): body is the same message_posted arm, but the
-// outer event type is MESSAGE_UPDATED -- M4's territory, must stay a no-op
-// here rather than being queued as a brand new message. -----------------
+// --- MESSAGE_UPDATED (edit, M4 Task 1): body is the same message_posted
+// arm, but the outer event type is MESSAGE_UPDATED -- routed to a
+// bridgev2.RemoteEdit (ConvertEdit re-runs msgconv, see
+// msgconv_adapter_test.go's TestConvertEditToMatrix_* for the dedup/
+// re-conversion logic itself), never queued as a brand new message. -------
 
-func TestHandleGChatEventMessageUpdatedNotQueuedYet(t *testing.T) {
-	gc, queued := newEventTestClient("112233")
-	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-5", "98765", "edited text", 1)
+// messageUpdatedEvent builds a *pb.Event shaped like a real MESSAGE_UPDATED
+// event: the same message_posted body shape messagePostedEvent uses (per
+// handleMessagePosted's doc comment, both share this one body arm), plus
+// last_edit_time/last_update_time for the dedup gate.
+func messageUpdatedEvent(groupID *pb.GroupId, gcMessageID, creatorGaia, text string, lastEditTime int64) *pb.Event {
+	evt := messagePostedEvent(groupID, gcMessageID, creatorGaia, text, 1)
 	evt.Type = pb.Event_MESSAGE_UPDATED.Enum()
+	evt.GetBody().GetMessagePosted().GetMessage().LastEditTime = proto.Int64(lastEditTime)
+	return evt
+}
+
+func TestHandleGChatEventMessageUpdatedQueuesRemoteEdit(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageUpdatedEvent(spaceGroupID("space-1"), "msg-5", "98765", "edited text", 5000)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	edit, ok := (*queued)[0].(bridgev2.RemoteEdit)
+	if !ok {
+		t.Fatalf("queued event does not implement bridgev2.RemoteEdit: %T", (*queued)[0])
+	}
+	if got, want := edit.GetTargetMessage(), gcid.MakeMessageID("msg-5"); got != want {
+		t.Errorf("GetTargetMessage() = %q, want %q", got, want)
+	}
+	if got := edit.GetType(); got != bridgev2.RemoteEventEdit {
+		t.Errorf("GetType() = %v, want RemoteEventEdit", got)
+	}
+
+	wantPortalKey := gcid.MakePortalKey(gcid.GroupID{ID: "space-1", IsDM: false}, gc.UserLogin.ID)
+	if got := edit.GetPortalKey(); got != wantPortalKey {
+		t.Errorf("GetPortalKey() = %+v, want %+v", got, wantPortalKey)
+	}
+
+	sender := edit.GetSender()
+	if got, want := sender.Sender, gcid.MakeUserID("98765"); got != want {
+		t.Errorf("GetSender().Sender = %q, want %q", got, want)
+	}
+
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg-5"),
+		Metadata: &MessageMetadata{LastEditTime: 0},
+	}}
+	converted, err := edit.ConvertEdit(context.Background(), nil, nil, existing)
+	if err != nil {
+		t.Fatalf("ConvertEdit: %v", err)
+	}
+	if len(converted.ModifiedParts) != 1 {
+		t.Fatalf("len(ModifiedParts) = %d, want 1", len(converted.ModifiedParts))
+	}
+	if got := converted.ModifiedParts[0].Content.Body; got != "edited text" {
+		t.Errorf("ModifiedParts[0].Content.Body = %q, want %q", got, "edited text")
+	}
+	if got := existing[0].Metadata.(*MessageMetadata).LastEditTime; got != 5000 {
+		t.Errorf("LastEditTime = %d, want 5000 (updated by ConvertEdit)", got)
+	}
+}
+
+// TestHandleGChatEventMessageUpdatedDMPortalKeyHasReceiver mirrors
+// TestHandleGChatEventMessagePostedDMPortalKeyHasReceiver for edits.
+func TestHandleGChatEventMessageUpdatedDMPortalKeyHasReceiver(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageUpdatedEvent(dmGroupID("dm-1"), "msg-6", "98765", "edited", 5000)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	edit := (*queued)[0].(bridgev2.RemoteEdit)
+	wantPortalKey := gcid.MakePortalKey(gcid.GroupID{ID: "dm-1", IsDM: true}, gc.UserLogin.ID)
+	if got := edit.GetPortalKey(); got != wantPortalKey {
+		t.Errorf("GetPortalKey() = %+v, want %+v", got, wantPortalKey)
+	}
+	if wantPortalKey.Receiver != gc.UserLogin.ID {
+		t.Fatalf("test setup: DM portal key must be receiver-scoped, got Receiver=%q", wantPortalKey.Receiver)
+	}
+}
+
+// TestHandleGChatEventMessageUpdatedDedupSkipsDuplicate proves the DEDUP gate
+// end to end through the real dispatch path: ConvertEdit on a duplicate
+// (equal last_edit_time) MESSAGE_UPDATED must report
+// bridgev2.ErrIgnoringRemoteEvent and leave the stored metadata unchanged.
+func TestHandleGChatEventMessageUpdatedDedupSkipsDuplicate(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageUpdatedEvent(spaceGroupID("space-1"), "msg-7", "98765", "duplicate", 5000)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	edit := (*queued)[0].(bridgev2.RemoteEdit)
+	existing := []*database.Message{{
+		ID:       gcid.MakeMessageID("msg-7"),
+		Metadata: &MessageMetadata{LastEditTime: 5000},
+	}}
+	_, err := edit.ConvertEdit(context.Background(), nil, nil, existing)
+	if !errors.Is(err, bridgev2.ErrIgnoringRemoteEvent) {
+		t.Errorf("ConvertEdit error = %v, want wrapping bridgev2.ErrIgnoringRemoteEvent", err)
+	}
+	if got := existing[0].Metadata.(*MessageMetadata).LastEditTime; got != 5000 {
+		t.Errorf("LastEditTime = %d, want unchanged 5000", got)
+	}
+}
+
+// TestHandleGChatEventMessageUpdatedNoGroupIDSkipped mirrors the
+// MESSAGE_POSTED malformed-payload coverage for the edit path.
+func TestHandleGChatEventMessageUpdatedNoGroupIDSkipped(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageUpdatedEvent(nil, "msg-8", "98765", "hi", 5000)
 
 	gc.handleGChatEvent(context.Background(), evt)
 
 	if len(*queued) != 0 {
-		t.Fatalf("len(queued) = %d, want 0 (MESSAGE_UPDATED/edits are M4)", len(*queued))
+		t.Fatalf("len(queued) = %d, want 0 (no usable group id)", len(*queued))
+	}
+}
+
+func TestHandleGChatEventMessageUpdatedNoMessageIDSkipped(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageUpdatedEvent(spaceGroupID("space-1"), "", "98765", "hi", 5000)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 0 {
+		t.Fatalf("len(queued) = %d, want 0 (no message id)", len(*queued))
 	}
 }
 
