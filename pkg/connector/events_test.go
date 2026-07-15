@@ -378,3 +378,135 @@ func TestHandleGChatEventMessagePostedOnHoldTypesAreQueued(t *testing.T) {
 		})
 	}
 }
+
+// --- MESSAGE_DELETED (M4 Task 2): message_deleted body ->
+// bridgev2.RemoteMessageRemove. Ports handle_googlechat_redaction's own
+// extraction (portal.py:1210-1226): evt.message_id.message_id identifies
+// the message to redact; group id comes from the outer Event (same as
+// every other body arm, see this file's top-of-file doc comment), never
+// from anything on MessageDeletedEvent itself (it carries no group id).
+// The framework (bridgev2's handleRemoteMessageRemove) is responsible for
+// looking up the target's existing DB rows and redacting every Matrix part
+// -- mirroring Python's `for msg in target: ... self.main_intent.redact(...)`
+// loop over EVERY stored row for that gcid, so this event only needs to
+// carry the target's own message id, not any per-row detail. ------------
+
+// messageDeletedEvent builds a *pb.Event shaped like a real MESSAGE_DELETED
+// event reaching handleGChatEvent, mirroring messagePostedEvent's shape for
+// the message_deleted body arm.
+func messageDeletedEvent(groupID *pb.GroupId, gcMessageID string, timestampMicros int64) *pb.Event {
+	return &pb.Event{
+		GroupId: groupID,
+		Type:    pb.Event_MESSAGE_DELETED.Enum(),
+		Body: &pb.Event_EventBody{
+			EventType: pb.Event_MESSAGE_DELETED.Enum(),
+			Type: &pb.Event_EventBody_MessageDeleted{
+				MessageDeleted: &pb.MessageDeletedEvent{
+					MessageId: &pb.MessageId{MessageId: proto.String(gcMessageID)},
+					Timestamp: proto.Int64(timestampMicros),
+				},
+			},
+		},
+	}
+}
+
+func TestHandleGChatEventMessageDeletedSpaceQueuesRemoteMessageRemove(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageDeletedEvent(spaceGroupID("space-1"), "msg-1", 1700000000123456)
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success", res)
+	}
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	remove, ok := (*queued)[0].(bridgev2.RemoteMessageRemove)
+	if !ok {
+		t.Fatalf("queued event does not implement bridgev2.RemoteMessageRemove: %T", (*queued)[0])
+	}
+	if got, want := remove.GetTargetMessage(), gcid.MakeMessageID("msg-1"); got != want {
+		t.Errorf("GetTargetMessage() = %q, want %q", got, want)
+	}
+	if got := remove.GetType(); got != bridgev2.RemoteEventMessageRemove {
+		t.Errorf("GetType() = %v, want RemoteEventMessageRemove", got)
+	}
+
+	wantPortalKey := gcid.MakePortalKey(gcid.GroupID{ID: "space-1", IsDM: false}, gc.UserLogin.ID)
+	if got := remove.GetPortalKey(); got != wantPortalKey {
+		t.Errorf("GetPortalKey() = %+v, want %+v", got, wantPortalKey)
+	}
+}
+
+// TestHandleGChatEventMessageDeletedDMPortalKeyHasReceiver mirrors
+// TestHandleGChatEventMessagePostedDMPortalKeyHasReceiver for deletions.
+func TestHandleGChatEventMessageDeletedDMPortalKeyHasReceiver(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageDeletedEvent(dmGroupID("dm-1"), "msg-2", 1)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	remove := (*queued)[0].(bridgev2.RemoteMessageRemove)
+	wantPortalKey := gcid.MakePortalKey(gcid.GroupID{ID: "dm-1", IsDM: true}, gc.UserLogin.ID)
+	if got := remove.GetPortalKey(); got != wantPortalKey {
+		t.Errorf("GetPortalKey() = %+v, want %+v", got, wantPortalKey)
+	}
+	if wantPortalKey.Receiver != gc.UserLogin.ID {
+		t.Fatalf("test setup: DM portal key must be receiver-scoped, got Receiver=%q", wantPortalKey.Receiver)
+	}
+}
+
+// TestHandleGChatEventMessageDeletedThreadedTargetUsesSameMessageID covers
+// a deletion of a message that lives inside a thread: the target id is
+// still just the message's own id (a thread reply and its own topic head
+// have distinct ids; a delete targets the reply specifically), matching
+// Python's evt.message_id.message_id with no topic-id substitution at all
+// -- unlike outbound delete_message (handleredact.go), which DOES need the
+// topic id to route the RPC, inbound deletion only ever needs the plain
+// message id since bridgev2 looks up the existing DB row(s) by that id
+// directly.
+func TestHandleGChatEventMessageDeletedThreadedTargetUsesSameMessageID(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageDeletedEvent(spaceGroupID("space-1"), "reply-msg-9", 1)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	remove := (*queued)[0].(bridgev2.RemoteMessageRemove)
+	if got, want := remove.GetTargetMessage(), gcid.MakeMessageID("reply-msg-9"); got != want {
+		t.Errorf("GetTargetMessage() = %q, want %q", got, want)
+	}
+}
+
+// --- MESSAGE_DELETED: malformed events are skipped, not queued or panicked
+
+func TestHandleGChatEventMessageDeletedNoGroupIDSkipped(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageDeletedEvent(nil, "msg-3", 1)
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success (Ignored, so the watermark still advances past the garbage)", res)
+	}
+	if len(*queued) != 0 {
+		t.Fatalf("len(queued) = %d, want 0 (no usable group id)", len(*queued))
+	}
+}
+
+func TestHandleGChatEventMessageDeletedNoMessageIDSkipped(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageDeletedEvent(spaceGroupID("space-1"), "", 1)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 0 {
+		t.Fatalf("len(queued) = %d, want 0 (no message id)", len(*queued))
+	}
+}

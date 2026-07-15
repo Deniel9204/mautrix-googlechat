@@ -80,7 +80,7 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 	case *pb.Event_EventBody_MembershipChanged:
 		log.Debug().Msg("googlechat: unhandled MembershipChanged event (M2+)")
 	case *pb.Event_EventBody_MessageDeleted:
-		log.Debug().Msg("googlechat: unhandled MessageDeleted event (M2+)")
+		return c.queueMessageDeleted(ctx, evt)
 	case *pb.Event_EventBody_MessageReaction:
 		log.Debug().Msg("googlechat: unhandled MessageReaction event (M2+)")
 	case *pb.Event_EventBody_UserStatusUpdated:
@@ -308,5 +308,80 @@ func (c *GChatClient) queueMessageEdit(ctx context.Context, evt *pb.Event) bridg
 		Bool("is_dm", group.IsDM).
 		Any("result", res).
 		Msg("googlechat: queued inbound edit")
+	return res
+}
+
+// queueMessageDeleted handles the MessageDeleted event body (EventBody
+// field 8, "message_deleted") and queues a bridgev2.RemoteMessageRemove for
+// it, porting handle_googlechat_redaction's own extraction
+// (portal.py:1210-1226):
+//
+//   - target message id: evt.message_id.message_id -- the SAME field
+//     Python reads (portal.py:1214's
+//     `DBMessage.get_all_by_gcid(evt.message_id.message_id, ...)`). Unlike
+//     the message_posted body, MessageDeletedEvent carries no separate
+//     Message payload to pull a group id or sender from; group comes from
+//     the outer Event's own group_id, exactly like every other body arm
+//     (this file's top-of-file doc comment) -- MessageDeletedEvent itself
+//     has no group id field at all.
+//   - no sender: Python's own redaction always uses self.main_intent
+//     (the bridge bot), never a per-user ghost intent (portal.py:1222), so
+//     there is no per-event sender to resolve here either -- EventMeta.Sender
+//     is left at its zero value, matching mautrix-meta's wrapMessageDelete
+//     (pkg/connector/handlemeta.go), which does the same.
+//   - timestamp: evt.timestamp (MessageDeletedEvent field 2), Google Chat's
+//     microsecond epoch time -- Python divides by 1000 once
+//     (`timestamp=evt.timestamp // 1000`, portal.py:1223) to reach Matrix's
+//     millisecond convention; here that conversion lives in
+//     gchatmeow.MicrosToTime (EventMeta.Timestamp), same as every other
+//     inbound event in this file.
+//
+// Unlike queueMessagePosted, CreatePortal is left false (the zero value): a
+// deletion target with no existing portal has nothing to redact (mirrors
+// queueMessageEdit's identical reasoning, and mautrix-meta's
+// wrapMessageDelete, which likewise never sets CreatePortal).
+//
+// The framework (bridgev2's handleRemoteMessageRemove,
+// mautrix-go bridgev2/portal.go) is responsible for looking up the target's
+// existing DB rows by TargetMessage and redacting every Matrix part found
+// -- Python's own `target = await DBMessage.get_all_by_gcid(...)` +
+// `for msg in target: ... self.main_intent.redact(...)` loop
+// (portal.py:1213-1226) is exactly this framework behavior, so this
+// function only needs to supply the target id, not enumerate rows itself.
+// A target with no matching rows (Python's `if not target: ... return`,
+// portal.py:1216-1218 -- e.g. an echo of a deletion this same bridge just
+// issued via HandleMatrixMessageRemove, whose DB row bridgev2 already
+// deleted after a successful RPC) is likewise a framework-level no-op, not
+// something this function needs to check for itself.
+func (c *GChatClient) queueMessageDeleted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
+	log := zerolog.Ctx(ctx)
+	deleted := evt.GetBody().GetMessageDeleted()
+	gcMessageID := deleted.GetMessageId().GetMessageId()
+	if gcMessageID == "" {
+		log.Warn().Msg("googlechat: MessageDeleted event with no message id, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+	id, isDM, groupOK := gchatmeow.GroupIDToParts(evt.GetGroupId())
+	if !groupOK {
+		log.Warn().Str("gc_message_id", gcMessageID).
+			Msg("googlechat: MessageDeleted event with no usable group id, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+	group := gcid.GroupID{ID: id, IsDM: isDM}
+
+	res := c.queueRemoteEvent(&simplevent.MessageRemove{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventMessageRemove,
+			PortalKey: gcid.MakePortalKey(group, c.UserLogin.ID),
+			Timestamp: gchatmeow.MicrosToTime(deleted.GetTimestamp()),
+		},
+		TargetMessage: gcid.MakeMessageID(gcMessageID),
+	})
+	log.Debug().
+		Str("gc_message_id", gcMessageID).
+		Str("gc_group_id", group.ID).
+		Bool("is_dm", group.IsDM).
+		Any("result", res).
+		Msg("googlechat: queued inbound deletion")
 	return res
 }

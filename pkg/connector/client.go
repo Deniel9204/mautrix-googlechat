@@ -170,6 +170,14 @@ type GChatClient struct {
 	// createTopicFn/createMessageFn above.
 	editMessageFn func(ctx context.Context, req *pb.EditMessageRequest) (*pb.EditMessageResponse, error)
 
+	// deleteMessageFn issues the delete_message RPC that handleredact.go's
+	// HandleMatrixMessageRemove needs to push a Matrix redaction of a
+	// previously bridged message to Google Chat (M4 Task 2). Defaults to
+	// conn.DeleteMessage; overridden in tests so the outbound redaction
+	// path (request construction) can be exercised without a live
+	// gchatmeow.Client connection -- mirrors editMessageFn above.
+	deleteMessageFn func(ctx context.Context, req *pb.DeleteMessageRequest) (*pb.DeleteMessageResponse, error)
+
 	// addPendingToIgnoreFn registers a send's local_id as a pending-to-ignore
 	// transaction on msg.Portal (handlematrix.go's HandleMatrixMessage, Task
 	// 6's echo-dedup mechanism), BEFORE the create_topic RPC is issued --
