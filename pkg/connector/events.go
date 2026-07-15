@@ -312,7 +312,7 @@ func (c *GChatClient) queueMessageEdit(ctx context.Context, evt *pb.Event) bridg
 }
 
 // queueMessageDeleted handles the MessageDeleted event body (EventBody
-// field 8, "message_deleted") and queues a bridgev2.RemoteMessageRemove for
+// field 18, "message_deleted") and queues a bridgev2.RemoteMessageRemove for
 // it, porting handle_googlechat_redaction's own extraction
 // (portal.py:1210-1226):
 //
