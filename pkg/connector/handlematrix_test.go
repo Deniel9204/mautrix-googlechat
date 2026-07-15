@@ -265,8 +265,13 @@ func TestHandleMatrixMessageUnsupportedMsgTypeRejected(t *testing.T) {
 		},
 	}
 
-	msg := textMatrixMessage(spacePortal("space1"), "an image")
-	msg.Content.MsgType = event.MsgImage
+	// m.location: neither TEXT/NOTICE nor one of the four outbound media
+	// msgtypes M5 Task 5 added (m.image is now accepted -- see
+	// TestHandleMatrixMessageImageBuildsUploadAnnotation below), so this
+	// still exercises handle_matrix_message's final else branch
+	// (portal.py:923-924).
+	msg := textMatrixMessage(spacePortal("space1"), "a location")
+	msg.Content.MsgType = event.MsgLocation
 
 	_, err := gc.HandleMatrixMessage(context.Background(), msg)
 	if !errors.Is(err, bridgev2.ErrUnsupportedMessageType) {
@@ -1057,4 +1062,593 @@ func TestHandleMatrixMessageReplyMissingTimestampGraceful(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- HandleMatrixMessage: outbound media (M5 Task 5) ------------------------
+//
+// Ports portal.py's _handle_matrix_media (portal.py:1081-1121) -- see
+// media.go's own "Outbound (Matrix -> Google Chat) media" section doc
+// comment for the full field-by-field port and the deliberate caption
+// improvement over Python (Python drops any caption text outright,
+// portal.py:1100).
+
+// mediaMatrixMessage builds an outbound *bridgev2.MatrixMessage for one of
+// the four msgtypes M5 Task 5 accepts. body/filename follow Matrix's own
+// caption convention (MSC2530): filename == body (or filename == "") means
+// "no caption, body IS the file name"; filename != body means "body is a
+// genuine caption, filename is the file's real name" -- see
+// hasOutboundCaption's doc comment (media.go).
+func mediaMatrixMessage(portal *bridgev2.Portal, msgtype event.MessageType, body, filename, mimeType string) *bridgev2.MatrixMessage {
+	return &bridgev2.MatrixMessage{
+		MatrixEventBase: bridgev2.MatrixEventBase[*event.MessageEventContent]{
+			Portal: portal,
+			Content: &event.MessageEventContent{
+				MsgType:  msgtype,
+				Body:     body,
+				FileName: filename,
+				URL:      "mxc://example.com/abc",
+				Info:     &event.FileInfo{MimeType: mimeType},
+			},
+		},
+	}
+}
+
+func testUploadMetadata(contentName, contentType string) *pb.UploadMetadata {
+	return &pb.UploadMetadata{
+		ContentName: proto.String(contentName),
+		ContentType: proto.String(contentType),
+	}
+}
+
+// TestHandleMatrixMessageImageBuildsUploadAnnotation is the headline M5 Task
+// 5 outbound behavior: an uncaptioned m.image (Body == FileName, the common
+// case) downloads the Matrix file, uploads it, and attaches the result as
+// an UPLOAD_METADATA/RENDER annotation on the create_topic request -- with
+// NO duplicate text_body (Python never sends one either, portal.py:1113-1120
+// has no text= argument at all).
+func TestHandleMatrixMessageImageBuildsUploadAnnotation(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantMeta := testUploadMetadata("cat.png", "image/png")
+
+	var gotDownloadURI id.ContentURIString
+	var gotDownloadFile *event.EncryptedFileInfo
+	var gotGroupID string
+	var gotData []byte
+	var gotFilename, gotMime string
+	var gotReq *pb.CreateTopicRequest
+
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		downloadMediaFn: func(_ context.Context, uri id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error) {
+			gotDownloadURI = uri
+			gotDownloadFile = file
+			return []byte("fake png bytes"), nil
+		},
+		uploadFileFn: func(_ context.Context, groupID string, data []byte, filename, mimeType string) (*pb.UploadMetadata, error) {
+			gotGroupID = groupID
+			gotData = data
+			gotFilename = filename
+			gotMime = mimeType
+			return wantMeta, nil
+		},
+		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			gotReq = req
+			return createTopicResponse("topic1", 1000), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "cat.png", "cat.png", "image/png")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+
+	if gotDownloadURI != "mxc://example.com/abc" {
+		t.Errorf("downloadMediaFn uri = %q, want %q", gotDownloadURI, "mxc://example.com/abc")
+	}
+	if gotDownloadFile != nil {
+		t.Errorf("downloadMediaFn file = %v, want nil (unencrypted room)", gotDownloadFile)
+	}
+	if gotGroupID != "space1" {
+		t.Errorf("uploadFileFn groupID = %q, want %q (plain, no space: prefix)", gotGroupID, "space1")
+	}
+	if string(gotData) != "fake png bytes" {
+		t.Errorf("uploadFileFn data = %q, want the downloaded bytes", gotData)
+	}
+	if gotFilename != "cat.png" {
+		t.Errorf("uploadFileFn filename = %q, want %q", gotFilename, "cat.png")
+	}
+	if gotMime != "image/png" {
+		t.Errorf("uploadFileFn mimeType = %q, want %q", gotMime, "image/png")
+	}
+
+	if got := gotReq.GetTextBody(); got != "" {
+		t.Errorf("TextBody = %q, want empty (no genuine caption, Body == FileName)", got)
+	}
+	anns := gotReq.GetAnnotations()
+	if len(anns) != 1 {
+		t.Fatalf("Annotations = %d, want exactly 1 (the UPLOAD_METADATA annotation)", len(anns))
+	}
+	if got := anns[0].GetType(); got != pb.AnnotationType_UPLOAD_METADATA {
+		t.Errorf("Annotations[0].Type = %v, want UPLOAD_METADATA", got)
+	}
+	if got := anns[0].GetChipRenderType(); got != pb.Annotation_RENDER {
+		t.Errorf("Annotations[0].ChipRenderType = %v, want RENDER", got)
+	}
+	if got := anns[0].GetUploadMetadata(); got != wantMeta {
+		t.Errorf("Annotations[0].UploadMetadata = %v, want the uploaded metadata", got)
+	}
+}
+
+// TestHandleMatrixMessageImageWithCaptionKeepsBothTextAndAnnotation covers
+// the M3 B4 pattern the brief calls out: a genuine caption (FileName set,
+// Body holding different text) must produce BOTH the UPLOAD_METADATA
+// annotation AND a populated text_body -- unlike Python, which discards the
+// caption text entirely (portal.py:1100 only ever uses it as the upload's
+// reported file name).
+func TestHandleMatrixMessageImageWithCaptionKeepsBothTextAndAnnotation(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantMeta := testUploadMetadata("vacation.jpg", "image/jpeg")
+
+	var gotFilename string
+	var gotReq *pb.CreateTopicRequest
+
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+			return []byte("fake jpeg bytes"), nil
+		},
+		uploadFileFn: func(_ context.Context, _ string, _ []byte, filename, _ string) (*pb.UploadMetadata, error) {
+			gotFilename = filename
+			return wantMeta, nil
+		},
+		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			gotReq = req
+			return createTopicResponse("topic1", 1000), nil
+		},
+	}
+
+	// A genuine caption: FileName is the real file name, Body is different
+	// (the caption text) -- the MSC2530 convention hasOutboundCaption keys
+	// off of.
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "Look at this view!", "vacation.jpg", "image/jpeg")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+
+	// uploadFilename must prefer the real FileName, not the caption in Body
+	// (unlike Python's portal.py:1100, which would upload it as "Look at
+	// this view!").
+	if gotFilename != "vacation.jpg" {
+		t.Errorf("uploadFileFn filename = %q, want %q (the real FileName, not the caption)", gotFilename, "vacation.jpg")
+	}
+
+	if got := gotReq.GetTextBody(); got != "Look at this view!" {
+		t.Errorf("TextBody = %q, want the caption text %q", got, "Look at this view!")
+	}
+	anns := gotReq.GetAnnotations()
+	if len(anns) != 1 || anns[0].GetType() != pb.AnnotationType_UPLOAD_METADATA {
+		t.Fatalf("Annotations = %s, want exactly [UPLOAD_METADATA] (plain caption has no formatting annotations of its own)", formatAnnotationsForTest(anns))
+	}
+}
+
+// TestHandleMatrixMessageFormattedCaptionKeepsFileAndFormattingAnnotations
+// proves the file annotation survives even when the caption ALSO carries
+// its own HTML formatting -- the exact scenario B4 (docs/research/08d §2.4)
+// describes megabridge silently losing the attached file over.
+func TestHandleMatrixMessageFormattedCaptionKeepsFileAndFormattingAnnotations(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantMeta := testUploadMetadata("vacation.jpg", "image/jpeg")
+
+	var gotReq *pb.CreateTopicRequest
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+			return []byte("fake jpeg bytes"), nil
+		},
+		uploadFileFn: func(context.Context, string, []byte, string, string) (*pb.UploadMetadata, error) {
+			return wantMeta, nil
+		},
+		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			gotReq = req
+			return createTopicResponse("topic1", 1000), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "a b c", "vacation.jpg", "image/jpeg")
+	msg.Content.Format = event.FormatHTML
+	msg.Content.FormattedBody = "a <strong>b</strong> c"
+
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+
+	if got := gotReq.GetTextBody(); got != "a b c" {
+		t.Errorf("TextBody = %q, want %q", got, "a b c")
+	}
+	anns := gotReq.GetAnnotations()
+	if len(anns) != 2 {
+		t.Fatalf("Annotations = %s, want 2 (file + formatting) -- B4 regression: the file annotation must survive a formatted caption", formatAnnotationsForTest(anns))
+	}
+	if got := anns[0].GetType(); got != pb.AnnotationType_UPLOAD_METADATA {
+		t.Errorf("Annotations[0].Type = %v, want UPLOAD_METADATA (file annotation first)", got)
+	}
+	wantFormat := gchatfmt.MakeFormatAnnotation(2, 1, pb.FormatMetadata_BOLD)
+	if len(anns) < 2 || anns[1].String() != wantFormat.String() {
+		t.Errorf("Annotations[1] = %s, want the BOLD formatting annotation %s", formatAnnotationsForTest(anns), wantFormat.String())
+	}
+}
+
+// TestHandleMatrixMessageUploadFileErrorIsCleanNoPartialSend is the #114
+// contract: an UploadFile failure (the endpoint 500ing, or any other
+// upload error) must propagate as a clean error from HandleMatrixMessage,
+// with create_topic NEVER called -- no partial send, no silent drop.
+func TestHandleMatrixMessageUploadFileErrorIsCleanNoPartialSend(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantErr := errors.New("gchatmeow: upload finalize request failed: unexpected status 500")
+	createTopicCalled := false
+
+	gc := &GChatClient{
+		UserLogin: login,
+		downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+			return []byte("fake png bytes"), nil
+		},
+		uploadFileFn: func(context.Context, string, []byte, string, string) (*pb.UploadMetadata, error) {
+			return nil, wantErr
+		},
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			createTopicCalled = true
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "cat.png", "cat.png", "image/png")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err == nil {
+		t.Fatal("HandleMatrixMessage() error = nil, want a clean error (the #114 upload failure)")
+	}
+	if !errors.Is(err, wantErr) {
+		t.Errorf("error = %v, want wrapping %v", err, wantErr)
+	}
+	if createTopicCalled {
+		t.Error("createTopicFn was called despite an UploadFile failure -- no partial send is allowed (#114 must not silently drop the file or send text-only)")
+	}
+}
+
+// TestHandleMatrixMessageDownloadMediaErrorIsCleanNoPartialSend covers the
+// other half of the same contract: a failure downloading the Matrix file in
+// the first place (before any upload is even attempted) must also propagate
+// cleanly, with neither UploadFile nor create_topic ever called.
+func TestHandleMatrixMessageDownloadMediaErrorIsCleanNoPartialSend(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantErr := errors.New("homeserver: failed to download mxc://example.com/abc")
+	uploadCalled := false
+	createTopicCalled := false
+
+	gc := &GChatClient{
+		UserLogin: login,
+		downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+			return nil, wantErr
+		},
+		uploadFileFn: func(context.Context, string, []byte, string, string) (*pb.UploadMetadata, error) {
+			uploadCalled = true
+			return testUploadMetadata("x", "image/png"), nil
+		},
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			createTopicCalled = true
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "cat.png", "cat.png", "image/png")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err == nil {
+		t.Fatal("HandleMatrixMessage() error = nil, want a clean error")
+	}
+	if !errors.Is(err, wantErr) {
+		t.Errorf("error = %v, want wrapping %v", err, wantErr)
+	}
+	if uploadCalled {
+		t.Error("uploadFileFn was called despite a download failure")
+	}
+	if createTopicCalled {
+		t.Error("createTopicFn was called despite a download failure -- no partial send is allowed")
+	}
+}
+
+// TestHandleMatrixMessageEncryptedFileDownloadPath proves an encrypted
+// room's msg.Content.File is threaded through to the download call
+// unmodified -- bridgev2's own DownloadMedia (client.go's
+// downloadMatrixMedia) handles the actual decryption when file != nil, so
+// this connector's own job is just to pass it through rather than silently
+// dropping it and downloading the (still-encrypted) URL directly.
+func TestHandleMatrixMessageEncryptedFileDownloadPath(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantFile := &event.EncryptedFileInfo{URL: "mxc://example.com/encrypted-blob"}
+	var gotFile *event.EncryptedFileInfo
+	var gotURI id.ContentURIString
+
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		downloadMediaFn: func(_ context.Context, uri id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error) {
+			gotURI = uri
+			gotFile = file
+			return []byte("decrypted bytes"), nil
+		},
+		uploadFileFn: func(context.Context, string, []byte, string, string) (*pb.UploadMetadata, error) {
+			return testUploadMetadata("secret.png", "image/png"), nil
+		},
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "secret.png", "secret.png", "image/png")
+	msg.Content.URL = "" // encrypted rooms carry the ciphertext URL under File.URL, not Content.URL
+	msg.Content.File = wantFile
+
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if gotFile != wantFile {
+		t.Errorf("downloadMediaFn file = %v, want the exact *event.EncryptedFileInfo from msg.Content.File", gotFile)
+	}
+	if gotURI != "" {
+		t.Errorf("downloadMediaFn uri = %q, want empty (msg.Content.URL is unset for an encrypted upload; bridgev2's own DownloadMedia reads file.URL instead)", gotURI)
+	}
+}
+
+// TestHandleMatrixMessageDisableOutboundMediaReturnsCleanError covers the
+// config escape hatch (config.go's DisableOutboundMedia): when set, a media
+// message must be rejected immediately with a clean, explicit error -- no
+// download, no upload, no send attempt at all.
+func TestHandleMatrixMessageDisableOutboundMediaReturnsCleanError(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	downloadCalled := false
+	createTopicCalled := false
+
+	gc := &GChatClient{
+		UserLogin: login,
+		Main:      &GChatConnector{Config: Config{DisableOutboundMedia: true}},
+		downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+			downloadCalled = true
+			return []byte("x"), nil
+		},
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			createTopicCalled = true
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "cat.png", "cat.png", "image/png")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if !errors.Is(err, errOutboundMediaDisabled) {
+		t.Errorf("error = %v, want errOutboundMediaDisabled", err)
+	}
+	if downloadCalled {
+		t.Error("downloadMediaFn was called despite DisableOutboundMedia")
+	}
+	if createTopicCalled {
+		t.Error("createTopicFn was called despite DisableOutboundMedia")
+	}
+}
+
+// TestHandleMatrixMessageMediaGroupIDPlainForDMAndSpace pins that
+// UploadFile's group_id parameter is always the PLAIN numeric id (Python's
+// gcid_plain) for BOTH portal kinds, never gchatmeow.PartsToGroupID's oneof
+// wire shape -- covering both DM and space portals, per the brief.
+func TestHandleMatrixMessageMediaGroupIDPlainForDMAndSpace(t *testing.T) {
+	cases := []struct {
+		name   string
+		portal *bridgev2.Portal
+	}{
+		{"space", spacePortal("space42")},
+		{"dm", dmPortal("dm42")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			login := newTestUserLogin(&UserLoginMetadata{})
+			var gotGroupID string
+			gc := &GChatClient{
+				UserLogin:            login,
+				addPendingToIgnoreFn: noopAddPendingToIgnore,
+				downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+					return []byte("x"), nil
+				},
+				uploadFileFn: func(_ context.Context, groupID string, _ []byte, _, _ string) (*pb.UploadMetadata, error) {
+					gotGroupID = groupID
+					return testUploadMetadata("x.png", "image/png"), nil
+				},
+				createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+					return createTopicResponse("t", 1), nil
+				},
+			}
+
+			expectedID := "space42"
+			if tc.name == "dm" {
+				expectedID = "dm42"
+			}
+			msg := mediaMatrixMessage(tc.portal, event.MsgImage, "x.png", "x.png", "image/png")
+			if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+				t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+			}
+			if gotGroupID != expectedID {
+				t.Errorf("uploadFileFn groupID = %q, want %q", gotGroupID, expectedID)
+			}
+		})
+	}
+}
+
+// TestHandleMatrixMessageMediaThreadRootRoutesToCreateMessage proves media
+// composes with M3 Task 6's thread routing: a media message replying into
+// an existing thread still uploads the file and attaches the annotation,
+// routed through create_message (not create_topic).
+func TestHandleMatrixMessageMediaThreadRootRoutesToCreateMessage(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantMeta := testUploadMetadata("clip.mp4", "video/mp4")
+	var gotReq *pb.CreateMessageRequest
+	createTopicCalled := false
+
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+			return []byte("fake video bytes"), nil
+		},
+		uploadFileFn: func(context.Context, string, []byte, string, string) (*pb.UploadMetadata, error) {
+			return wantMeta, nil
+		},
+		createMessageFn: func(_ context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			gotReq = req
+			return createMessageResponse("msg1", 2000), nil
+		},
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			createTopicCalled = true
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "", "root-msg", "root-topic")
+	msg.Content = mediaMatrixMessage(spacePortal("space1"), event.MsgVideo, "clip.mp4", "clip.mp4", "video/mp4").Content
+
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if createTopicCalled {
+		t.Error("createTopicFn was called for a threaded media message, want create_message")
+	}
+	if gotReq == nil {
+		t.Fatal("createMessageFn was not called")
+	}
+	anns := gotReq.GetAnnotations()
+	if len(anns) != 1 || anns[0].GetType() != pb.AnnotationType_UPLOAD_METADATA {
+		t.Fatalf("Annotations = %s, want exactly [UPLOAD_METADATA]", formatAnnotationsForTest(anns))
+	}
+	if got := anns[0].GetUploadMetadata(); got != wantMeta {
+		t.Errorf("Annotations[0].UploadMetadata = %v, want %v", got, wantMeta)
+	}
+}
+
+// TestHandleMatrixMessageMediaMsgTypesAccepted covers all four msgtypes the
+// brief calls out (m.image/m.file/m.video/m.audio) -- each must build an
+// UPLOAD_METADATA annotation, not be rejected as unsupported.
+func TestHandleMatrixMessageMediaMsgTypesAccepted(t *testing.T) {
+	for _, msgtype := range []event.MessageType{event.MsgImage, event.MsgFile, event.MsgVideo, event.MsgAudio} {
+		t.Run(string(msgtype), func(t *testing.T) {
+			login := newTestUserLogin(&UserLoginMetadata{})
+			var gotReq *pb.CreateTopicRequest
+			gc := &GChatClient{
+				UserLogin:            login,
+				addPendingToIgnoreFn: noopAddPendingToIgnore,
+				downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+					return []byte("bytes"), nil
+				},
+				uploadFileFn: func(context.Context, string, []byte, string, string) (*pb.UploadMetadata, error) {
+					return testUploadMetadata("f", "application/octet-stream"), nil
+				},
+				createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+					gotReq = req
+					return createTopicResponse("t", 1), nil
+				},
+			}
+
+			msg := mediaMatrixMessage(spacePortal("space1"), msgtype, "f", "f", "application/octet-stream")
+			if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+				t.Fatalf("HandleMatrixMessage() error = %v, want nil for msgtype %s", err, msgtype)
+			}
+			if len(gotReq.GetAnnotations()) != 1 {
+				t.Errorf("Annotations = %d, want exactly 1 for msgtype %s", len(gotReq.GetAnnotations()), msgtype)
+			}
+		})
+	}
+}
+
+// TestHandleMatrixMessageMediaNoConnNoSeamErrors mirrors
+// TestHandleMatrixMessageNoConnNoSeamErrors for the media path: with no
+// uploadFileFn override and no live gchatmeow.Client connection, UploadFile
+// resolution must fail cleanly (not panic).
+func TestHandleMatrixMessageMediaNoConnNoSeamErrors(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	gc := &GChatClient{
+		UserLogin: login,
+		downloadMediaFn: func(context.Context, id.ContentURIString, *event.EncryptedFileInfo) ([]byte, error) {
+			return []byte("bytes"), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(spacePortal("space1"), event.MsgImage, "cat.png", "cat.png", "image/png")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err == nil {
+		t.Fatal("HandleMatrixMessage() error = nil, want an error when not connected")
+	}
+}
+
+// TestHandleMatrixMessageMediaDefaultDownloadUsesPortalBridgeBot proves the
+// production default (no downloadMediaFn override) actually reaches
+// msg.Portal.Bridge.Bot.DownloadMedia -- downloadMatrixMedia's fallback
+// wiring (client.go), exercised end-to-end via a fake bridgev2.MatrixAPI
+// rather than the Fn seam every other test in this file uses.
+func TestHandleMatrixMessageMediaDefaultDownloadUsesPortalBridgeBot(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantFile := &event.EncryptedFileInfo{URL: "mxc://example.com/ciphertext"}
+	var gotURI id.ContentURIString
+	var gotFile *event.EncryptedFileInfo
+
+	portal := &bridgev2.Portal{
+		Portal: &database.Portal{PortalKey: networkid.PortalKey{ID: gcid.MakePortalID(gcid.GroupID{ID: "space1", IsDM: false})}},
+		Bridge: &bridgev2.Bridge{Bot: fakeDownloadIntent{
+			downloadFn: func(_ context.Context, uri id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error) {
+				gotURI = uri
+				gotFile = file
+				return []byte("bytes"), nil
+			},
+		}},
+	}
+
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		uploadFileFn: func(context.Context, string, []byte, string, string) (*pb.UploadMetadata, error) {
+			return testUploadMetadata("f.png", "image/png"), nil
+		},
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := mediaMatrixMessage(portal, event.MsgImage, "f.png", "f.png", "image/png")
+	msg.Content.URL = ""
+	msg.Content.File = wantFile
+
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if gotFile != wantFile {
+		t.Errorf("Portal.Bridge.Bot.DownloadMedia file = %v, want %v", gotFile, wantFile)
+	}
+	if gotURI != "" {
+		t.Errorf("Portal.Bridge.Bot.DownloadMedia uri = %q, want empty", gotURI)
+	}
+}
+
+// fakeDownloadIntent implements bridgev2.MatrixAPI, overriding only
+// DownloadMedia -- same "embed nil interface, override one method" pattern
+// as media_test.go's fakeUploadIntent.
+type fakeDownloadIntent struct {
+	bridgev2.MatrixAPI
+	downloadFn func(ctx context.Context, uri id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error)
+}
+
+func (f fakeDownloadIntent) DownloadMedia(ctx context.Context, uri id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error) {
+	if f.downloadFn != nil {
+		return f.downloadFn(ctx, uri, file)
+	}
+	return nil, errors.New("fakeDownloadIntent: downloadFn not set")
 }

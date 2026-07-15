@@ -72,6 +72,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -346,4 +347,178 @@ func convertOneAttachment(ctx context.Context, portal *bridgev2.Portal, intent b
 		Type:    event.EventMessage,
 		Content: content,
 	}, true
+}
+
+// --- Outbound (Matrix -> Google Chat) media, M5 Task 5 ----------------------
+//
+// Ports portal.py's _handle_matrix_media (portal.py:1081-1121) field by
+// field:
+//
+//	if message.file and decrypt_attachment:
+//	    data = await self.main_intent.download_media(message.file.url)
+//	    data = decrypt_attachment(
+//	        data, message.file.key.key, message.file.hashes.get("sha256"), message.file.iv
+//	    )
+//	elif message.url:
+//	    data = await self.main_intent.download_media(message.url)
+//	else:
+//	    raise Exception("Failed to download media from matrix")
+//	mime = message.info.mimetype or magic.mimetype(data)
+//	upload = await sender.client.upload_file(
+//	    data=data, group_id=self.gcid_plain, filename=message.body, mime_type=mime
+//	)
+//	annotations = [googlechat.Annotation(
+//	    type=googlechat.UPLOAD_METADATA, upload_metadata=upload,
+//	    chip_render_type=googlechat.Annotation.RENDER,
+//	)]
+//
+// The decrypt/download half collapses into one call here: bridgev2's own
+// DownloadMedia (client.go's downloadMatrixMedia, wrapping
+// bridgev2.MatrixAPI.DownloadMedia) already handles both the encrypted
+// (message.file set) and plain (message.url set) cases Python's own
+// if/elif distinguishes manually, decrypting internally whenever its file
+// argument is non-nil -- see downloadMediaFn's doc comment (client.go).
+//
+// mime_type: unlike Python, this port never falls back to sniffing the
+// downloaded bytes (magic.mimetype) when content.Info is nil or its
+// MimeType is empty -- the Matrix event's own declared MIME type (or "" if
+// absent) is forwarded as-is. gchatmeow.Client.UploadFile sends it verbatim
+// as the x-goog-upload-content-type header (upload.go); every
+// well-behaved Matrix client sets info.mimetype on media uploads, and
+// adding a magic-byte-sniffing dependency purely to cover the rare client
+// that omits it -- on a feature already gated behind #114's live upload
+// failure -- was judged not worth it (flagged for the gchat-port-auditor
+// rather than silently skipped).
+//
+// Caption handling deliberately improves on Python (the M3 B4 pattern this
+// task's brief calls out): Python drops any Matrix caption's TEXT outright
+// and instead uploads the file under whatever `message.body` happens to
+// hold, caption or not (portal.py:1100) -- so a captioned image's caption
+// text is silently lost, and the file's reported name becomes the caption
+// string instead of the real file name. This port instead (a) uploads the
+// file under its REAL name via uploadFilename below, preferring FileName
+// when the Matrix client sent one, and (b) keeps the caption's own text and
+// formatting annotations by having handlematrix.go's HandleMatrixMessage
+// media branch route msg.Content through the SAME
+// c.msgConverter().FromMatrix call a plain text message uses, then combine
+// the two annotation sources via mergeAnnotations (handlematrix.go) rather
+// than dropping either -- see hasOutboundCaption's doc comment for exactly
+// when a caption is considered "genuine" (as opposed to Body merely
+// repeating the filename, the common uncaptioned case).
+
+// isOutboundMediaMsgType reports whether t is one of the four msgtypes
+// handlematrix.go's HandleMatrixMessage media branch accepts, matching
+// capabilities.go's gchatFile map one-for-one (both must stay in sync: a
+// msgtype missing from gchatFile is rejected by bridgev2's own
+// checkMessageContentCaps -- mautrix-go bridgev2/portal.go -- with
+// ErrUnsupportedMessageType before HandleMatrixMessage is ever called, so
+// this switch never actually needs to reject anything gchatFile doesn't
+// already gate upstream; it exists so HandleMatrixMessage has an explicit,
+// self-contained answer rather than relying on that upstream gate alone).
+//
+// Deliberately narrower than event.MessageType.IsMedia() (which also
+// matches event.CapMsgSticker): Google Chat's upload pipeline
+// (gchatmeow.Client.UploadFile) has no sticker concept, capabilities.go's
+// gchatFile never advertises event.CapMsgSticker, and neither the Python
+// bridge (handle_matrix_message's `message.msgtype.is_media` gate,
+// portal.py:919 -- no sticker special-casing anywhere in portal.py) nor
+// this bridge's own inbound half (msgTypeFromMime, above) ever produces or
+// expects a Matrix sticker.
+func isOutboundMediaMsgType(t event.MessageType) bool {
+	switch t {
+	case event.MsgImage, event.MsgVideo, event.MsgAudio, event.MsgFile:
+		return true
+	default:
+		return false
+	}
+}
+
+// hasOutboundCaption reports whether content carries a genuine caption
+// alongside its attached file, as opposed to the common case where Body is
+// simply a repeat of the file's own name (no real caption at all). This
+// mirrors, rather than re-derives independently of, the SAME distinction
+// bridgev2 itself already relies on (mautrix-go bridgev2/portal.go's
+// checkMessageContentCaps: `content.FileName != "" && content.Body !=
+// content.FileName`) -- so this connector's idea of "has a caption" never
+// disagrees with bridgev2's own.
+//
+// Python has no equivalent concept: _handle_matrix_media never sends any
+// text_body for a media message at all (see this section's own doc comment
+// above), so there is no Python behavior to match here -- this is this
+// port's own (improved) design, not a fidelity requirement.
+func hasOutboundCaption(content *event.MessageEventContent) bool {
+	return content.FileName != "" && content.Body != content.FileName
+}
+
+// uploadFilename picks the name passed to UploadFile's own filename
+// parameter, ported from portal.py:1100's `filename=message.body` --
+// preferring the real FileName field (set by well-behaved Matrix clients
+// alongside a genuine caption in Body, MSC2530) when present, and falling
+// back to Body otherwise (the common uncaptioned case, where Body already
+// IS the filename) -- unlike Python, which always uses Body verbatim even
+// when FileName holds the real name and Body holds an unrelated caption
+// (see this section's own doc comment above).
+func uploadFilename(content *event.MessageEventContent) string {
+	if content.FileName != "" {
+		return content.FileName
+	}
+	return content.Body
+}
+
+// buildUploadAnnotation downloads msg's Matrix media (decrypting it first
+// if msg.Content.File is set -- handled internally by downloadMatrixMedia,
+// client.go), uploads it to Google Chat via UploadFile (Task 2,
+// pkg/gchatmeow/upload.go), and wraps the result in an
+// UPLOAD_METADATA/RENDER annotation ready to attach to the outbound
+// create_topic/create_message request -- see this section's own doc
+// comment above for the full portal.py:1081-1121 field-by-field port.
+//
+// group is the portal's parsed gcid.GroupID; UploadFile's own group_id
+// parameter is group.ID -- the PLAIN numeric id (Python's gcid_plain,
+// portal.py:182-183's `gc_type, gcid = self.gcid.split(":")`, no "dm:"/
+// "space:" prefix), NOT gchatmeow.PartsToGroupID's *pb.GroupId oneof the
+// CreateTopicRequest/CreateMessageRequest's own GroupId field uses -- see
+// upload.go's UploadFile doc comment: it is a bare "group_id" query
+// parameter on the /uploads endpoint, an entirely different wire shape from
+// the /api/* JSON-RPC GroupId oneof.
+//
+// A download or upload failure returns a clean, wrapped error and NO
+// annotation -- the caller (HandleMatrixMessage) must treat this as fatal
+// and send nothing at all, never falling back to a text-only send that
+// would silently lose the attached file. An UploadFile failure here is an
+// EXPECTED, not exceptional, outcome against Google's real servers today:
+// issue #114 (https://github.com/mautrix/googlechat/issues/114) reports
+// the /uploads endpoint returning HTTP 500 for every upload since ~Feb
+// 2026 -- the error message below names it explicitly so the failure shown
+// to the user (via bridgev2's own message-send-status translation) isn't a
+// bare, unexplained network error.
+func (c *GChatClient) buildUploadAnnotation(ctx context.Context, msg *bridgev2.MatrixMessage, group gcid.GroupID) (*pb.Annotation, error) {
+	data, err := c.downloadMatrixMedia(ctx, msg)
+	if err != nil {
+		return nil, fmt.Errorf("googlechat: failed to download matrix media: %w", err)
+	}
+
+	upload := c.uploadFileFn
+	if upload == nil {
+		conn := c.getConn()
+		if conn == nil {
+			return nil, errors.New("googlechat: not connected")
+		}
+		upload = conn.UploadFile
+	}
+
+	var mimeType string
+	if msg.Content.Info != nil {
+		mimeType = msg.Content.Info.MimeType
+	}
+	meta, err := upload(ctx, group.ID, data, uploadFilename(msg.Content), mimeType)
+	if err != nil {
+		return nil, fmt.Errorf("googlechat: failed to upload media to Google Chat (see https://github.com/mautrix/googlechat/issues/114): %w", err)
+	}
+
+	return &pb.Annotation{
+		Type:           pb.AnnotationType_UPLOAD_METADATA.Enum(),
+		ChipRenderType: pb.Annotation_RENDER.Enum(),
+		Metadata:       &pb.Annotation_UploadMetadata{UploadMetadata: meta},
+	}, nil
 }

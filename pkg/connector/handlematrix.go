@@ -43,6 +43,7 @@ package connector
 // plain-text send correctness).
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 
@@ -58,23 +59,65 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
+// errOutboundMediaDisabled is returned by HandleMatrixMessage's media branch
+// when Config.DisableOutboundMedia is set (config.go): a clean, explicit
+// message-send-status failure naming the upstream blocker (issue #114,
+// https://github.com/mautrix/googlechat/issues/114 -- Google's /uploads
+// endpoint has reportedly returned HTTP 500 for every upload since ~Feb
+// 2026), rather than letting an operator who already knows uploads are
+// broken for their account hit a live download+upload attempt (and its own
+// less-specific error, buildUploadAnnotation, media.go) on every single
+// media send. WrapErrorInStatus + WithErrorReason(MessageStatusUnsupported)
+// mirrors this package's other static rejection errors (compare
+// bridgev2.ErrUnsupportedMessageType/ErrCaptionsNotAllowed, mautrix-go
+// bridgev2/errors.go) rather than a bare fmt.Errorf, so bridgev2 reports it
+// as an "unsupported" failure (not a generic/retriable one) in the message
+// status event shown to the user.
+var errOutboundMediaDisabled = bridgev2.WrapErrorInStatus(errors.New("outbound media is disabled")).
+	WithMessage("Sending media to Google Chat is disabled on this bridge (unsupported -- see upstream issue https://github.com/mautrix/googlechat/issues/114)").
+	WithIsCertain(true).
+	WithSendNotice(true).
+	WithErrorReason(event.MessageStatusUnsupported)
+
 // HandleMatrixMessage sends a Matrix message to Google Chat, routing it to
 // create_topic (a brand-new top-level message) or create_message (a reply
 // into an existing topic) depending on msg.ThreadRoot -- see the file doc
-// comment -- with full HTML formatting/mention conversion as of M3 Task 4.
+// comment -- with full HTML formatting/mention conversion as of M3 Task 4
+// and outbound media (m.image/m.file/m.video/m.audio) as of M5 Task 5.
 //
-// Non-text/notice message types are rejected with
-// bridgev2.ErrUnsupportedMessageType, matching handle_matrix_message's final
-// else branch (`raise NotImplementedError(f"Unsupported msgtype
-// {message.msgtype}")`, portal.py:923-924) for every msgtype that is
-// neither TEXT/NOTICE nor is_media -- media sending itself is M5's job, so
-// for now media messages are rejected the same way any other unhandled
-// msgtype is (bridgev2's own checkMessageContentCaps, driven by
-// GetCapabilities' empty File map, already rejects media before this method
-// is ever reached in practice; this check is what actually mirrors Python's
-// msgtype gate for anything that does reach here, e.g. m.emote).
+// Every other message type is rejected with bridgev2.ErrUnsupportedMessageType,
+// matching handle_matrix_message's final else branch (`raise
+// NotImplementedError(f"Unsupported msgtype {message.msgtype}")`,
+// portal.py:923-924) for every msgtype that is neither TEXT/NOTICE nor
+// is_media. In practice, bridgev2's own checkMessageContentCaps (driven by
+// GetCapabilities' File map, capabilities.go) already rejects anything
+// outside image/video/audio/file before this method is ever reached for a
+// media msgtype -- this check is what actually mirrors Python's msgtype
+// gate for the types that DO reach here (e.g. m.emote, m.location).
+//
+// Media branch (M5 Task 5, portal.py:1081-1121's _handle_matrix_media):
+// isOutboundMediaMsgType gates on exactly the four msgtypes
+// capabilities.go's gchatFile map advertises. Config.DisableOutboundMedia
+// short-circuits with errOutboundMediaDisabled before any network I/O --
+// see its own doc comment for why (issue #114). Otherwise
+// buildUploadAnnotation (media.go) downloads the Matrix file (decrypting it
+// if encrypted), uploads it to Google Chat, and returns an
+// UPLOAD_METADATA/RENDER annotation; a failure at either step (the #114
+// upload 500 included) returns a clean, wrapped error here with NO request
+// ever issued -- never a silent drop, and never a text-only fallback that
+// would lose the file. hasOutboundCaption then decides whether msg.Content
+// also carries a genuine caption (as opposed to Body merely repeating the
+// file's own name): only then is msg.Content run through the SAME
+// FromMatrix call a text message uses, so a media message's caption gets
+// the identical formatting/mention treatment as a plain text body. The
+// resulting file and caption annotations are combined via mergeAnnotations
+// below exactly like text-only messages are -- never by outright
+// replacement -- so a formatted caption can never clobber the file
+// annotation (the B4 fix this file has guarded against append-only since M3
+// Task 4, before any real UPLOAD_METADATA annotation existed to lose).
 func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
-	if msg.Content.MsgType != event.MsgText && msg.Content.MsgType != event.MsgNotice {
+	isMedia := isOutboundMediaMsgType(msg.Content.MsgType)
+	if msg.Content.MsgType != event.MsgText && msg.Content.MsgType != event.MsgNotice && !isMedia {
 		return nil, bridgev2.ErrUnsupportedMessageType
 	}
 
@@ -83,21 +126,34 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 		return nil, fmt.Errorf("googlechat: %w", err)
 	}
 
-	resolve := newOutboundMentionResolver(ctx, msg.Portal)
-	text, textAnnotations := c.msgConverter().FromMatrix(ctx, msg.Content, resolve)
-	// mergeAnnotations(nil, textAnnotations): no media/UPLOAD_METADATA
-	// annotation exists yet in M3 (M5's job) -- the nil first argument is
-	// the seam M5 will fill in with the attached file's own annotation.
-	// Wiring it through mergeAnnotations NOW, rather than assigning
-	// textAnnotations directly, is the fix for B4 (docs/research/08d §2.4,
-	// see mergeAnnotations' own doc comment): it keeps this call site
-	// append-only from day one, so M5 cannot reintroduce megabridge's
-	// `annotations = entities` bug by simply setting req.Annotations =
-	// textAnnotations after already having populated it with a file
-	// annotation. Shared by both the create_topic and create_message
-	// branches below, exactly like send_message shares message_info's
-	// construction between them (client.py:441-471).
-	annotations := mergeAnnotations(nil, textAnnotations)
+	var fileAnnotations []*pb.Annotation
+	hasCaption := true
+	if isMedia {
+		if c.Main != nil && c.Main.Config.DisableOutboundMedia {
+			return nil, errOutboundMediaDisabled
+		}
+		ann, err := c.buildUploadAnnotation(ctx, msg, group)
+		if err != nil {
+			return nil, err
+		}
+		fileAnnotations = []*pb.Annotation{ann}
+		hasCaption = hasOutboundCaption(msg.Content)
+	}
+
+	var text string
+	var textAnnotations []*pb.Annotation
+	if hasCaption {
+		resolve := newOutboundMentionResolver(ctx, msg.Portal)
+		text, textAnnotations = c.msgConverter().FromMatrix(ctx, msg.Content, resolve)
+	}
+	// mergeAnnotations combines the media branch's own file annotation (nil
+	// for a text/notice message) with the caption/body text's own
+	// formatting annotations, always by APPENDING rather than replacing --
+	// the fix for B4 (docs/research/08d §2.4, see mergeAnnotations' own doc
+	// comment). Shared by both the create_topic and create_message branches
+	// below, exactly like send_message shares message_info's construction
+	// between them (client.py:441-471).
+	annotations := mergeAnnotations(fileAnnotations, textAnnotations)
 	localID := newLocalID()
 	txnID := networkid.TransactionID(localID)
 
@@ -458,11 +514,11 @@ func newLocalID() string {
 }
 
 // mergeAnnotations combines a message's already-decided annotations
-// (existing -- currently always nil in M3, since there is no media upload
-// path yet; M5 will pass the attached file's own UPLOAD_METADATA annotation
-// here) with the caption/body text's own formatting annotations (text,
-// from matrixfmt.Parse via FromMatrix), always by APPENDING text after
-// existing -- never by replacing existing outright.
+// (existing -- nil for a text/notice message, or a media message's own
+// UPLOAD_METADATA annotation as of M5 Task 5, see HandleMatrixMessage's
+// media branch) with the caption/body text's own formatting annotations
+// (text, from matrixfmt.Parse via FromMatrix), always by APPENDING text
+// after existing -- never by replacing existing outright.
 //
 // This is the fix for B4 (docs/research/08d-megabridge-msgconv.md §2.4):
 // megabridge's handlematrix.go built `annotations = []*proto.Annotation{

@@ -325,6 +325,46 @@ func TestGetCapabilitiesReactionUnrestricted(t *testing.T) {
 	}
 }
 
+// TestGetCapabilitiesFileMediaTypesFullySupported pins M5 Task 5's outbound
+// media capability wiring: without a File map entry for a given msgtype,
+// bridgev2's own checkMessageContentCaps (mautrix-go bridgev2/portal.go)
+// rejects the message with ErrUnsupportedMessageType BEFORE
+// HandleMatrixMessage is ever called -- so this map must advertise exactly
+// the four msgtypes isOutboundMediaMsgType (media.go) accepts, with
+// captions fully supported (the M3 B4 pattern: this bridge keeps both the
+// file and a genuine caption, never drops either).
+func TestGetCapabilitiesFileMediaTypesFullySupported(t *testing.T) {
+	for _, threadsOnly := range []bool{true, false} {
+		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
+		caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+		for _, msgtype := range []event.MessageType{event.MsgImage, event.MsgVideo, event.MsgAudio, event.MsgFile} {
+			feat, ok := caps.File[msgtype]
+			if !ok || feat == nil {
+				t.Fatalf("ThreadsOnly=%v: File[%s] missing, want an entry (otherwise bridgev2 rejects it before HandleMatrixMessage)", threadsOnly, msgtype)
+			}
+			if !feat.Caption.Full() {
+				t.Errorf("ThreadsOnly=%v: File[%s].Caption = %v, want fully supported", threadsOnly, msgtype, feat.Caption)
+			}
+			if lvl := feat.GetMimeSupport("application/octet-stream"); !lvl.Full() {
+				t.Errorf("ThreadsOnly=%v: File[%s] MimeTypes has no */* catch-all (GetMimeSupport = %v)", threadsOnly, msgtype, lvl)
+			}
+		}
+	}
+}
+
+// TestGetCapabilitiesFileDoesNotClaimSticker pins that event.CapMsgSticker
+// is deliberately absent -- see isOutboundMediaMsgType's doc comment
+// (media.go) for why: Google Chat's upload pipeline has no sticker concept,
+// and neither Python nor this bridge's inbound half ever produces one.
+func TestGetCapabilitiesFileDoesNotClaimSticker(t *testing.T) {
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{}))
+
+	if _, ok := caps.File[event.CapMsgSticker]; ok {
+		t.Error("File[CapMsgSticker] is set, want absent (no sticker concept on Google Chat's upload pipeline)")
+	}
+}
+
 func TestGetCapabilitiesFormattingSameAcrossThreadModes(t *testing.T) {
 	flat := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{ThreadsOnly: false}))
 	threaded := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{ThreadsOnly: true}))

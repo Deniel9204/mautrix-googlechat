@@ -26,6 +26,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
+	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
@@ -207,6 +209,32 @@ type GChatClient struct {
 	// state) can be exercised without a live gchatmeow.Client connection --
 	// mirrors markGroupReadstateFn/updateReactionFn above.
 	setTypingStateFn func(ctx context.Context, req *pb.SetTypingStateRequest) (*pb.SetTypingStateResponse, error)
+
+	// uploadFileFn issues the resumable /uploads RPC that handlematrix.go's
+	// HandleMatrixMessage media branch needs to attach a Matrix media
+	// message's file to Google Chat as an UPLOAD_METADATA annotation (M5
+	// Task 5, gchatmeow.Client.UploadFile, Task 2, pkg/gchatmeow/upload.go).
+	// Defaults to conn.UploadFile; overridden in tests so both the
+	// successful-upload -> annotation composition AND the #114
+	// upload-failure -> clean-error path (media.go's buildUploadAnnotation)
+	// can be exercised without a live gchatmeow.Client connection -- mirrors
+	// createTopicFn/createMessageFn above.
+	uploadFileFn func(ctx context.Context, groupID string, data []byte, filename, mimeType string) (*pb.UploadMetadata, error)
+
+	// downloadMediaFn downloads (and, for an encrypted room, decrypts) the
+	// Matrix media an outbound media message references (media.go's
+	// buildUploadAnnotation, M5 Task 5), matching portal.py's
+	// `self.main_intent.download_media` (portal.py:1090,1095) -- decryption
+	// itself is handled internally by bridgev2's own DownloadMedia
+	// (mautrix-go bridgev2/matrix/intent.go's ASIntent.DownloadMedia)
+	// whenever the file argument is non-nil, so this port needs no separate
+	// decrypt_attachment call of its own the way portal.py does
+	// (portal.py:1091-1093). Defaults to msg.Portal.Bridge.Bot.DownloadMedia
+	// (downloadMatrixMedia, below); overridden in tests because
+	// bridgev2.Portal.Bridge is nil for this package's lightweight test
+	// fixtures (spacePortal/dmPortal, handlematrix_test.go) -- mirrors
+	// addPendingToIgnoreFn's own reasoning above.
+	downloadMediaFn func(ctx context.Context, uri id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error)
 
 	// getMessageFn resolves a previously-bridged message row by its network
 	// message id, used by reactionTopicID (handlereaction.go) as a fallback
@@ -698,6 +726,27 @@ func (c *GChatClient) removePending(msg *bridgev2.MatrixMessage, txnID networkid
 		return
 	}
 	msg.RemovePending(txnID)
+}
+
+// downloadMatrixMedia routes through downloadMediaFn when a test has
+// overridden it, and through the real msg.Portal.Bridge.Bot.DownloadMedia
+// otherwise -- mirrors addPendingToIgnore/removePending above. See
+// downloadMediaFn's doc comment for why media.go's buildUploadAnnotation
+// must call this wrapper rather than reaching into msg.Portal.Bridge.Bot
+// directly. msg.Content.File is passed through as-is (nil for an
+// unencrypted room, a populated *event.EncryptedFileInfo for an encrypted
+// one) -- DownloadMedia's own contract is to decrypt in that case, matching
+// portal.py's `if message.file and decrypt_attachment:` branch
+// (portal.py:1089) without this port needing its own decrypt_attachment
+// call (see downloadMediaFn's doc comment).
+func (c *GChatClient) downloadMatrixMedia(ctx context.Context, msg *bridgev2.MatrixMessage) ([]byte, error) {
+	if c.downloadMediaFn != nil {
+		return c.downloadMediaFn(ctx, msg.Content.URL, msg.Content.File)
+	}
+	if msg.Portal == nil || msg.Portal.Bridge == nil || msg.Portal.Bridge.Bot == nil {
+		return nil, fmt.Errorf("googlechat: no matrix intent available to download media")
+	}
+	return msg.Portal.Bridge.Bot.DownloadMedia(ctx, msg.Content.URL, msg.Content.File)
 }
 
 // msgConverter returns this login's msgconv.MessageConverter, falling back

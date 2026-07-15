@@ -84,6 +84,53 @@ var gchatFormatting = event.FormattingFeatureMap{
 	event.FmtUnorderedList:       event.CapLevelFullySupported,
 }
 
+// gchatFileFeatures is shared by every outbound msgtype gchatFile below
+// advertises: Google Chat's /uploads endpoint (gchatmeow.Client.UploadFile,
+// pkg/gchatmeow/upload.go, M5 Task 2) is a single generic file-upload
+// pipeline with no per-msgtype mime allow-list of its own -- Python's
+// _handle_matrix_media (portal.py:1081-1121) uploads whatever bytes/mime a
+// Matrix media event carries unconditionally, with no format restriction
+// either. "*/*": FullySupported mirrors that permissiveness (event
+// .FileFeatures.GetMimeSupport falls back to CapLevelRejected for anything
+// not matched by an explicit entry when the map lacks a "*/*" catch-all, so
+// this entry is required, not merely permissive flavor).
+//
+// Caption: FullySupported -- unlike Python (which drops a Matrix caption
+// entirely, using its text as the UPLOAD file's reported name instead,
+// portal.py:1100) and unlike megabridge's audio arm (event.CapLevelDropped,
+// mautrix-meta style), this port's handlematrix.go media branch keeps BOTH
+// the uploaded file AND a genuine caption's own text+formatting (the M3 B4
+// pattern this task's brief calls out, mergeAnnotations) for every media
+// msgtype uniformly -- there is no Google-Chat-side reason to treat audio
+// differently the way Meta's own Messenger/WhatsApp integration does.
+//
+// No MaxSize/MaxCaptionLength cap is set (both zero -- "unlimited"): neither
+// Python nor this project's protocol research (docs/research) documents any
+// server-side limit Google Chat's own upload endpoint enforces, and adding
+// an invented number here would be pure guesswork.
+var gchatFileFeatures = &event.FileFeatures{
+	MimeTypes: map[string]event.CapabilitySupportLevel{
+		"*/*": event.CapLevelFullySupported,
+	},
+	Caption: event.CapLevelFullySupported,
+}
+
+// gchatFile is this bridge's outbound File capability map (M5 Task 5): the
+// four msgtypes handlematrix.go's HandleMatrixMessage media branch actually
+// accepts (isOutboundMediaMsgType, media.go) -- image/video/audio/file, one
+// for one. Any msgtype missing from this map is rejected by bridgev2 itself
+// (mautrix-go bridgev2/portal.go's checkMessageContentCaps) with
+// ErrUnsupportedMessageType BEFORE HandleMatrixMessage is ever called, so
+// this map and isOutboundMediaMsgType's own switch must be kept in sync --
+// see isOutboundMediaMsgType's doc comment for why event.CapMsgSticker is
+// deliberately absent from both.
+var gchatFile = event.FileFeatureMap{
+	event.MsgImage: gchatFileFeatures,
+	event.MsgVideo: gchatFileFeatures,
+	event.MsgAudio: gchatFileFeatures,
+	event.MsgFile:  gchatFileFeatures,
+}
+
 // gchatCapsFlat is advertised for every portal with no topic-threading
 // concept at all: plain (non-threaded) spaces and DMs (which never have a
 // thread concept in Google Chat). Reply is fully supported; Thread is left
@@ -125,8 +172,20 @@ var gchatFormatting = event.FormattingFeatureMap{
 // mark_typing (client.py:477-497), and events.go's queueTypingStateChanged
 // (this file's sibling) delivers GC's own typing state back to Matrix --
 // both directions are wired (M4 Task 5).
+//
+// File is gchatFile (M5 Task 5): image/video/audio/file all fully
+// supported, with captions kept alongside the file rather than dropped --
+// see gchatFileFeatures/gchatFile's own doc comments above. This is
+// advertised unconditionally, even though Config.DisableOutboundMedia or a
+// live #114 upload failure can still turn a specific send into a clean
+// rejection (handlematrix.go) -- bridgev2's own RoomFeatures has no
+// "conditionally supported" level for that distinction, and it would be
+// wrong to make the CAPABILITY itself config-dependent: the send path is
+// genuinely implemented and correct (M5 Tasks 2/5), independent of whether
+// THIS operator's account happens to be hitting the upstream outage.
 var gchatCapsFlat = &event.RoomFeatures{
 	Formatting:          gchatFormatting,
+	File:                gchatFile,
 	MaxTextLength:       MaxTextLength,
 	Reply:               event.CapLevelFullySupported,
 	Edit:                event.CapLevelFullySupported,
