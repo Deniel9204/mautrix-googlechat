@@ -80,13 +80,33 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 	case *pb.Event_EventBody_GroupViewed:
 		return c.queueGroupViewed(ctx, evt)
 	case *pb.Event_EventBody_GroupUpdated:
-		log.Debug().Msg("googlechat: unhandled GroupUpdated event (M2+)")
+		// Intentionally unhandled, matching Python: room renames and
+		// topic/description changes reach this bridge as a SYSTEM_MESSAGE
+		// with a ROOM_UPDATED annotation on the MessagePosted body instead
+		// (handleMessagePosted -> systemmessage.go's trySystemMessage ->
+		// tryRoomUpdated), never via this dedicated body. See
+		// systemmessage.go's own top-of-file doc comment for why this
+		// standalone GroupUpdatedEvent shape (a bare old/new *Group pair,
+		// with no rename-vs-topic split) cannot substitute for that path,
+		// and why megabridge's attempt to use it instead is a known,
+		// unverified-against-live-traffic defect this bridge does not repeat.
+		log.Debug().Msg("googlechat: unhandled GroupUpdated event (handled via SYSTEM_MESSAGE instead, see systemmessage.go)")
 	case *pb.Event_EventBody_MessagePosted:
 		return c.handleMessagePosted(ctx, evt)
 	case *pb.Event_EventBody_WebPushNotification:
 		log.Debug().Msg("googlechat: unhandled WebPushNotification event (M2+)")
 	case *pb.Event_EventBody_MembershipChanged:
-		log.Debug().Msg("googlechat: unhandled MembershipChanged event (M2+)")
+		// Intentionally unhandled, matching Python: membership changes
+		// (join/invite/leave/kick, the 9 MembershipChangedMetadata types)
+		// reach this bridge as a SYSTEM_MESSAGE with a MEMBERSHIP_CHANGED
+		// annotation on the MessagePosted body instead (handleMessagePosted
+		// -> systemmessage.go's trySystemMessage -> queueMembershipChanged),
+		// never via this dedicated body. See systemmessage.go's own
+		// top-of-file doc comment for why this standalone
+		// MembershipChangedEvent shape (a single member's new/prior state,
+		// no affected-members list or 9-value Type at all) cannot
+		// substitute for that path.
+		log.Debug().Msg("googlechat: unhandled MembershipChanged event (handled via SYSTEM_MESSAGE instead, see systemmessage.go)")
 	case *pb.Event_EventBody_MessageDeleted:
 		return c.queueMessageDeleted(ctx, evt)
 	case *pb.Event_EventBody_MessageReaction:
@@ -136,11 +156,24 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 // below). M4 Task 1 adds the MESSAGE_UPDATED (RemoteEdit) arm
 // (queueMessageEdit, below) -- see queueMessageEdit's own doc comment for the
 // edit-specific extraction/dedup this shares with, and differs from,
-// queueMessagePosted. Returns the handling result so handleGChatEvent can
-// gate the watermark advance on it.
+// queueMessagePosted. M4 Task 6 adds a third possibility for the non-edit
+// path: trySystemMessage (systemmessage.go) recognizes a SYSTEM_MESSAGE
+// (membership change or room rename/topic change) on this same body and
+// queues a ChatInfoChange instead, exactly mirroring
+// handle_googlechat_message's own ordering (portal.py:1362 checks
+// evt.message_type == SYSTEM_MESSAGE only in the non-edit branch;
+// handle_googlechat_edit has no equivalent check at all, since Google Chat
+// never lets a SYSTEM_MESSAGE be edited) -- trySystemMessage's handled=false
+// return (an unrecognized/no-op annotation, or not a SYSTEM_MESSAGE at all)
+// falls through to queueMessagePosted exactly like Python's own fallthrough
+// to ordinary message bridging. Returns the handling result so
+// handleGChatEvent can gate the watermark advance on it.
 func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	if evt.GetType() == pb.Event_MESSAGE_UPDATED {
 		return c.queueMessageEdit(ctx, evt)
+	}
+	if res, handled := c.trySystemMessage(ctx, evt); handled {
+		return res
 	}
 	return c.queueMessagePosted(ctx, evt)
 }
