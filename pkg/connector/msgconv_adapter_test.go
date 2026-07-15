@@ -39,7 +39,7 @@ func TestConvertMessageToMatrix_SetsMentionsFromAnnotations(t *testing.T) {
 		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAnnotation(3, 4, "200")},
 	}
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), portal, nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -70,7 +70,7 @@ func TestConvertMessageToMatrix_NoAnnotationsLeavesMentionsNil(t *testing.T) {
 		CreateTime: proto.Int64(5678),
 	}
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), portal, nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -88,7 +88,7 @@ func TestConvertMessageToMatrix_NilPortalDoesNotPanic(t *testing.T) {
 		TextBody:   proto.String("hi"),
 		CreateTime: proto.Int64(1),
 	}
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	if _, err := convert(context.Background(), nil, nil, msg); err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestConvertMessageToMatrix_MalformedMentionNoPhantomPing(t *testing.T) {
 		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 50, "200")},
 	}
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), ghostPortal(), nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -145,7 +145,7 @@ func TestConvertMessageToMatrix_MentionAllSetsRoom(t *testing.T) {
 		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAllAnnotation(0, 4)},
 	}
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), ghostPortal(), nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -170,7 +170,7 @@ func TestConvertMessageToMatrix_ValidMentionPingsDespiteMalformedFormatAnnotatio
 		},
 	}
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), ghostPortal(), nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -229,7 +229,7 @@ func threadsOnlyPortal() *bridgev2.Portal {
 func TestConvertMessageToMatrix_StampsTopicIDMetadata(t *testing.T) {
 	msg := topicMsg("reply1", "topic1", "a reply")
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), flatPortal(), nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -253,7 +253,7 @@ func TestConvertMessageToMatrix_StampsTopicIDMetadata(t *testing.T) {
 func TestConvertMessageToMatrix_ReplyMessageSetsThreadRootInFlatPortal(t *testing.T) {
 	msg := topicMsg("reply1", "topic1", "a reply")
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), flatPortal(), nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -269,7 +269,7 @@ func TestConvertMessageToMatrix_ReplyMessageSetsThreadRootInFlatPortal(t *testin
 func TestConvertMessageToMatrix_HeadMessageFlatPortalNoThreadRoot(t *testing.T) {
 	msg := topicMsg("topic1", "topic1", "hello")
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), flatPortal(), nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -286,7 +286,7 @@ func TestConvertMessageToMatrix_HeadMessageFlatPortalNoThreadRoot(t *testing.T) 
 func TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot(t *testing.T) {
 	msg := topicMsg("topic1", "topic1", "hello")
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), threadsOnlyPortal(), nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)
@@ -508,7 +508,7 @@ func TestConvertMessageToMatrix_NilPortalMetadataTreatedAsFlat(t *testing.T) {
 	}
 	msg := topicMsg("topic1", "topic1", "hello")
 
-	convert := convertMessageToMatrix(msgconv.New())
+	convert := convertMessageToMatrix(msgconv.New(), nil)
 	cm, err := convert(context.Background(), portal, nil, msg)
 	if err != nil {
 		t.Fatalf("convertMessageToMatrix returned error: %v", err)

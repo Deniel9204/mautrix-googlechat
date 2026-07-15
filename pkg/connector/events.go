@@ -269,7 +269,7 @@ func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bri
 		// set, so Python doesn't drop it either.
 		TransactionID:      networkid.TransactionID(msg.GetLocalId()),
 		Data:               msg,
-		ConvertMessageFunc: convertMessageToMatrix(c.msgConverter()),
+		ConvertMessageFunc: convertMessageToMatrix(c.msgConverter(), c),
 	})
 	log.Debug().
 		Str("gc_message_id", gcMessageID).

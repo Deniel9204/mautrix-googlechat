@@ -97,3 +97,47 @@ func TestLoadUserLoginNilPriorClientIsSafe(t *testing.T) {
 		t.Fatalf("second LoadUserLogin() error = %v", err)
 	}
 }
+
+// TestSetMaxFileSize pins M5 Task 3's bridgev2.MaxFileSizeingNetwork wiring:
+// bridgev2 calls SetMaxFileSize once soon after startup with the
+// homeserver's own configured max upload size (the Go equivalent of
+// portal.py:1534's `self.matrix.media_config.upload_size`), and
+// GChatClient.maxFileSize (media.go) must read back exactly that value.
+func TestSetMaxFileSize(t *testing.T) {
+	gc := &GChatConnector{}
+	gc.SetMaxFileSize(12345)
+	if gc.MaxFileSize != 12345 {
+		t.Errorf("MaxFileSize = %d, want 12345", gc.MaxFileSize)
+	}
+	client := &GChatClient{Main: gc}
+	if got := client.maxFileSize(); got != 12345 {
+		t.Errorf("client.maxFileSize() = %d, want 12345", got)
+	}
+}
+
+// TestMaxFileSizeNilMainFallsBackToZero mirrors msgConverter()'s identical
+// bare-*GChatClient test fallback (client.go): a *GChatClient with no Main
+// (as constructed by many other tests in this package) must not panic, and
+// must report 0 ("no cap", per gchatmeow.DownloadAttachment's own
+// maxSize<=0 contract) rather than some arbitrary default.
+func TestMaxFileSizeNilMainFallsBackToZero(t *testing.T) {
+	client := &GChatClient{}
+	if got := client.maxFileSize(); got != 0 {
+		t.Errorf("client.maxFileSize() = %d, want 0 for a bare *GChatClient", got)
+	}
+}
+
+// TestAttachmentURLAndDownloadAttachmentFailCleanlyWhenNotConnected pins the
+// nil-conn guard in both mediaFetcher methods (media.go): a *GChatClient
+// with no live gchatmeow.Client (e.g. mid-reconnect, or never connected)
+// must return a plain error, not panic -- convertOneAttachment (media.go)
+// then skips that attachment like any other download failure.
+func TestAttachmentURLAndDownloadAttachmentFailCleanlyWhenNotConnected(t *testing.T) {
+	client := &GChatClient{}
+	if _, _, err := client.attachmentURL(nil); err == nil {
+		t.Error("attachmentURL on a disconnected client returned no error, want one")
+	}
+	if _, _, _, err := client.downloadAttachment(context.Background(), "https://chat.google.com/x", 0); err == nil {
+		t.Error("downloadAttachment on a disconnected client returned no error, want one")
+	}
+}

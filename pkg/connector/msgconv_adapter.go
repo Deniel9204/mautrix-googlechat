@@ -58,8 +58,18 @@ import (
 // threads it through gchatfmt.Parse to both render pills and resolve the
 // ParsedMentions gaia ids -- so a single resolver instance drives both
 // within one conversion.
-func convertMessageToMatrix(conv *msgconv.MessageConverter) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
-	return func(ctx context.Context, portal *bridgev2.Portal, _ bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
+//
+// media is M5 Task 3's own seam onto the attachment download+reupload path
+// (media.go's mediaFetcher, see its package doc comment for the full
+// layering rationale): production wiring (events.go) passes the real
+// *GChatClient; every pre-Task-3 test in msgconv_adapter_test.go now passes
+// a bare nil, which convertAttachmentsToMatrix treats as "no attachments to
+// bridge" -- safe, since none of those tests' messages carry an
+// UPLOAD_METADATA annotation. A nil media is intentionally NOT the same as
+// "attachments unsupported": it just means this particular call site (a
+// test, or a future non-Matrix-media consumer) has nothing to fetch with.
+func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
+	return func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
 		resolve := newInboundMentionResolver(portal)
 		threadsOnly := false
 		if portal != nil {
@@ -85,6 +95,21 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter) func(ctx context.Con
 				part.Content.Mentions = cloneMentions(mentions)
 			}
 		}
+
+		// Attachments (M5 Task 3): appended AFTER the text-part stamping
+		// loop above, not folded into it -- an attachment part shares the
+		// same TimestampMicro/TopicID as the text part (both describe the
+		// SAME Google Chat message) but must NOT inherit content.Mentions:
+		// Python's own MediaMessageEventContent (portal.py:1573-1579) never
+		// sets .mentions at all, and cloning the text part's ping onto
+		// every attachment event would double-notify every mentioned user
+		// once per Matrix event instead of once per Google Chat message.
+		attachmentParts := convertAttachmentsToMatrix(ctx, portal, intent, msg, media)
+		for _, part := range attachmentParts {
+			part.DBMetadata = &MessageMetadata{TimestampMicro: ts, TopicID: topicID}
+		}
+		cm.Parts = append(cm.Parts, attachmentParts...)
+
 		return cm, nil
 	}
 }

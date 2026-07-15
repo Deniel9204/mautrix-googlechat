@@ -21,9 +21,30 @@ type GChatConnector struct {
 	// instance is enough for every UserLogin this connector serves, same as
 	// mautrix-meta's MetaConnector.MsgConv (_reference/meta/pkg/connector/connector.go).
 	MsgConv *msgconv.MessageConverter
+
+	// MaxFileSize caps how large an inbound attachment download may be
+	// (media.go's GChatClient.maxFileSize, threaded into
+	// gchatmeow.Client.DownloadAttachment) -- the Go equivalent of Python's
+	// `max_size = self.matrix.media_config.upload_size` (portal.py:1534),
+	// the running homeserver's own configured max upload size. bridgev2
+	// calls SetMaxFileSize below "asynchronously soon after startup"
+	// (bridgev2/networkinterface.go's MaxFileSizeingNetwork doc comment);
+	// until that first call lands, MaxFileSize stays at its zero value,
+	// which gchatmeow.DownloadAttachment's own maxSize<=0 contract already
+	// treats as "no cap" (download.go) -- an intentionally permissive
+	// default for the narrow startup race, not a design requiring a
+	// separate fallback constant (mirrors mautrix-meta's MetaConnector,
+	// _reference/meta/pkg/connector/connector.go, which does the same).
+	MaxFileSize int64
 }
 
 var _ bridgev2.NetworkConnector = (*GChatConnector)(nil)
+var _ bridgev2.MaxFileSizeingNetwork = (*GChatConnector)(nil)
+
+// SetMaxFileSize implements bridgev2.MaxFileSizeingNetwork (M5 Task 3).
+func (gc *GChatConnector) SetMaxFileSize(maxSize int64) {
+	gc.MaxFileSize = maxSize
+}
 
 func (gc *GChatConnector) Init(bridge *bridgev2.Bridge) {
 	gc.Bridge = bridge
