@@ -199,6 +199,15 @@ type GChatClient struct {
 	// above.
 	markGroupReadstateFn func(ctx context.Context, req *pb.MarkGroupReadstateRequest) (*pb.MarkGroupReadstateResponse, error)
 
+	// setTypingStateFn issues the set_typing_state RPC that handletyping.go's
+	// HandleMatrixTyping needs to push a Matrix typing start/stop in a
+	// portal room to Google Chat (M4 Task 5). Defaults to
+	// conn.SetTypingState; overridden in tests so the outbound typing path
+	// (request construction: group/topic context oneof, TYPING vs STOPPED
+	// state) can be exercised without a live gchatmeow.Client connection --
+	// mirrors markGroupReadstateFn/updateReactionFn above.
+	setTypingStateFn func(ctx context.Context, req *pb.SetTypingStateRequest) (*pb.SetTypingStateResponse, error)
+
 	// getMessageFn resolves a previously-bridged message row by its network
 	// message id, used by reactionTopicID (handlereaction.go) as a fallback
 	// when a reaction carries no cached *ReactionMetadata.TopicID -- notably

@@ -37,6 +37,7 @@ package connector
 // OnStreamEvent callback (wireAndStart, client.go) discards it.
 import (
 	"context"
+	"time"
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/variationselector"
@@ -48,6 +49,12 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
+
+// typingTimeout is the Matrix typing timeout sent for an ACTIVE typing
+// notification, porting handle_googlechat_typing's hardcoded
+// `timeout=6000 if status == googlechat.TYPING else 0` (portal.py:1608-1610)
+// -- 6000ms verbatim.
+const typingTimeout = 6 * time.Second
 
 func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	res := c.dispatchGChatEvent(ctx, evt)
@@ -87,7 +94,7 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 	case *pb.Event_EventBody_UserStatusUpdated:
 		log.Debug().Msg("googlechat: unhandled UserStatusUpdated event (M2+)")
 	case *pb.Event_EventBody_TypingStateChanged:
-		log.Debug().Msg("googlechat: unhandled TypingStateChanged event (M2+)")
+		return c.queueTypingStateChanged(ctx, evt)
 	case *pb.Event_EventBody_ReadReceiptChanged:
 		return c.queueReadReceiptChanged(ctx, evt)
 	default:
@@ -663,5 +670,135 @@ func (c *GChatClient) queueGroupViewed(ctx context.Context, evt *pb.Event) bridg
 		Bool("is_dm", group.IsDM).
 		Any("result", res).
 		Msg("googlechat: queued own-user read marker (group_viewed)")
+	return res
+}
+
+// typingContextGroupID extracts the *pb.GroupId a TypingStateChangedEvent's
+// own TypingContext oneof carries -- its direct group_id arm, or (when
+// scoped to a thread) topic_id.group_id, since TopicId embeds the group id
+// alongside the topic id (see handletyping.go's typingContext, which builds
+// the exact same shape outbound). Mirrors typingContextGroupID's own
+// reasoning in reverse: whichever arm is set, the group id inside it is what
+// queueTypingStateChanged (below) needs to resolve the portal.
+func typingContextGroupID(tc *pb.TypingContext) *pb.GroupId {
+	if tc == nil {
+		return nil
+	}
+	if gid := tc.GetGroupId(); gid != nil {
+		return gid
+	}
+	return tc.GetTopicId().GetGroupId()
+}
+
+// queueTypingStateChanged handles the TypingStateChanged event body
+// (EventBody field 26, "typing_state_changed") and queues a
+// bridgev2.RemoteTyping (simplevent.Typing) for it, porting
+// handle_googlechat_typing's own extraction (portal.py:1600-1610):
+//
+//	async def handle_googlechat_typing(self, source: u.User, sender: str, status: int) -> None:
+//	    if not self.mxid:
+//	        return
+//	    puppet = await p.Puppet.get_by_gcid(sender)
+//	    ...
+//	    await puppet.intent_for(self).set_typing(
+//	        self.mxid, timeout=6000 if status == googlechat.TYPING else 0
+//	    )
+//
+// *** THE ROUTING TRAP ***: unlike EVERY OTHER body arm in this file, group
+// comes from the BODY's own TypingContext
+// (evt.GetBody().GetTypingStateChanged().GetContext()), NOT the outer
+// Event's own group_id -- user.py:674-682's on_stream_event:
+//
+//	async def on_stream_event(self, evt: googlechat.Event) -> None:
+//	    group_id = evt.group_id
+//	    if evt.type == googlechat.Event.TYPING_STATE_CHANGED:
+//	        group_id = evt.body.typing_state_changed.context.group_id
+//	    portal = await po.Portal.get_by_group_id(group_id, self.gcid)
+//
+// TYPING_STATE_CHANGED is the ONLY event type Python overrides group_id for;
+// every other body arm in this file (queueMessageDeleted, queueMessageReaction,
+// queueReadReceiptChanged, queueGroupViewed -- see each of their own doc
+// comments) correctly reads evt.GetGroupId(), the outer Event's own field,
+// and must keep doing so. gchatmeow's splitEventBodies (client.go) copies the
+// PARENT frame's own group_id onto every flattened per-body Event uniformly,
+// with no type-specific exception -- so for a genuine typing_state_changed
+// event, evt.GetGroupId() is observed EMPTY on the wire. This is the exact
+// defect docs/research/08b records megabridge as having: typing routed to an
+// empty/garbage portal key because it (wrongly) reads the outer group_id like
+// every other event type instead of the body's own context. This function
+// deliberately does NOT call gchatmeow.GroupIDToParts(evt.GetGroupId()) for
+// exactly that reason -- typingContextGroupID (above) extracts the id from
+// the body's own TypingContext oneof instead, and TestHandleGChatEventTyping
+// StateChangedRoutesViaBodyContextNotOuterGroupID (handletyping_test.go)
+// pins this by asserting the resolved portal key tracks the BODY's group id
+// even when the outer Event.group_id is empty or set to a different value.
+//
+//   - sender: evt.body.typing_state_changed.user_id.id -- the TYPIST's own
+//     gaia id (portal.py:553's `evt.body.typing_state_changed.user_id.id`,
+//     passed as handle_googlechat_typing's `sender` parameter). IsFromMe
+//     decides the double-puppet-vs-ghost intent exactly like every other
+//     inbound event in this file (queueMessagePosted, queueMessageReaction,
+//     queueReadReceiptChanged); Python's own self-typing case is handled
+//     identically via puppet.intent_for(self) (portal.py:1608), gated by an
+//     extra direct-chat membership check (portal.py:1604-1607) this
+//     function relies on the framework's own GetIntentFor to perform.
+//   - Timeout: typingTimeout (6s, this file's own top-of-file doc comment)
+//     when state == TYPING, 0 (immediately stop) for STOPPED or any other/
+//     absent value -- porting Python's `timeout=6000 if status ==
+//     googlechat.TYPING else 0` (portal.py:1608-1610) verbatim. Unlike
+//     queueReadReceiptChanged's idempotent re-delivery, this function is
+//     called for BOTH the start AND the explicit stop -- Python calls
+//     handle_googlechat_typing for every typing_state_changed event
+//     regardless of status, and bridgev2's own framework interprets
+//     Timeout==0 as "stop typing now" (handleRemoteTyping, mautrix-go
+//     bridgev2/portal.go:3827-3846), the same as Python's timeout=0 argument
+//     to Intent.set_typing -- so there is no separate "stop" event kind to
+//     emit, just this same RemoteEventTyping with a zero Timeout.
+//   - Timestamp: evt.body.typing_state_changed.start_timestamp_usec
+//     (TypingStateChangedEvent field 4) converted via gchatmeow.MicrosToTime,
+//     same unit conversion this file already applies to every other inbound
+//     event's timestamp. Python's handle_googlechat_typing has no equivalent
+//     use of this field (it drives no behavior there), but every other
+//     handler in this file sets EventMeta.Timestamp from the event's own
+//     wire timestamp, so this one does too for consistency/log fidelity.
+//
+// Unlike queueMessagePosted, CreatePortal is left false (the zero value): a
+// typing notification for a portal that doesn't exist yet has nothing to
+// attach to, mirroring queueMessageReaction/queueMessageDeleted's identical
+// reasoning.
+func (c *GChatClient) queueTypingStateChanged(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
+	log := zerolog.Ctx(ctx)
+	typing := evt.GetBody().GetTypingStateChanged()
+	id, isDM, groupOK := gchatmeow.GroupIDToParts(typingContextGroupID(typing.GetContext()))
+	if !groupOK {
+		log.Warn().Msg("googlechat: TypingStateChanged event with no usable group id, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+	group := gcid.GroupID{ID: id, IsDM: isDM}
+
+	senderUserID := gcid.MakeUserID(typing.GetUserId().GetId())
+	var timeout time.Duration
+	if typing.GetState() == pb.TypingState_TYPING {
+		timeout = typingTimeout
+	}
+
+	res := c.queueRemoteEvent(&simplevent.Typing{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventTyping,
+			PortalKey: gcid.MakePortalKey(group, c.UserLogin.ID),
+			Sender: bridgev2.EventSender{
+				Sender:   senderUserID,
+				IsFromMe: c.IsThisUser(ctx, senderUserID),
+			},
+			Timestamp: gchatmeow.MicrosToTime(typing.GetStartTimestampUsec()),
+		},
+		Timeout: timeout,
+	})
+	log.Debug().
+		Str("gc_group_id", group.ID).
+		Bool("is_dm", group.IsDM).
+		Str("gc_typing_state", typing.GetState().String()).
+		Any("result", res).
+		Msg("googlechat: queued inbound typing state")
 	return res
 }
