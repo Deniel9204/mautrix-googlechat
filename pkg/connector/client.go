@@ -30,6 +30,7 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
+	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv"
 )
 
 type GChatClient struct {
@@ -113,6 +114,22 @@ type GChatClient struct {
 	// duration so the retry-then-succeed / retry-then-give-up tests run
 	// fast instead of waiting on real wall-clock backoff.
 	syncRetryBackoffBase time.Duration
+
+	// queueRemoteEventFn queues one inbound bridgev2.RemoteEvent built from a
+	// live gchatmeow stream event (events.go's handleGChatEvent, starting
+	// with MESSAGE_POSTED in Task 4; later M2+ event kinds -- edits,
+	// reactions, deletes -- route through the same seam). Defaults to
+	// c.UserLogin.QueueRemoteEvent; overridden in tests that construct a
+	// UserLogin without a full bridgev2.Bridge+DB harness, for the same
+	// reason queueChatResyncFn (sync.go) exists: the real
+	// UserLogin.QueueRemoteEvent dereferences UserLogin.Bridge, which is nil
+	// for this package's lightweight test UserLogins (see newTestUserLogin,
+	// client_test.go). Unlike queueChatResyncFn, this seam is typed on the
+	// generic bridgev2.RemoteEvent interface rather than one concrete
+	// simplevent type, since MESSAGE_POSTED's RemoteMessage is the first of
+	// several distinct event shapes that will end up queued from
+	// handleGChatEvent.
+	queueRemoteEventFn func(evt bridgev2.RemoteEvent) bridgev2.EventHandlingResult
 }
 
 var _ bridgev2.NetworkAPI = (*GChatClient)(nil)
@@ -446,6 +463,32 @@ func (c *GChatClient) LogoutRemote(ctx context.Context) {
 	if err != nil {
 		zerolog.Ctx(ctx).Err(err).Msg("googlechat: failed to clear cookies on logout")
 	}
+}
+
+// queueRemoteEvent queues evt, routing through queueRemoteEventFn when a
+// test has overridden it, and through the real c.UserLogin.QueueRemoteEvent
+// otherwise -- mirrors sync.go's queueChatResync / the save/disconnect seam
+// pattern documented on this type above.
+func (c *GChatClient) queueRemoteEvent(evt bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
+	if c.queueRemoteEventFn != nil {
+		return c.queueRemoteEventFn(evt)
+	}
+	return c.UserLogin.QueueRemoteEvent(evt)
+}
+
+// msgConverter returns this login's msgconv.MessageConverter, falling back
+// to a fresh msgconv.New() when Main is nil (bare *GChatClient test
+// construction -- Main's doc comment above already documents it as "often
+// nil in tests") or Main.MsgConv was never populated. msgconv.MessageConverter
+// holds no per-login state (msgconv.go: "conversion configuration only"), so
+// this fallback is always behaviorally identical to the real
+// GChatConnector.Init-populated one, just without requiring every test to
+// wire Main.MsgConv by hand.
+func (c *GChatClient) msgConverter() *msgconv.MessageConverter {
+	if c.Main != nil && c.Main.MsgConv != nil {
+		return c.Main.MsgConv
+	}
+	return msgconv.New()
 }
 
 // IsThisUser reports whether userID names the same Google account as this

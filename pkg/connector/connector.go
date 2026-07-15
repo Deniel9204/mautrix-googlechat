@@ -7,17 +7,27 @@ import (
 	"go.mau.fi/util/configupgrade"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
+
+	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv"
 )
 
 type GChatConnector struct {
 	Bridge *bridgev2.Bridge
 	Config Config
+	// MsgConv converts Google Chat proto messages into bridgev2's Matrix
+	// event shape (events.go's inbound MESSAGE_POSTED handling, M2 Task 4).
+	// Populated here rather than per-GChatClient: it holds no per-login
+	// state (msgconv.go: "conversion configuration only"), so one shared
+	// instance is enough for every UserLogin this connector serves, same as
+	// mautrix-meta's MetaConnector.MsgConv (_reference/meta/pkg/connector/connector.go).
+	MsgConv *msgconv.MessageConverter
 }
 
 var _ bridgev2.NetworkConnector = (*GChatConnector)(nil)
 
 func (gc *GChatConnector) Init(bridge *bridgev2.Bridge) {
 	gc.Bridge = bridge
+	gc.MsgConv = msgconv.New()
 }
 
 func (gc *GChatConnector) Start(_ context.Context) error {
