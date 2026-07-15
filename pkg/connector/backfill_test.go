@@ -77,23 +77,43 @@ func TestCatchUpSkippedWhileFirstSyncInProgress(t *testing.T) {
 	}
 }
 
-// TestCatchUpPaginatedStatusReplaysAndAdvancesPartialWatermark covers the
-// PAGINATED response branch (not just COMPLETED): the returned page's
-// events are still replayed, and the watermark still advances to whatever
-// was actually seen in that one page -- the remaining backlog beyond this
-// page is safely picked up by the NEXT reconnect's catch-up (or by live
-// traffic advancing the watermark further via advanceRevision), not lost.
-func TestCatchUpPaginatedStatusReplaysAndAdvancesPartialWatermark(t *testing.T) {
+// TestCatchUpDrainsAllPagesInOneInvocation pins the reviewer's Important:
+// catchUp must LOOP on PAGINATED until COMPLETED, draining the FULL backlog
+// in a single invocation rather than one page per reconnect. If it stopped
+// after page 1, a concurrent live event (whose revision is higher than the
+// whole gap) would advance the watermark past the un-drained pages, which
+// would then never be re-requested -> silent message loss. Scripts three
+// pages (PAGINATED, PAGINATED, COMPLETED) and asserts every page's event is
+// dispatched in ONE catchUp call and the watermark ends at the final page's
+// revision. Also asserts each subsequent page's request carries the
+// advanced cursor (the de-facto continuation token), so the drain actually
+// makes forward progress.
+func TestCatchUpDrainsAllPagesInOneInvocation(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
 	login.ID = gcid.MakeUserLoginID("112233")
-	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-1", "98765", "hi", 1)
-	evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(150)}}
+
+	page := func(msgID string, rev int64, status pb.CatchUpResponse_ResponseStatus) *pb.CatchUpResponse {
+		evt := messagePostedEvent(spaceGroupID("space-1"), msgID, "98765", "gap", 1)
+		evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(rev)}}
+		return &pb.CatchUpResponse{Status: status.Enum(), Events: []*pb.Event{evt}}
+	}
+	pages := []*pb.CatchUpResponse{
+		page("msg-1", 200, pb.CatchUpResponse_PAGINATED),
+		page("msg-2", 300, pb.CatchUpResponse_PAGINATED),
+		page("msg-3", 400, pb.CatchUpResponse_COMPLETED),
+	}
+
+	var fromRevisions []int64
 	var queued []bridgev2.RemoteEvent
+	var calls int
 	gc := &GChatClient{
 		UserLogin: login,
-		catchUpUserFn: func(context.Context, *pb.CatchUpUserRequest) (*pb.CatchUpResponse, error) {
-			return &pb.CatchUpResponse{Status: pb.CatchUpResponse_PAGINATED.Enum(), Events: []*pb.Event{evt}}, nil
+		catchUpUserFn: func(_ context.Context, req *pb.CatchUpUserRequest) (*pb.CatchUpResponse, error) {
+			fromRevisions = append(fromRevisions, req.GetRange().GetFromRevisionTimestamp())
+			resp := pages[calls]
+			calls++
+			return resp, nil
 		},
 		queueRemoteEventFn: func(e bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
 			queued = append(queued, e)
@@ -104,11 +124,61 @@ func TestCatchUpPaginatedStatusReplaysAndAdvancesPartialWatermark(t *testing.T) 
 
 	gc.catchUp(context.Background())
 
-	if len(queued) != 1 {
-		t.Fatalf("len(queued) = %d, want 1 (a PAGINATED response's events are still replayed)", len(queued))
+	if calls != 3 {
+		t.Fatalf("catchUpUserFn called %d times, want 3 (drain PAGINATED, PAGINATED, then stop on COMPLETED -- all in ONE catchUp invocation)", calls)
+	}
+	if len(queued) != 3 {
+		t.Fatalf("len(queued) = %d, want 3 (every page's event dispatched, not just the first page)", len(queued))
+	}
+	// Each page's request must carry the previous page's max revision as its
+	// from-cursor: 100 (stored watermark) -> 200 -> 300.
+	wantFrom := []int64{100, 200, 300}
+	for i, want := range wantFrom {
+		if fromRevisions[i] != want {
+			t.Errorf("page %d request FromRevisionTimestamp = %d, want %d (drain must continue from the advanced cursor)", i, fromRevisions[i], want)
+		}
+	}
+	if meta.Revision != 400 {
+		t.Errorf("Metadata.Revision = %d, want 400 (watermark ends at the FINAL drained page's revision)", meta.Revision)
+	}
+}
+
+// TestCatchUpDrainStopsIfCursorDoesNotAdvance pins the anti-infinite-loop
+// guard for the case where a server keeps saying PAGINATED but returns a
+// page whose events do not move the revision cursor forward: re-requesting
+// from the identical from-revision would just return the same page forever,
+// so catchUp stops instead. (The catchUpMaxPages ceiling is the harder
+// backstop for a server that DOES advance the cursor but never says
+// COMPLETED; this covers the stuck-cursor case in a bounded, fast test.)
+func TestCatchUpDrainStopsIfCursorDoesNotAdvance(t *testing.T) {
+	meta := &UserLoginMetadata{Revision: 100}
+	login := newTestUserLogin(meta)
+	login.ID = gcid.MakeUserLoginID("112233")
+	// Every call returns PAGINATED with an event whose revision (150) is
+	// fixed -- so after the first page advances the cursor 100 -> 150, the
+	// second page (still 150) does not advance it, and the drain must stop.
+	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-stuck", "98765", "hi", 1)
+	evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(150)}}
+	var calls int
+	gc := &GChatClient{
+		UserLogin: login,
+		catchUpUserFn: func(context.Context, *pb.CatchUpUserRequest) (*pb.CatchUpResponse, error) {
+			calls++
+			return &pb.CatchUpResponse{Status: pb.CatchUpResponse_PAGINATED.Enum(), Events: []*pb.Event{evt}}, nil
+		},
+		queueRemoteEventFn: func(bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
+			return bridgev2.EventHandlingResultQueued
+		},
+		saveFn: func(context.Context) error { return nil },
+	}
+
+	gc.catchUp(context.Background())
+
+	if calls != 2 {
+		t.Errorf("catchUpUserFn called %d times, want 2 (page 1 advances the cursor, page 2 does not -> stop; must not loop to catchUpMaxPages=%d)", calls, catchUpMaxPages)
 	}
 	if meta.Revision != 150 {
-		t.Errorf("Metadata.Revision = %d, want 150 (advances to what was actually seen in this page)", meta.Revision)
+		t.Errorf("Metadata.Revision = %d, want 150 (advanced to the one revision actually seen before the drain stalled)", meta.Revision)
 	}
 }
 
@@ -434,12 +504,15 @@ func waitUntilSyncNotInProgress(t *testing.T, gc *GChatClient, timeout time.Dura
 	t.Fatal("timed out waiting for syncInProgress to clear")
 }
 
-// --- syncChats: syncInProgress reflects its own running/finished state ----
+// --- syncChats: clears syncInProgress when it finishes -------------------
 
-// TestSyncChatsSetsSyncInProgressForItsDuration pins the gchat-port-auditor
-// P1 fix's other half: syncChats itself must actually toggle the flag
-// catchUp's guard depends on.
-func TestSyncChatsSetsSyncInProgressForItsDuration(t *testing.T) {
+// TestSyncChatsClearsSyncInProgressWhenDone pins syncChats' half of the
+// gchat-port-auditor P1 fix contract: the CALLER (handleConnState) sets the
+// flag true synchronously before spawning syncChats; syncChats must clear it
+// (via defer) once it returns, so catchUp's guard stops deferring after the
+// first sync is really done. (The synchronous-SET-before-goroutine half is
+// pinned separately by TestHandleConnStateSetsSyncInProgressSynchronously.)
+func TestSyncChatsClearsSyncInProgressWhenDone(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var sawInProgress bool
 	var gc *GChatClient
@@ -452,18 +525,46 @@ func TestSyncChatsSetsSyncInProgressForItsDuration(t *testing.T) {
 		},
 	}
 
-	if gc.isSyncInProgress() {
-		t.Fatal("isSyncInProgress() = true before syncChats ever ran")
-	}
+	gc.setSyncInProgress(true) // mirrors handleConnState setting it before the `go`
 
 	gc.syncChats(context.Background())
 
 	if !sawInProgress {
-		t.Error("isSyncInProgress() = false DURING syncChats' own RPC call, want true")
+		t.Error("isSyncInProgress() = false DURING syncChats' own RPC call, want true (caller set it, syncChats must not clear it early)")
 	}
 	if gc.isSyncInProgress() {
-		t.Error("isSyncInProgress() = true after syncChats returned, want false")
+		t.Error("isSyncInProgress() = true after syncChats returned, want false (syncChats must clear it via defer)")
 	}
+}
+
+// TestHandleConnStateSetsSyncInProgressSynchronously proves the flag is set
+// BEFORE the sync goroutine is spawned (not inside it): with the
+// paginated_world RPC blocked, the spawned syncChats goroutine cannot
+// possibly have run its deferred clear, so if isSyncInProgress() is true the
+// instant handleConnState returns, the set must have happened synchronously
+// on handleConnState's own call. Deterministic (no sleep): the block is
+// released only after the assertion.
+func TestHandleConnStateSetsSyncInProgressSynchronously(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	release := make(chan struct{})
+	gc := &GChatClient{
+		UserLogin: login,
+		Main:      &GChatConnector{Config: *newTestConfig(t)},
+		saveFn:    func(context.Context) error { return nil },
+		paginatedWorldFn: func(context.Context, *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
+			<-release // park the sync goroutine so it cannot reach its deferred clear
+			return &pb.PaginatedWorldResponse{}, nil
+		},
+	}
+
+	gc.handleConnState(context.Background(), gchatmeow.ConnStateConnected, nil)
+
+	if !gc.isSyncInProgress() {
+		t.Error("isSyncInProgress() = false right after handleConnState returned (with the sync RPC blocked), want true -- the flag must be set synchronously before the sync goroutine is spawned, not inside it")
+	}
+
+	close(release)
+	waitUntilSyncNotInProgress(t, gc, 2*time.Second)
 }
 
 // --- advanceRevision: every event (not just catch-up replay) moves the ----

@@ -116,16 +116,16 @@ func planChatSync(items []*pb.WorldItemLite, maxSync int) []syncChatItem {
 // bridgev2 maintains m.direct itself from portal state, this bridge never
 // needs to push it directly).
 //
-// Sets syncInProgress for its own duration (client.go) so backfill.go's
-// catchUp -- which can run concurrently with this call if a second
-// Connected transition lands before this one finishes, since
-// shouldSyncOnConnect's latch is consumed synchronously up front, not once
-// this function actually completes -- knows to defer its catch_up_user
-// call rather than race an unfinished first sync (gchat-port-auditor P1
-// finding, M2 Task 7).
+// Clears syncInProgress (client.go) when it finishes, via defer -- the
+// caller (handleConnState) sets it true synchronously BEFORE spawning this
+// goroutine, so backfill.go's catchUp, which can run concurrently if a
+// second Connected transition lands before this one finishes, sees the flag
+// true the instant the first Connected was handled and defers its
+// catch_up_user call rather than racing an unfinished first sync
+// (gchat-port-auditor P1 finding, M2 Task 7). Direct callers in tests must
+// set the flag themselves first to mirror that contract.
 func (c *GChatClient) syncChats(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
-	c.setSyncInProgress(true)
 	defer c.setSyncInProgress(false)
 
 	fetch := c.paginatedWorldFn

@@ -38,11 +38,22 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
+// catchUpMaxPages defensively bounds catchUp's PAGINATED drain loop: a
+// misbehaving (or buggy) server that keeps returning PAGINATED forever must
+// not spin this goroutine indefinitely. 100 pages at the server's default
+// page size is far more than any real reconnect gap M2 needs to recover
+// (a gap that large is M6 full-backfill territory, not "catch up since the
+// last event"); if it is ever hit, catchUp logs and stops rather than
+// looping -- the watermark still advanced page by page (via advanceRevision
+// as each event was dispatched), so the next reconnect simply resumes from
+// wherever the drain got to, no events lost.
+const catchUpMaxPages = 100
+
 // catchUp replays whatever happened on this account between the last
 // successfully processed revision (UserLoginMetadata.Revision) and now, via
-// a single catch_up_user RPC, and dispatches every returned event through
-// the SAME handleGChatEvent path a live stream event takes (events.go) --
-// so M4's later edit/reaction/delete handlers apply to gap-replayed events
+// catch_up_user, and dispatches every returned event through the SAME
+// handleGChatEvent path a live stream event takes (events.go) -- so M4's
+// later edit/reaction/delete handlers apply to gap-replayed events
 // automatically, with no separate backfill-specific event handling to keep
 // in sync, AND so the watermark advance itself (advanceRevision, called
 // from inside handleGChatEvent for every event, live or replayed) applies
@@ -57,28 +68,51 @@ import (
 // checkFakeMessage/message-exists lookup) exactly like a live duplicate
 // would be -- this function does no de-duplication of its own.
 //
+// PAGINATION -- drain ALL pages in this single invocation, do not defer the
+// rest to the next reconnect. CatchUpResponse carries no explicit cursor
+// field (only events/status/group_data); like portal.py's _catchup_backfill
+// (portal.py:455-490), the de-facto cursor IS the request's
+// from_revision_timestamp, and each page advances it to the max revision
+// seen so far. Python re-reads self.revision (which set_revision moved) for
+// the next page; this uses a LOCAL cursor variable instead of re-reading the
+// shared UserLoginMetadata.Revision watermark -- and that difference is
+// load-bearing here in a way it is not in Python. Python's backfill holds a
+// lock and its single asyncio loop means no live event can advance the
+// watermark mid-drain; this bridge's catchUp runs on its own goroutine
+// while LIVE events keep flowing on the conn's supervision goroutine, each
+// advancing the shared watermark (advanceRevision, the P0 fix). A live event
+// with a revision higher than the whole gap would push the shared watermark
+// PAST the un-drained backlog; if the next page re-read that watermark, the
+// remaining pages would never be requested -> silent message loss on large
+// gaps. Anchoring pagination to the local cursor (seeded once from the OLD
+// watermark before any page) keeps the drain requesting the true backlog
+// regardless of concurrent live traffic. Loops while status == PAGINATED,
+// stopping on COMPLETED, and is bounded by catchUpMaxPages so a server that
+// never says COMPLETED cannot spin forever. A PAGINATED page whose events
+// do not advance the cursor also stops the loop (rather than re-requesting
+// the identical page forever).
+//
 // Intended to run on every Connected transition AFTER the first for the
 // current conn (client.go's handleConnState, gated by the SAME
 // shouldSyncOnConnect latch syncChats uses for the first-connect case --
 // see handleConnState's doc comment for why reusing that latch, rather than
 // adding a second one, is both correct and required by this task). Also
 // bails out (no RPC call at all) while this conn's first-ever syncChats is
-// still running: shouldSyncOnConnect's latch is consumed synchronously the
-// instant the FIRST Connected is handled, before its spawned syncChats
-// goroutine has even started, so a second Connected transition landing that
-// quickly would otherwise race an unfinished first sync and call
-// catch_up_user with a meaningless (still probably 0) watermark --
-// gchat-port-auditor P1 finding on this task's initial review. Skipping
-// here is safe: it only means this one reconnect's catch-up opportunity is
-// deferred, not lost -- once the first sync finishes, advanceRevision picks
-// up tracking from the very next live event, same as any other reconnect.
+// still running (isSyncInProgress, set synchronously by handleConnState
+// before spawning syncChats): a second Connected transition landing while
+// the first sync is unfinished would otherwise call catch_up_user with a
+// meaningless (still probably 0) watermark -- gchat-port-auditor P1 finding.
+// Skipping here is safe: it only means this one reconnect's catch-up
+// opportunity is deferred, not lost -- once the first sync finishes,
+// advanceRevision picks up tracking from the very next live event, same as
+// any other reconnect.
 //
-// If catch_up_user itself fails outright, or its response status is
-// anything other than COMPLETED/PAGINATED, this returns before dispatching
-// or persisting anything at all, so UserLoginMetadata.Revision is left
-// completely untouched and the NEXT reconnect retries the exact same
-// window instead of silently skipping it (no gap loss on a transient
-// catch-up failure).
+// If catch_up_user itself fails outright, or a page's response status is
+// anything other than COMPLETED/PAGINATED, this returns without dispatching
+// that page, so UserLoginMetadata.Revision is left wherever the successfully
+// drained pages (if any) already advanced it and the NEXT reconnect retries
+// from there instead of silently skipping the window (no gap loss on a
+// transient catch-up failure).
 func (c *GChatClient) catchUp(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
@@ -98,47 +132,70 @@ func (c *GChatClient) catchUp(ctx context.Context) {
 	}
 
 	fromRevision := c.getRevision()
-	req := &pb.CatchUpUserRequest{
-		Range: &pb.CatchUpRange{
-			FromRevisionTimestamp: proto.Int64(fromRevision),
-			// ToRevisionTimestamp is deliberately left unset: unlike
-			// catch_up_group's portal.py caller (which always knows a
-			// freshly-fetched target revision from the paginated_world
-			// response that triggered it), a reconnect here has no such
-			// upper bound to supply -- an unset optional field asks the
-			// server for everything since fromRevision, i.e. "catch me up
-			// to now".
-		},
-	}
+	cursor := fromRevision
+	totalEvents := 0
+	for page := 0; page < catchUpMaxPages; page++ {
+		req := &pb.CatchUpUserRequest{
+			Range: &pb.CatchUpRange{
+				FromRevisionTimestamp: proto.Int64(cursor),
+				// ToRevisionTimestamp is deliberately left unset: unlike
+				// catch_up_group's portal.py caller (which always knows a
+				// freshly-fetched target revision from the paginated_world
+				// response that triggered it), a reconnect here has no such
+				// upper bound to supply -- an unset optional field asks the
+				// server for everything since cursor, i.e. "catch me up to
+				// now".
+			},
+		}
 
-	resp, err := fetch(ctx, req)
-	if err != nil {
-		log.Err(err).Msg("googlechat: catch_up_user failed, revision watermark left unchanged (retried on next reconnect)")
-		return
-	}
-	if status := resp.GetStatus(); status != pb.CatchUpResponse_COMPLETED && status != pb.CatchUpResponse_PAGINATED {
-		// Mirrors portal.py:474-480's status check for catch_up_group: any
-		// ABORTED_* status means the server could not honor the requested
-		// range at all (cutoff exceeded, cache invalidated, or the
-		// requested from-revision has aged out server-side) -- there is
-		// nothing safe to replay, and nowhere further along to advance the
-		// watermark to.
-		log.Warn().Str("status", status.String()).Msg("googlechat: catch_up_user did not complete, revision watermark left unchanged")
-		return
-	}
+		resp, err := fetch(ctx, req)
+		if err != nil {
+			log.Err(err).Int("page", page).Msg("googlechat: catch_up_user failed, revision watermark left at last drained page (retried on next reconnect)")
+			return
+		}
+		status := resp.GetStatus()
+		if status != pb.CatchUpResponse_COMPLETED && status != pb.CatchUpResponse_PAGINATED {
+			// Mirrors portal.py:474-480's status check for catch_up_group:
+			// any ABORTED_* status means the server could not honor the
+			// requested range at all (cutoff exceeded, cache invalidated, or
+			// the requested from-revision has aged out server-side) -- there
+			// is nothing safe to replay in this page, and nowhere further
+			// along to advance the watermark to.
+			log.Warn().Str("status", status.String()).Int("page", page).Msg("googlechat: catch_up_user did not complete, stopping drain")
+			return
+		}
 
-	eventCount := 0
-	for _, evt := range resp.GetEvents() {
-		for _, flat := range gchatmeow.SplitEventBodies(evt) {
-			eventCount++
-			c.handleGChatEvent(ctx, flat) // advances the watermark itself, per event (see doc comment above)
+		pageStartCursor := cursor
+		for _, evt := range resp.GetEvents() {
+			if r := eventRevision(evt); r > cursor {
+				cursor = r
+			}
+			for _, flat := range gchatmeow.SplitEventBodies(evt) {
+				totalEvents++
+				c.handleGChatEvent(ctx, flat) // advances the shared watermark itself, per event (see doc comment)
+			}
+		}
+
+		if status == pb.CatchUpResponse_COMPLETED {
+			log.Debug().
+				Int("event_count", totalEvents).
+				Int("pages", page+1).
+				Int64("from_revision", fromRevision).
+				Int64("to_revision", cursor).
+				Msg("googlechat: catch_up_user drain complete")
+			return
+		}
+		// status == PAGINATED: more pages remain. If this page's events did
+		// not move the cursor forward, re-requesting from the same
+		// from_revision would just return the identical page -- stop rather
+		// than loop uselessly (defensive; the catchUpMaxPages bound below is
+		// the harder backstop).
+		if cursor <= pageStartCursor {
+			log.Warn().Int("page", page).Int64("cursor", cursor).Msg("googlechat: catch_up_user reported more pages but the revision cursor did not advance, stopping drain")
+			return
 		}
 	}
-	log.Debug().
-		Int("event_count", eventCount).
-		Int64("from_revision", fromRevision).
-		Str("status", resp.GetStatus().String()).
-		Msg("googlechat: catch_up_user replay complete")
+	log.Warn().Int("max_pages", catchUpMaxPages).Int("event_count", totalEvents).Int64("to_revision", cursor).Msg("googlechat: catch_up_user still PAGINATED after max pages, stopping drain (next reconnect resumes from the advanced watermark)")
 }
 
 // advanceRevision persists evt's own user_revision/group_revision timestamp

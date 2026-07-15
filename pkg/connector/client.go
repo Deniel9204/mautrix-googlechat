@@ -59,27 +59,37 @@ type GChatClient struct {
 	// comment for why this gate exists.
 	initialSyncDone bool
 	// syncInProgress is true for the duration of a still-running syncChats
-	// call (sync.go sets/clears it around its own body). shouldSyncOnConnect
-	// consumes the "may sync" latch synchronously, before syncChats' spawned
-	// goroutine (client.go's handleConnState) has even started running, so a
-	// second Connected transition landing in that narrow window would
-	// otherwise take backfill.go's catchUp branch concurrently with an
-	// unfinished first sync -- calling catch_up_user with a meaningless
-	// (still probably zero) UserLoginMetadata.Revision watermark
-	// (gchat-port-auditor P1 finding, M2 Task 7). catchUp checks this flag
-	// and skips its RPC call entirely while it is true, deferring (not
-	// losing) that reconnect's catch-up opportunity: once the first sync
-	// finishes, advanceRevision (backfill.go) picks up tracking from the
-	// very next live event, same as any other reconnect.
+	// call. handleConnState sets it true SYNCHRONOUSLY, before spawning the
+	// syncChats goroutine, and syncChats clears it (via defer) when done --
+	// set before the `go`, not inside the goroutine, because
+	// shouldSyncOnConnect consumes the "may sync" latch synchronously and a
+	// second Connected transition landing in the gap before the goroutine
+	// starts would otherwise observe the flag still false and take
+	// backfill.go's catchUp branch concurrently with an unfinished first
+	// sync -- calling catch_up_user with a meaningless (still probably zero)
+	// UserLoginMetadata.Revision watermark (gchat-port-auditor P1 finding,
+	// M2 Task 7). catchUp checks this flag and skips its RPC call entirely
+	// while it is true, deferring (not losing) that reconnect's catch-up
+	// opportunity: once the first sync finishes, advanceRevision
+	// (backfill.go) picks up tracking from the very next live event, same as
+	// any other reconnect.
 	syncInProgress bool
 
 	// metaMu guards all UserLoginMetadata mutations + the paired Save, and
-	// the loggedOut flag; held across Save (I/O) because metadata writes are
-	// infrequent (connect/logout only), not a hot path. Without this, three
-	// independent, unsynchronized writers -- persistCookies (conn's
-	// OnConnectionState goroutine), LogoutRemote (a bridgev2 goroutine), and
-	// Connect's pre-flight read of meta.Cookies (a third goroutine) -- can
-	// race on the same *UserLoginMetadata, and worse: a Connected callback
+	// the loggedOut flag; held across Save (I/O). Most metadata writes are
+	// infrequent (cookies on connect/logout), but advanceRevision
+	// (backfill.go) also updates the revision watermark here once per
+	// inbound event that carries a revision -- so on a busy account this
+	// lock IS taken on the live event path, at Google Chat's own
+	// event-revision cadence (matching Python's set_revision, called from
+	// on_stream_event for every revisioned event, user.py:674-682; no
+	// regression, just no longer connect/logout-only). Without this lock,
+	// the now-multiple independent, unsynchronized writers -- persistCookies
+	// (conn's OnConnectionState goroutine), LogoutRemote (a bridgev2
+	// goroutine), Connect's pre-flight read of meta.Cookies (a third
+	// goroutine), and advanceRevision (both the live-event and catchUp
+	// goroutines) -- can race on the same *UserLoginMetadata, and worse: a
+	// Connected callback
 	// still in flight when LogoutRemote runs can write live cookies back over
 	// the just-cleared nil, resurrecting a session the user explicitly logged
 	// out of. All metadata access goes through updateMetadata (mutate+save
@@ -481,6 +491,15 @@ func (c *GChatClient) handleConnState(ctx context.Context, state gchatmeow.ConnS
 	if state == gchatmeow.ConnStateConnected {
 		c.persistCookies(ctx)
 		if c.shouldSyncOnConnect() {
+			// Set syncInProgress SYNCHRONOUSLY, before spawning the sync
+			// goroutine (which clears it on completion, via its own defer):
+			// if it were set inside the goroutine instead, a reconnect's
+			// Connected transition landing in the gap between this `go` and
+			// the goroutine actually starting would observe it still false
+			// and race an unfinished first sync (same timing class as the
+			// Connect-cancel window). syncChats' catchUp guard depends on
+			// this flag being true the instant this branch is taken.
+			c.setSyncInProgress(true)
 			go c.syncChats(ctx)
 		} else {
 			go c.catchUp(ctx)
