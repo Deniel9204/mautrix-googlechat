@@ -47,13 +47,25 @@ func createTopicResponse(topicID string, createTimeUsec int64) *pb.CreateTopicRe
 	}
 }
 
+// noopAddPendingToIgnore is the addPendingToIgnoreFn override every
+// HandleMatrixMessage test that doesn't itself assert on the pending
+// registration needs: the real msg.AddPendingToIgnore (Task 6) writes into
+// bridgev2.Portal's unexported outgoingMessages map, which is nil on the
+// bare *bridgev2.Portal built by spacePortal/dmPortal/textMatrixMessage
+// above (only a real bridgev2.Bridge's loadPortal, portal.go, initializes
+// it) -- calling the real method against one would panic (assignment to
+// entry in nil map). See echo_dedup_test.go for the tests that actually
+// exercise this seam.
+func noopAddPendingToIgnore(*bridgev2.MatrixMessage, networkid.TransactionID) {}
+
 // --- HandleMatrixMessage: request construction -----------------------------
 
 func TestHandleMatrixMessageSpacePortalBuildsCreateTopicRequest(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.CreateTopicRequest
 	gc := &GChatClient{
-		UserLogin: login,
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
 		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 			gotReq = req
 			return createTopicResponse("topic1", 1000), nil
@@ -98,7 +110,8 @@ func TestHandleMatrixMessageDMPortalBuildsDmGroupID(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.CreateTopicRequest
 	gc := &GChatClient{
-		UserLogin: login,
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
 		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 			gotReq = req
 			return createTopicResponse("topic2", 2000), nil
@@ -130,7 +143,8 @@ func TestHandleMatrixMessageLocalIDsAreUnique(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var ids []string
 	gc := &GChatClient{
-		UserLogin: login,
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
 		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 			ids = append(ids, req.GetLocalId())
 			return createTopicResponse("t", 1), nil
@@ -157,7 +171,8 @@ func TestHandleMatrixMessageLocalIDsAreUnique(t *testing.T) {
 func TestHandleMatrixMessageMapsResponseToDBMessage(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	gc := &GChatClient{
-		UserLogin: login,
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
 		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 			return createTopicResponse("gc-msg-id-1", 1_700_000_000_000_000), nil
 		},
@@ -219,7 +234,8 @@ func TestHandleMatrixMessageNoticeMsgTypeAccepted(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.CreateTopicRequest
 	gc := &GChatClient{
-		UserLogin: login,
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
 		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 			gotReq = req
 			return createTopicResponse("t", 1), nil
@@ -272,7 +288,8 @@ func TestHandleMatrixMessagePropagatesRPCError(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	wantErr := errors.New("create_topic: boom")
 	gc := &GChatClient{
-		UserLogin: login,
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
 		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 			return nil, wantErr
 		},

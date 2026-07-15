@@ -35,10 +35,16 @@ package connector
 //     self._local_dedup so the later inbound echo of this exact message can
 //     be recognized and dropped before it round-trips back to Matrix as a
 //     duplicate (portal.py:909,931, and the check at portal.py:1341). M2
-//     Task 5 only generates and sends that token (newLocalID, same prefix
-//     and 64-bit random range as Python's random.randint(0,
-//     0xffffffffffffffff)); wiring it into an actual dedup table checked
-//     against the live event stream is Task 6's job.
+//     Task 5 generated and sent that token (newLocalID, same prefix and
+//     64-bit random range as Python's random.randint(0,
+//     0xffffffffffffffff)); Task 6 (below) wires it into bridgev2's own
+//     pending-transaction mechanism (msg.AddPendingToIgnore, via the
+//     addPendingToIgnore/addPendingToIgnoreFn seam, client.go) as the Go
+//     equivalent of self._local_dedup, registered before send() is called,
+//     and matched against the echo's own local_id via
+//     queueMessagePosted's TransactionID field (events.go) --
+//     RemoteMessageWithTransactionID.GetTransactionID(), which bridgev2's
+//     checkPendingMessage (portal.go) compares against the pending table.
 //   - text_body: the plain-text body from msgConverter().FromMatrix
 //     (pkg/msgconv/from-matrix.go), the M2 subset of fmt.matrix_to_googlechat
 //     (portal.py:1059).
@@ -80,6 +86,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
@@ -120,15 +127,25 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 	}
 
 	text := c.msgConverter().FromMatrix(ctx, msg.Content)
+	localID := newLocalID()
+	txnID := networkid.TransactionID(localID)
 	req := &pb.CreateTopicRequest{
 		GroupId:   gchatmeow.PartsToGroupID(group.ID, group.IsDM),
-		LocalId:   proto.String(newLocalID()),
+		LocalId:   proto.String(localID),
 		TextBody:  proto.String(text),
 		HistoryV2: proto.Bool(true),
 		MessageInfo: &pb.MessageInfo{
 			AcceptFormatAnnotations: proto.Bool(true),
 		},
 	}
+
+	// Register localID as a pending-to-ignore transaction BEFORE issuing the
+	// RPC -- see addPendingToIgnoreFn's doc comment (client.go) for why the
+	// ordering matters (Task 6: closes the race window the megabridge port
+	// left open, docs/research/08b row 61). If the echo somehow reaches
+	// queueMessagePosted (events.go) before send() below even returns, it is
+	// already covered.
+	c.addPendingToIgnore(msg, txnID)
 
 	resp, err := send(ctx, req)
 	if err != nil {
@@ -146,6 +163,16 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 			Timestamp: gchatmeow.MicrosToTime(createTimeUsec),
 			Metadata:  &MessageMetadata{TimestampMicro: createTimeUsec},
 		},
+		// RemovePending mirrors portal.py:931's
+		// `self._local_dedup.remove(local_id)` on the success path: once this
+		// response is saved, the pending entry registered above is no longer
+		// needed. Left unset on the error return above -- like Python, which
+		// never reaches the remove() call when _handle_matrix_text raises
+		// (portal.py:925-931's except branch), a failed send leaves its
+		// local_id registered for the rest of the process lifetime rather
+		// than being cleaned up (see echo_dedup_test.go's
+		// TestHandleMatrixMessageFailureLeavesPendingRegistered).
+		RemovePending: txnID,
 	}, nil
 }
 

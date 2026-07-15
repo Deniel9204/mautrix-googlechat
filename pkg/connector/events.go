@@ -20,6 +20,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
@@ -150,7 +151,21 @@ func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) {
 			},
 			Timestamp: gchatmeow.MicrosToTime(msg.GetCreateTime()),
 		},
-		ID:                 gcid.MakeMessageID(gcMessageID),
+		ID: gcid.MakeMessageID(gcMessageID),
+		// TransactionID is Task 6's own-echo dedup half: msg.GetLocalId()
+		// (Message.LocalId, proto field 14) carries back whatever local_id
+		// the ORIGINAL send (if any) put on the wire in CreateTopicRequest
+		// (handlematrix.go). Empty for any message this login didn't just
+		// send itself (proto default when the field is absent -- another
+		// user's message, or the same account's own message from a
+		// different, non-bridged client/device), which is exactly what
+		// bridgev2.Portal.checkPendingMessage (portal.go) needs: it treats
+		// an empty transaction id as "not a pending echo" and bridges the
+		// message normally, matching portal.py:1341's
+		// `if evt.local_id in self._local_dedup` -- an empty/foreign
+		// local_id is simply absent from (or never equal to a key in) that
+		// set, so Python doesn't drop it either.
+		TransactionID:      networkid.TransactionID(msg.GetLocalId()),
 		Data:               msg,
 		ConvertMessageFunc: convertMessageToMatrix(c.msgConverter()),
 	})

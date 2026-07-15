@@ -123,6 +123,24 @@ type GChatClient struct {
 	// paginatedWorldFn above (sync.go).
 	createTopicFn func(ctx context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error)
 
+	// addPendingToIgnoreFn registers a send's local_id as a pending-to-ignore
+	// transaction on msg.Portal (handlematrix.go's HandleMatrixMessage, Task
+	// 6's echo-dedup mechanism), BEFORE the create_topic RPC is issued --
+	// matching portal.py's `self._local_dedup.add(local_id)` happening before
+	// dispatch (portal.py:908-909), not after the RPC returns (the
+	// megabridge defect this ports around, docs/research/08b row 61: its
+	// AddPendingToIgnore call only fires once the RPC response is in hand,
+	// leaving a race window where a fast echo on the event stream arrives
+	// before the pending entry exists). Defaults to msg.AddPendingToIgnore;
+	// overridden in tests because bridgev2.Portal.outgoingMessages is a
+	// private field only initialized by a real bridgev2.Bridge's loadPortal
+	// (portal.go) -- the lightweight spacePortal/dmPortal test fixtures
+	// (handlematrix_test.go) construct a bare *bridgev2.Portal with that map
+	// left nil, so calling the real method against one would panic
+	// (assignment to entry in nil map). Mirrors every other *Fn seam on this
+	// type (createTopicFn above, etc.).
+	addPendingToIgnoreFn func(msg *bridgev2.MatrixMessage, txnID networkid.TransactionID)
+
 	// queueRemoteEventFn queues one inbound bridgev2.RemoteEvent built from a
 	// live gchatmeow stream event (events.go's handleGChatEvent, starting
 	// with MESSAGE_POSTED in Task 4; later M2+ event kinds -- edits,
@@ -482,6 +500,19 @@ func (c *GChatClient) queueRemoteEvent(evt bridgev2.RemoteEvent) bridgev2.EventH
 		return c.queueRemoteEventFn(evt)
 	}
 	return c.UserLogin.QueueRemoteEvent(evt)
+}
+
+// addPendingToIgnore routes through addPendingToIgnoreFn when a test has
+// overridden it, and through the real msg.AddPendingToIgnore otherwise --
+// mirrors queueRemoteEvent/save/disconnect above. See addPendingToIgnoreFn's
+// doc comment for why HandleMatrixMessage (handlematrix.go) must call this
+// wrapper rather than msg.AddPendingToIgnore directly.
+func (c *GChatClient) addPendingToIgnore(msg *bridgev2.MatrixMessage, txnID networkid.TransactionID) {
+	if c.addPendingToIgnoreFn != nil {
+		c.addPendingToIgnoreFn(msg, txnID)
+		return
+	}
+	msg.AddPendingToIgnore(txnID)
 }
 
 // msgConverter returns this login's msgconv.MessageConverter, falling back
