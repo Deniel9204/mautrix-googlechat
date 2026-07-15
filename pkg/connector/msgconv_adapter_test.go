@@ -183,3 +183,133 @@ func TestConvertMessageToMatrix_ValidMentionPingsDespiteMalformedFormatAnnotatio
 		t.Errorf("content.Mentions = %+v, want to still include @200_ghost:example.com", part.Content.Mentions)
 	}
 }
+
+// --- ThreadRoot / topic_id stamping (M3 Task 6) -----------------------------
+
+// topicMsg builds a *pb.Message carrying an Id/ParentId.TopicId, mirroring
+// pkg/msgconv/from-gchat_test.go's topicMessage helper (kept separate since
+// that one lives in msgconv_test and is unexported).
+func topicMsg(messageID, topicID, text string) *pb.Message {
+	msg := &pb.Message{
+		TextBody:   proto.String(text),
+		CreateTime: proto.Int64(1),
+		Id:         &pb.MessageId{MessageId: proto.String(messageID)},
+	}
+	if topicID != "" {
+		msg.Id.ParentId = &pb.MessageParentId{
+			Parent: &pb.MessageParentId_TopicId{
+				TopicId: &pb.TopicId{TopicId: proto.String(topicID)},
+			},
+		}
+	}
+	return msg
+}
+
+func flatPortal() *bridgev2.Portal {
+	return &bridgev2.Portal{
+		Portal: &database.Portal{Metadata: &PortalMetadata{}},
+		Bridge: &bridgev2.Bridge{Matrix: &fakeMatrixConnector{}},
+	}
+}
+
+func threadsOnlyPortal() *bridgev2.Portal {
+	return &bridgev2.Portal{
+		Portal: &database.Portal{Metadata: &PortalMetadata{ThreadsOnly: true}},
+		Bridge: &bridgev2.Bridge{Matrix: &fakeMatrixConnector{}},
+	}
+}
+
+// TestConvertMessageToMatrix_StampsTopicIDMetadata pins the STORE half of
+// the task: MessageMetadata.TopicID must be stamped from
+// msg.id.parent_id.topic_id.topic_id on every converted part, regardless of
+// whether this particular message ends up with a ThreadRoot set.
+func TestConvertMessageToMatrix_StampsTopicIDMetadata(t *testing.T) {
+	msg := topicMsg("reply1", "topic1", "a reply")
+
+	convert := convertMessageToMatrix(msgconv.New())
+	cm, err := convert(context.Background(), flatPortal(), nil, msg)
+	if err != nil {
+		t.Fatalf("convertMessageToMatrix returned error: %v", err)
+	}
+	if len(cm.Parts) != 1 {
+		t.Fatalf("len(cm.Parts) = %d, want 1", len(cm.Parts))
+	}
+	meta, ok := cm.Parts[0].DBMetadata.(*MessageMetadata)
+	if !ok {
+		t.Fatalf("DBMetadata type = %T, want *MessageMetadata", cm.Parts[0].DBMetadata)
+	}
+	if meta.TopicID != "topic1" {
+		t.Errorf("Metadata.TopicID = %q, want %q", meta.TopicID, "topic1")
+	}
+}
+
+// TestConvertMessageToMatrix_ReplyMessageSetsThreadRootInFlatPortal: a
+// genuine reply (message_id != topic_id) must get ThreadRoot set even in a
+// non-threads-only portal -- the "message_id != topic_id" rule is
+// unconditional (see ToMatrix's own doc comment, pkg/msgconv/from-gchat.go).
+func TestConvertMessageToMatrix_ReplyMessageSetsThreadRootInFlatPortal(t *testing.T) {
+	msg := topicMsg("reply1", "topic1", "a reply")
+
+	convert := convertMessageToMatrix(msgconv.New())
+	cm, err := convert(context.Background(), flatPortal(), nil, msg)
+	if err != nil {
+		t.Fatalf("convertMessageToMatrix returned error: %v", err)
+	}
+	if cm.ThreadRoot == nil || string(*cm.ThreadRoot) != "topic1" {
+		t.Errorf("ThreadRoot = %v, want %q", cm.ThreadRoot, "topic1")
+	}
+}
+
+// TestConvertMessageToMatrix_HeadMessageFlatPortalNoThreadRoot: the head of
+// a brand new topic (message_id == topic_id) in a non-threads-only portal
+// must NOT get a self-referencing ThreadRoot.
+func TestConvertMessageToMatrix_HeadMessageFlatPortalNoThreadRoot(t *testing.T) {
+	msg := topicMsg("topic1", "topic1", "hello")
+
+	convert := convertMessageToMatrix(msgconv.New())
+	cm, err := convert(context.Background(), flatPortal(), nil, msg)
+	if err != nil {
+		t.Fatalf("convertMessageToMatrix returned error: %v", err)
+	}
+	if cm.ThreadRoot != nil {
+		t.Errorf("ThreadRoot = %v, want nil for a head message in a flat portal", *cm.ThreadRoot)
+	}
+}
+
+// TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot: the
+// same head message in a PortalMetadata.ThreadsOnly portal DOES get a
+// self-referencing ThreadRoot, so a later Matrix reply to it auto-converts
+// into a Google Chat thread (bridgev2 portal.go:1259-1268).
+func TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot(t *testing.T) {
+	msg := topicMsg("topic1", "topic1", "hello")
+
+	convert := convertMessageToMatrix(msgconv.New())
+	cm, err := convert(context.Background(), threadsOnlyPortal(), nil, msg)
+	if err != nil {
+		t.Fatalf("convertMessageToMatrix returned error: %v", err)
+	}
+	if cm.ThreadRoot == nil || string(*cm.ThreadRoot) != "topic1" {
+		t.Errorf("ThreadRoot = %v, want self-reference %q in a threads-only portal", cm.ThreadRoot, "topic1")
+	}
+}
+
+// TestConvertMessageToMatrix_NilPortalMetadataTreatedAsFlat: a portal whose
+// Metadata isn't yet a *PortalMetadata (e.g. a brand new portal before its
+// first chat_info sync) must be treated as flat/non-threads-only, matching
+// roomFeatures' own nil-safe default (capabilities.go).
+func TestConvertMessageToMatrix_NilPortalMetadataTreatedAsFlat(t *testing.T) {
+	portal := &bridgev2.Portal{
+		Portal: &database.Portal{},
+		Bridge: &bridgev2.Bridge{Matrix: &fakeMatrixConnector{}},
+	}
+	msg := topicMsg("topic1", "topic1", "hello")
+
+	convert := convertMessageToMatrix(msgconv.New())
+	cm, err := convert(context.Background(), portal, nil, msg)
+	if err != nil {
+		t.Fatalf("convertMessageToMatrix returned error: %v", err)
+	}
+	if cm.ThreadRoot != nil {
+		t.Errorf("ThreadRoot = %v, want nil when PortalMetadata is absent", *cm.ThreadRoot)
+	}
+}

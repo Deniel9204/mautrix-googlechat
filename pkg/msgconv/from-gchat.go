@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
@@ -66,10 +67,58 @@ import (
 // (MessageMetadata) already lives; msgconv stays a pure data-in/data-out
 // converter. An empty ParsedMentions is returned for the empty-text
 // early-return path, since a message with no text part pings no one.
-func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, mention gchatfmt.MentionResolver) (*bridgev2.ConvertedMessage, gchatfmt.ParsedMentions) {
+//
+// ThreadRoot (M3 Task 6), ported from handle_googlechat_message's parent_id
+// extraction (portal.py:1379, `parent_id = evt.id.parent_id.topic_id.topic_id`)
+// plus the head-vs-reply distinction inherent to Google Chat's topic model:
+// message_id == topic_id for the head/root message of a topic (self-
+// referencing on the wire), and != for every reply posted into an existing
+// one (maugclib/client.py's create_message always targets an EXISTING
+// topic id, never the new message's own id -- see send_message,
+// client.py:441-458). Two cases set cm.ThreadRoot to msg's topic id (as a
+// networkid.MessageID):
+//
+//   - message_id != topic_id (a genuine reply into an existing topic):
+//     UNCONDITIONALLY, in every room -- matching Python's unconditional
+//     `if parent_id:` gate (portal.py:1380), which is not conditioned on
+//     self.threads_only at all.
+//   - message_id == topic_id (the head/root message of a brand new topic):
+//     ONLY when threadsOnly is true -- matching Python's
+//     `if thread_parent or self.threads_only:` self-reference
+//     (_append_event_id, portal.py:1406-1409). A flat/legacy room's head
+//     message gets no ThreadRoot at all.
+//
+// threadsOnly is accepted as a plain bool (not a *bridgev2.Portal) to keep
+// msgconv portal-ignorant (msgconv.go's package doc); the connector adapter
+// (msgconv_adapter.go) reads PortalMetadata.ThreadsOnly and passes it
+// through, mirroring how the mention resolver is threaded in as a plain
+// function value rather than a portal object.
+//
+// A self-referencing ThreadRoot (equal to msg's own message id) is exactly
+// what bridgev2 itself expects for "this message is the head of its own
+// thread": mautrix-go bridgev2/portal.go's getRelationMeta checks
+// `currentMsg.ThreadRoot != nil && *currentMsg.ThreadRoot != currentMsgID`
+// -- it skips the thread-root DB lookup for the self-reference case but
+// still stores it on the message's DB row, so a LATER Matrix reply to this
+// head message resolves back to it via GetFirstThreadMessage (the
+// reply -> thread auto-conversion the task brief calls out,
+// bridgev2/portal.go:1259-1268).
+//
+// Computed BEFORE the empty-text_body early return below (not after), so a
+// future (M5) attachment-only message in a thread still carries the right
+// ThreadRoot even though it has zero text parts today.
+func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, threadsOnly bool, mention gchatfmt.MentionResolver) (*bridgev2.ConvertedMessage, gchatfmt.ParsedMentions) {
 	cm := &bridgev2.ConvertedMessage{
 		Parts: make([]*bridgev2.ConvertedMessagePart, 0, 1),
 	}
+
+	topicID := msg.GetId().GetParentId().GetTopicId().GetTopicId()
+	messageID := msg.GetId().GetMessageId()
+	if topicID != "" && (topicID != messageID || threadsOnly) {
+		threadRoot := networkid.MessageID(topicID)
+		cm.ThreadRoot = &threadRoot
+	}
+
 	text := msg.GetTextBody()
 	if text == "" {
 		return cm, gchatfmt.ParsedMentions{}

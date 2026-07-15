@@ -49,6 +49,30 @@ func createTopicResponse(topicID string, createTimeUsec int64) *pb.CreateTopicRe
 	}
 }
 
+func createMessageResponse(messageID string, createTime int64) *pb.CreateMessageResponse {
+	return &pb.CreateMessageResponse{
+		Message: &pb.Message{
+			Id:         &pb.MessageId{MessageId: proto.String(messageID)},
+			CreateTime: proto.Int64(createTime),
+		},
+	}
+}
+
+// threadedMatrixMessage builds a *bridgev2.MatrixMessage whose ThreadRoot is
+// pre-resolved (bridgev2's own job, mautrix-go bridgev2/portal.go:1233-1296 --
+// not this connector's) to a *database.Message with the given root id and
+// stored MessageMetadata.TopicID, matching what a genuine Matrix thread
+// reply (or, in a threads-only room, bridgev2's reply -> thread
+// auto-conversion) hands HandleMatrixMessage.
+func threadedMatrixMessage(portal *bridgev2.Portal, body, rootID, rootTopicID string) *bridgev2.MatrixMessage {
+	msg := textMatrixMessage(portal, body)
+	msg.ThreadRoot = &database.Message{
+		ID:       gcid.MakeMessageID(rootID),
+		Metadata: &MessageMetadata{TopicID: rootTopicID},
+	}
+	return msg
+}
+
 // noopAddPendingToIgnore is the addPendingToIgnoreFn override every
 // HandleMatrixMessage test that doesn't itself assert on the pending
 // registration needs: the real msg.AddPendingToIgnore (Task 6) writes into
@@ -204,6 +228,13 @@ func TestHandleMatrixMessageMapsResponseToDBMessage(t *testing.T) {
 	}
 	if meta.TimestampMicro != 1_700_000_000_000_000 {
 		t.Errorf("Metadata.TimestampMicro = %d, want %d", meta.TimestampMicro, 1_700_000_000_000_000)
+	}
+	// M3 Task 6: a create_topic response's own topic id is the new message's
+	// own id (message_id == topic_id for the head of a brand new topic) --
+	// stored so a later Matrix thread reply targeting THIS message can be
+	// routed to create_message with the right parent_id.topic_id.
+	if meta.TopicID != "gc-msg-id-1" {
+		t.Errorf("Metadata.TopicID = %q, want %q (message_id == topic_id for a new topic's head)", meta.TopicID, "gc-msg-id-1")
 	}
 }
 
@@ -499,5 +530,328 @@ func TestMergeAnnotations_NoExistingReturnsTextUnchanged(t *testing.T) {
 func TestMergeAnnotations_BothNilReturnsNil(t *testing.T) {
 	if got := mergeAnnotations(nil, nil); got != nil {
 		t.Errorf("mergeAnnotations(nil, nil) = %v, want nil (plain-body outbound -> no annotations)", got)
+	}
+}
+
+// --- HandleMatrixMessage: thread routing (M3 Task 6) ------------------------
+//
+// Ports handle_matrix_message's thread_id computation (portal.py:891-907)
+// restricted to the ThreadRoot half bridgev2 hands this connector directly
+// (bridgev2 has already resolved a Matrix thread reply -- or, in a
+// threads-only room, auto-converted a plain reply into one, mautrix-go
+// bridgev2/portal.go:1259-1268 -- into MatrixMessage.ThreadRoot, a
+// pre-fetched *database.Message, before HandleMatrixMessage is ever called):
+// msg.ThreadRoot != nil routes to create_message with parent_id.topic_id
+// set to the root's own stored topic id (client.py's send_message,
+// `if thread_id: CreateMessageRequest(...)`, client.py:441-458); msg.ThreadRoot
+// == nil keeps the existing create_topic path (client.py's else branch).
+
+// threadCreateTopicResponse and threadCreateMessageResponse below are used
+// together in several tests to assert exactly one of the two RPCs fires.
+
+func TestHandleMatrixMessageThreadRootRoutesToCreateMessage(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.CreateMessageRequest
+	topicCalled := false
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			topicCalled = true
+			return createTopicResponse("wrong-path", 1), nil
+		},
+		createMessageFn: func(_ context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			gotReq = req
+			return createMessageResponse("reply-msg-1", 2000), nil
+		},
+	}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "a reply", "topic1", "topic1")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if topicCalled {
+		t.Error("createTopicFn was called for a threaded message, want createMessageFn only")
+	}
+	if gotReq == nil {
+		t.Fatal("createMessageFn was not called")
+	}
+	if got := gotReq.GetParentId().GetTopicId().GetTopicId(); got != "topic1" {
+		t.Errorf("ParentId.TopicId.TopicId = %q, want %q (the thread root's stored topic id)", got, "topic1")
+	}
+	if got := gotReq.GetParentId().GetTopicId().GetGroupId().GetSpaceId().GetSpaceId(); got != "space1" {
+		t.Errorf("ParentId.TopicId.GroupId.SpaceId = %q, want %q", got, "space1")
+	}
+	if got := gotReq.GetTextBody(); got != "a reply" {
+		t.Errorf("TextBody = %q, want %q", got, "a reply")
+	}
+	if !gotReq.GetMessageInfo().GetAcceptFormatAnnotations() {
+		t.Error("MessageInfo.AcceptFormatAnnotations = false, want true (client.py:453-456)")
+	}
+	if gotReq.GetLocalId() == "" {
+		t.Error("LocalId is empty, want a generated dedup token")
+	}
+}
+
+// TestHandleMatrixMessageThreadedDMPortalBuildsDmGroupID covers the DM half
+// of "cover DM/space/threaded-space": a threaded reply in a DM portal must
+// still build a dm_id GroupId inside ParentId.TopicId.GroupId (Google Chat
+// DMs never actually have UI-visible threads, but the wire shape is
+// identical -- this just proves the DM/space branch in group id
+// construction isn't skipped on the create_message path).
+func TestHandleMatrixMessageThreadedDMPortalBuildsDmGroupID(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.CreateMessageRequest
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createMessageFn: func(_ context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			gotReq = req
+			return createMessageResponse("reply-msg-2", 3000), nil
+		},
+	}
+
+	msg := threadedMatrixMessage(dmPortal("dm1"), "hi", "topic1", "topic1")
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if got := gotReq.GetParentId().GetTopicId().GetGroupId().GetDmId().GetDmId(); got != "dm1" {
+		t.Errorf("ParentId.TopicId.GroupId.DmId = %q, want %q", got, "dm1")
+	}
+	if gotReq.GetParentId().GetTopicId().GetGroupId().GetSpaceId() != nil {
+		t.Error("ParentId.TopicId.GroupId.SpaceId is set for a DM portal, want unset")
+	}
+}
+
+// TestHandleMatrixMessageNoThreadRootRoutesToCreateTopic is the converse of
+// the above: a message with no ThreadRoot (msg.ThreadRoot == nil, the
+// default bridgev2 hands a non-thread-reply Matrix message) must go through
+// create_topic and never touch createMessageFn at all.
+func TestHandleMatrixMessageNoThreadRootRoutesToCreateTopic(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	messageCalled := false
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			return createTopicResponse("topic1", 1000), nil
+		},
+		createMessageFn: func(context.Context, *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			messageCalled = true
+			return createMessageResponse("wrong-path", 1), nil
+		},
+	}
+
+	_, err := gc.HandleMatrixMessage(context.Background(), textMatrixMessage(spacePortal("space1"), "hello"))
+	if err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if messageCalled {
+		t.Error("createMessageFn was called for a non-threaded message, want createTopicFn only")
+	}
+}
+
+// TestHandleMatrixMessageThreadRootFallsBackToRootIDWhenTopicIDMissing pins
+// Python's own fallback (portal.py:895, `thread_id = thread_parent.gc_parent_id
+// or thread_parent.gcid`): if the thread root message's own stored
+// MessageMetadata.TopicID is empty (e.g. a legacy DB row from before this
+// task, or a metadata type mismatch), route using the root message's own id
+// instead -- which is correct anyway, since message_id == topic_id for any
+// head message.
+func TestHandleMatrixMessageThreadRootFallsBackToRootIDWhenTopicIDMissing(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.CreateMessageRequest
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createMessageFn: func(_ context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			gotReq = req
+			return createMessageResponse("reply-msg-3", 4000), nil
+		},
+	}
+
+	msg := textMatrixMessage(spacePortal("space1"), "a reply")
+	msg.ThreadRoot = &database.Message{ID: gcid.MakeMessageID("headmsg1")} // no Metadata at all
+
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if got := gotReq.GetParentId().GetTopicId().GetTopicId(); got != "headmsg1" {
+		t.Errorf("ParentId.TopicId.TopicId = %q, want %q (fallback to the root's own message id)", got, "headmsg1")
+	}
+}
+
+// TestHandleMatrixMessageThreadedMapsResponseToDBMessage: _get_send_response's
+// CreateMessageResponse arm (portal.py:1049): gcid=resp.message.id.message_id,
+// timestamp=resp.message.create_time -- note this is the NEW reply's own
+// message id, never the topic id it was posted into.
+func TestHandleMatrixMessageThreadedMapsResponseToDBMessage(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createMessageFn: func(context.Context, *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			return createMessageResponse("reply-msg-4", 1_700_000_000_000_000), nil
+		},
+	}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "a reply", "topic1", "topic1")
+	resp, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if resp == nil || resp.DB == nil {
+		t.Fatal("HandleMatrixMessage() response/DB is nil")
+	}
+	if resp.DB.ID != gcid.MakeMessageID("reply-msg-4") {
+		t.Errorf("DB.ID = %q, want %q (the reply's own message id, not the topic id)", resp.DB.ID, gcid.MakeMessageID("reply-msg-4"))
+	}
+	if resp.DB.SenderID != gcid.MakeUserID("112233") {
+		t.Errorf("DB.SenderID = %q, want own user id %q", resp.DB.SenderID, gcid.MakeUserID("112233"))
+	}
+	wantTS := time.UnixMicro(1_700_000_000_000_000).UTC()
+	if !resp.DB.Timestamp.Equal(wantTS) {
+		t.Errorf("DB.Timestamp = %v, want %v", resp.DB.Timestamp, wantTS)
+	}
+	meta, ok := resp.DB.Metadata.(*MessageMetadata)
+	if !ok {
+		t.Fatalf("DB.Metadata type = %T, want *MessageMetadata", resp.DB.Metadata)
+	}
+	if meta.TimestampMicro != 1_700_000_000_000_000 {
+		t.Errorf("Metadata.TimestampMicro = %d, want %d", meta.TimestampMicro, 1_700_000_000_000_000)
+	}
+	if meta.TopicID != "topic1" {
+		t.Errorf("Metadata.TopicID = %q, want %q (the topic this reply was posted into)", meta.TopicID, "topic1")
+	}
+}
+
+// TestHandleMatrixMessageThreadedNoConnNoSeamErrors mirrors
+// TestHandleMatrixMessageNoConnNoSeamErrors for the threaded path: no
+// createMessageFn and no live conn must error, not panic or silently fall
+// back to create_topic.
+func TestHandleMatrixMessageThreadedNoConnNoSeamErrors(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	gc := &GChatClient{UserLogin: login}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "a reply", "topic1", "topic1")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err == nil {
+		t.Fatal("HandleMatrixMessage() error = nil, want an error when not connected")
+	}
+}
+
+// TestHandleMatrixMessageThreadedPropagatesRPCError mirrors
+// TestHandleMatrixMessagePropagatesRPCError for the threaded path.
+func TestHandleMatrixMessageThreadedPropagatesRPCError(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	wantErr := errors.New("create_message: boom")
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createMessageFn: func(context.Context, *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			return nil, wantErr
+		},
+	}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "a reply", "topic1", "topic1")
+	_, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if !errors.Is(err, wantErr) {
+		t.Errorf("error = %v, want wrapping %v", err, wantErr)
+	}
+}
+
+// TestHandleMatrixMessageThreadedFailureRemovesPendingRegistration mirrors
+// echo_dedup_test.go's TestHandleMatrixMessageFailureRemovesPendingRegistration
+// for the threaded path: registration (before the RPC) must still happen,
+// and a failed create_message must undo it via RemovePending.
+func TestHandleMatrixMessageThreadedFailureRemovesPendingRegistration(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var registeredTxnID, removedTxnID networkid.TransactionID
+	gc := &GChatClient{
+		UserLogin: login,
+		addPendingToIgnoreFn: func(_ *bridgev2.MatrixMessage, txnID networkid.TransactionID) {
+			registeredTxnID = txnID
+		},
+		removePendingFn: func(_ *bridgev2.MatrixMessage, txnID networkid.TransactionID) {
+			removedTxnID = txnID
+		},
+		createMessageFn: func(context.Context, *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "a reply", "topic1", "topic1")
+	resp, err := gc.HandleMatrixMessage(context.Background(), msg)
+	if err == nil {
+		t.Fatal("HandleMatrixMessage() error = nil, want an error from the failed RPC")
+	}
+	if resp != nil {
+		t.Errorf("HandleMatrixMessage() response = %+v, want nil on error", resp)
+	}
+	if registeredTxnID == "" {
+		t.Fatal("addPendingToIgnoreFn was never called -- local_id must still be registered before the failed RPC")
+	}
+	if removedTxnID != registeredTxnID {
+		t.Errorf("removePendingFn txn id = %q, want it to match the registered txn id %q", removedTxnID, registeredTxnID)
+	}
+}
+
+// TestHandleMatrixMessageThreadedUsesSameLocalIDPrefix pins that the
+// threaded path reuses the same newLocalID token format as create_topic --
+// it is the same per-send dedup token regardless of which RPC it ends up
+// used on (portal.py generates local_id once, before branching on
+// thread_id, portal.py:908).
+func TestHandleMatrixMessageThreadedUsesSameLocalIDPrefix(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.CreateMessageRequest
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createMessageFn: func(_ context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			gotReq = req
+			return createMessageResponse("reply-msg-5", 1), nil
+		},
+	}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "hi", "topic1", "topic1")
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if !strings.HasPrefix(gotReq.GetLocalId(), "mautrix-googlechat%") {
+		t.Errorf("LocalId = %q, want prefix %q", gotReq.GetLocalId(), "mautrix-googlechat%")
+	}
+}
+
+// TestHandleMatrixMessageThreadedFormattingAndMentionsWired proves the
+// threaded path shares the same formatting/mention conversion as
+// create_topic (M3 Task 4), not a stripped-down copy: an HTML body must
+// still produce the annotation-stripped TextBody and the formatting
+// annotation on the CreateMessageRequest.
+func TestHandleMatrixMessageThreadedFormattingAndMentionsWired(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.CreateMessageRequest
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createMessageFn: func(_ context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			gotReq = req
+			return createMessageResponse("reply-msg-6", 1), nil
+		},
+	}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "a b c", "topic1", "topic1")
+	msg.Content.Format = event.FormatHTML
+	msg.Content.FormattedBody = "a <strong>b</strong> c"
+
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if got := gotReq.GetTextBody(); got != "a b c" {
+		t.Errorf("TextBody = %q, want %q", got, "a b c")
+	}
+	wantAnn := gchatfmt.MakeFormatAnnotation(2, 1, pb.FormatMetadata_BOLD)
+	if len(gotReq.GetAnnotations()) != 1 || gotReq.GetAnnotations()[0].String() != wantAnn.String() {
+		t.Errorf("Annotations = %s, want [%s]", formatAnnotationsForTest(gotReq.GetAnnotations()), wantAnn.String())
 	}
 }

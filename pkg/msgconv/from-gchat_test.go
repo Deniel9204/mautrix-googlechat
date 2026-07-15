@@ -21,7 +21,7 @@ func TestToMatrix_PlainText(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hello world")}
 
-	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 
 	if cm == nil {
 		t.Fatal("ToMatrix returned nil")
@@ -59,7 +59,7 @@ func TestToMatrix_EmptyBody(t *testing.T) {
 
 	t.Run("explicit empty string", func(t *testing.T) {
 		msg := &pb.Message{TextBody: proto.String("")}
-		cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+		cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 		if len(cm.Parts) != 0 {
 			t.Fatalf("expected 0 parts for empty text_body, got %d", len(cm.Parts))
 		}
@@ -67,7 +67,7 @@ func TestToMatrix_EmptyBody(t *testing.T) {
 
 	t.Run("field absent", func(t *testing.T) {
 		msg := &pb.Message{}
-		cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+		cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 		if len(cm.Parts) != 0 {
 			t.Fatalf("expected 0 parts when text_body is unset, got %d", len(cm.Parts))
 		}
@@ -81,7 +81,7 @@ func TestToMatrix_WhitespaceBody(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("   ")}
 
-	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part for whitespace-only text_body, got %d", len(cm.Parts))
@@ -99,7 +99,7 @@ func TestToMatrix_UnicodeEmoji(t *testing.T) {
 	want := "héllo 👋🏽 世界 🇺🇳"
 	msg := &pb.Message{TextBody: proto.String(want)}
 
-	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -118,7 +118,7 @@ func TestToMatrix_NoAnnotationsStaysPlain(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("plain text, nothing special")}
 
-	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -145,7 +145,7 @@ func TestToMatrix_FormatAnnotationsProduceHTML(t *testing.T) {
 		},
 	}
 
-	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -181,7 +181,7 @@ func TestToMatrix_MentionAnnotationUsesPassedResolver(t *testing.T) {
 		return "", "", false
 	}
 
-	cm, mentions := mc.ToMatrix(context.Background(), msg, resolve)
+	cm, mentions := mc.ToMatrix(context.Background(), msg, false, resolve)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -208,7 +208,7 @@ func TestToMatrix_NilResolverDoesNotPanic(t *testing.T) {
 		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")},
 	}
 
-	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -227,7 +227,7 @@ func TestToMatrix_PartID(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hi")}
 
-	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -251,7 +251,7 @@ func TestToMatrix_TextPartAppendedNotOverwritten(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("a caption")}
 
-	cm, _ := mc.ToMatrix(context.Background(), msg, nil)
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 text part, got %d", len(cm.Parts))
 	}
@@ -277,5 +277,124 @@ func TestToMatrix_TextPartAppendedNotOverwritten(t *testing.T) {
 	}
 	if combined[1].Content.Body != "a caption" {
 		t.Errorf("combined[1] (text part) = %+v, want the caption text preserved second", combined[1].Content)
+	}
+}
+
+// --- ThreadRoot (M3 Task 6) --------------------------------------------------
+//
+// Ported from handle_googlechat_message's parent_id extraction
+// (portal.py:1379, `parent_id = evt.id.parent_id.topic_id.topic_id`) plus
+// the head-vs-reply distinction inherent to Google Chat's topic model:
+// message_id == topic_id for the head/root message of a topic (self-
+// referencing on the wire), and != for every reply posted into an existing
+// one (client.py's create_message always targets an EXISTING topic id,
+// never the new message's own id -- see send_message, client.py:441-458).
+//
+// bridgev2's own convention (mautrix-go bridgev2/portal.go:2804,
+// getRelationMeta: `if currentMsg.ThreadRoot != nil && *currentMsg.ThreadRoot
+// != currentMsgID`) accepts a SELF-referencing ThreadRoot (equal to the
+// message's own id) as "this message is the head of its own thread" --
+// bridgev2 skips the thread-root lookup for that case but still records the
+// self-reference in the message's DB row, so a later Matrix reply to this
+// head message resolves back to it via GetFirstThreadMessage (the "reply ->
+// thread auto-conversion" the task brief calls out, portal.go:1259-1268).
+
+func topicMessage(messageID, topicID, text string) *pb.Message {
+	msg := &pb.Message{TextBody: proto.String(text)}
+	msg.Id = &pb.MessageId{MessageId: proto.String(messageID)}
+	if topicID != "" {
+		msg.Id.ParentId = &pb.MessageParentId{
+			Parent: &pb.MessageParentId_TopicId{
+				TopicId: &pb.TopicId{TopicId: proto.String(topicID)},
+			},
+		}
+	}
+	return msg
+}
+
+// TestToMatrix_HeadMessageFlatRoomNoThreadRoot: message_id == topic_id (the
+// head of a brand new topic) in a non-threads-only room must NOT get a
+// self-referencing ThreadRoot -- matching Python's thread_parent staying
+// None for a head message unless self.threads_only (portal.py:1406).
+func TestToMatrix_HeadMessageFlatRoomNoThreadRoot(t *testing.T) {
+	mc := msgconv.New()
+	msg := topicMessage("topic1", "topic1", "hello")
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if cm.ThreadRoot != nil {
+		t.Errorf("ThreadRoot = %v, want nil for a head message in a non-threads-only room", *cm.ThreadRoot)
+	}
+}
+
+// TestToMatrix_HeadMessageThreadsOnlyRoomSelfThreadRoot: the same head
+// message in a threads-only room DOES get a self-referencing ThreadRoot
+// (Python's _append_event_id: `if thread_parent or self.threads_only`,
+// portal.py:1406-1409) so later Matrix replies auto-convert into this
+// topic (bridgev2 portal.go:1259-1268).
+func TestToMatrix_HeadMessageThreadsOnlyRoomSelfThreadRoot(t *testing.T) {
+	mc := msgconv.New()
+	msg := topicMessage("topic1", "topic1", "hello")
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, true, nil)
+
+	if cm.ThreadRoot == nil {
+		t.Fatal("ThreadRoot = nil, want a self-reference to topic1 in a threads-only room")
+	}
+	if string(*cm.ThreadRoot) != "topic1" {
+		t.Errorf("ThreadRoot = %q, want %q", *cm.ThreadRoot, "topic1")
+	}
+}
+
+// TestToMatrix_ReplyMessageAlwaysSetsThreadRoot: message_id != topic_id (a
+// reply posted into an existing topic) must get ThreadRoot set to the topic
+// id UNCONDITIONALLY -- in both a flat/legacy room and a threads-only one --
+// matching Python's unconditional `if parent_id:` gate (portal.py:1380),
+// which is not conditioned on self.threads_only at all (only the head-
+// message self-reference case is).
+func TestToMatrix_ReplyMessageAlwaysSetsThreadRoot(t *testing.T) {
+	mc := msgconv.New()
+	for _, threadsOnly := range []bool{false, true} {
+		msg := topicMessage("reply1", "topic1", "a reply")
+		cm, _ := mc.ToMatrix(context.Background(), msg, threadsOnly, nil)
+		if cm.ThreadRoot == nil {
+			t.Fatalf("threadsOnly=%v: ThreadRoot = nil, want %q", threadsOnly, "topic1")
+		}
+		if string(*cm.ThreadRoot) != "topic1" {
+			t.Errorf("threadsOnly=%v: ThreadRoot = %q, want %q", threadsOnly, *cm.ThreadRoot, "topic1")
+		}
+	}
+}
+
+// TestToMatrix_NoParentIDNoThreadRoot: a message with no parent_id.topic_id
+// on the wire at all (topic_id empty/absent) must never get a ThreadRoot,
+// matching Python's falsy check on parent_id (portal.py:1380) -- there is
+// nothing to route to or self-reference.
+func TestToMatrix_NoParentIDNoThreadRoot(t *testing.T) {
+	mc := msgconv.New()
+	for _, threadsOnly := range []bool{false, true} {
+		msg := topicMessage("msg1", "", "hello")
+		cm, _ := mc.ToMatrix(context.Background(), msg, threadsOnly, nil)
+		if cm.ThreadRoot != nil {
+			t.Errorf("threadsOnly=%v: ThreadRoot = %v, want nil when parent_id.topic_id is absent", threadsOnly, *cm.ThreadRoot)
+		}
+	}
+}
+
+// TestToMatrix_ThreadRootSetEvenForAttachmentOnlyMessage proves ThreadRoot
+// is computed before the empty-text_body early return, so a future (M5)
+// attachment-only message in a thread still carries the right ThreadRoot
+// even though it has zero text parts today.
+func TestToMatrix_ThreadRootSetEvenForAttachmentOnlyMessage(t *testing.T) {
+	mc := msgconv.New()
+	msg := topicMessage("reply1", "topic1", "")
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 0 {
+		t.Fatalf("expected 0 parts for empty text_body, got %d", len(cm.Parts))
+	}
+	if cm.ThreadRoot == nil || string(*cm.ThreadRoot) != "topic1" {
+		t.Errorf("ThreadRoot = %v, want %q even with no text parts", cm.ThreadRoot, "topic1")
 	}
 }

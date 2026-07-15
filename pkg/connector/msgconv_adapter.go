@@ -59,11 +59,26 @@ import (
 func convertMessageToMatrix(conv *msgconv.MessageConverter) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
 	return func(ctx context.Context, portal *bridgev2.Portal, _ bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
 		resolve := newInboundMentionResolver(portal)
-		cm, parsed := conv.ToMatrix(ctx, msg, resolve)
+		threadsOnly := false
+		if portal != nil {
+			if meta, ok := portal.Metadata.(*PortalMetadata); ok && meta != nil {
+				threadsOnly = meta.ThreadsOnly
+			}
+		}
+		cm, parsed := conv.ToMatrix(ctx, msg, threadsOnly, resolve)
 		ts := msg.GetCreateTime()
+		// topic_id (M3 Task 6): stamped on every part regardless of whether
+		// ToMatrix decided to set cm.ThreadRoot for THIS message, so a
+		// later Matrix reply into this same topic can look up the topic id
+		// it belongs to (handlematrix.go's outbound routing reads it back
+		// off the resolved ThreadRoot message's own MessageMetadata).
+		// Recomputed independently here (mirroring ts above) rather than
+		// threaded through ToMatrix's return values, matching the existing
+		// "adapter recomputes its own bookkeeping values from msg" pattern.
+		topicID := msg.GetId().GetParentId().GetTopicId().GetTopicId()
 		mentions := mentionsFromParsed(parsed)
 		for _, part := range cm.Parts {
-			part.DBMetadata = &MessageMetadata{TimestampMicro: ts}
+			part.DBMetadata = &MessageMetadata{TimestampMicro: ts, TopicID: topicID}
 			if mentions != nil {
 				part.Content.Mentions = cloneMentions(mentions)
 			}

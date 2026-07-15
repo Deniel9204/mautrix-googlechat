@@ -26,6 +26,22 @@ type MessageMetadata struct {
 	TimestampMicro int64 `json:"ts_micro,omitempty"`
 	// last_edit_time of the newest applied edit, for edit dedup.
 	LastEditTime int64 `json:"last_edit_time,omitempty"`
+	// Google Chat topic id this message belongs to (M3 Task 6): the
+	// message's own id for the head/root message of a topic (message_id ==
+	// topic_id on the wire), or the head's message id for a reply posted
+	// into an existing topic. Stamped on every bridged message, both
+	// directions:
+	//   - inbound (msgconv_adapter.go's convertMessageToMatrix): read
+	//     straight off the wire, msg.id.parent_id.topic_id.topic_id.
+	//   - outbound (handlematrix.go): the id of the NEW topic a create_topic
+	//     call just created, or the existing topic id a create_message
+	//     reply was routed into.
+	// Needed both directions: outbound reads the Matrix thread root's
+	// stored topic id to route a reply into create_message's
+	// parent_id.topic_id; inbound lets a later Matrix reply into this same
+	// topic resolve its own ThreadRoot correctly (ToMatrix's message_id !=
+	// topic_id check, pkg/msgconv/from-gchat.go).
+	TopicID string `json:"topic_id,omitempty"`
 }
 
 type GhostMetadata struct {

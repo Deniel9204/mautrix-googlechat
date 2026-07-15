@@ -152,6 +152,15 @@ type GChatClient struct {
 	// paginatedWorldFn above (sync.go).
 	createTopicFn func(ctx context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error)
 
+	// createMessageFn issues the create_message RPC that handlematrix.go's
+	// HandleMatrixMessage needs to send a reply into an EXISTING topic (M3
+	// Task 6, taken when msg.ThreadRoot != nil -- see send_message's
+	// `if thread_id:` branch, client.py:441-458). Defaults to
+	// conn.CreateMessage; overridden in tests for the same reason
+	// createTopicFn is (no live gchatmeow.Client connection in this
+	// package's tests).
+	createMessageFn func(ctx context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error)
+
 	// addPendingToIgnoreFn registers a send's local_id as a pending-to-ignore
 	// transaction on msg.Portal (handlematrix.go's HandleMatrixMessage, Task
 	// 6's echo-dedup mechanism), BEFORE the create_topic RPC is issued --
