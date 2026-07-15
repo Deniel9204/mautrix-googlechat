@@ -137,6 +137,36 @@ func TestHandleMatrixReadReceiptExactMessageWithoutMetadataFallsBack(t *testing.
 	}
 }
 
+// TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow pins user.py:689's
+// `timestamp or (time.time() * 1000)` defensive fallback: a zero-value
+// Receipt.Timestamp (and no ExactMessage) must not produce Go's zero
+// time.Time's large NEGATIVE microsecond value -- it must fall back to
+// "now" instead.
+func TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.MarkGroupReadstateRequest
+	gc := &GChatClient{
+		UserLogin: login,
+		markGroupReadstateFn: func(_ context.Context, req *pb.MarkGroupReadstateRequest) (*pb.MarkGroupReadstateResponse, error) {
+			gotReq = req
+			return &pb.MarkGroupReadstateResponse{}, nil
+		},
+	}
+
+	before := time.Now()
+	msg := matrixReadReceipt(spacePortal("space1"), nil, time.Time{}) // zero Receipt.Timestamp
+	err := gc.HandleMatrixReadReceipt(context.Background(), msg)
+	after := time.Now()
+	if err != nil {
+		t.Fatalf("HandleMatrixReadReceipt() error = %v, want nil", err)
+	}
+
+	got := gchatmeow.MicrosToTime(gotReq.GetLastReadTime())
+	if got.Before(before) || got.After(after) {
+		t.Errorf("LastReadTime = %v, want between %v and %v (fallback to time.Now(), not a zero-time-derived negative value)", got, before, after)
+	}
+}
+
 func TestHandleMatrixReadReceiptDMPortalBuildsDmGroupID(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.MarkGroupReadstateRequest
@@ -343,6 +373,40 @@ func TestHandleGChatEventReadReceiptChangedMultipleReceiptsQueuesOnePerUser(t *t
 	}
 	if senders[0] != gcid.MakeUserID("98765") || senders[1] != gcid.MakeUserID("55555") {
 		t.Errorf("senders = %v, want [98765, 55555]", senders)
+	}
+}
+
+// TestHandleGChatEventReadReceiptChangedStopsOnFirstFailure pins
+// queueReadReceiptChanged's documented "stop at the first failed queue"
+// behavior: a ReadReceiptSet with multiple entries must not attempt to queue
+// the second entry once the first has failed, and the overall result must
+// report the failure (so handleGChatEvent does not advance the watermark).
+func TestHandleGChatEventReadReceiptChangedStopsOnFirstFailure(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	login.ID = gcid.MakeUserLoginID("112233")
+	calls := 0
+	gc := &GChatClient{
+		UserLogin: login,
+		queueRemoteEventFn: func(bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
+			calls++
+			if calls == 1 {
+				return bridgev2.EventHandlingResultFailed.WithError(errors.New("boom"))
+			}
+			return bridgev2.EventHandlingResultQueued
+		},
+	}
+	evt := readReceiptChangedEvent(spaceGroupID("space-1"),
+		[2]any{"98765", int64(1)},
+		[2]any{"55555", int64(2)},
+	)
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success = false (first receipt's queue failed)", res)
+	}
+	if calls != 1 {
+		t.Errorf("queueRemoteEventFn call count = %d, want 1 (loop must stop after the first failure, not queue the second receipt)", calls)
 	}
 }
 

@@ -37,6 +37,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
@@ -77,14 +78,25 @@ var _ bridgev2.ReadReceiptHandlingNetworkAPI = (*GChatClient)(nil)
 //     receipt's own timestamp (msg.Receipt.Timestamp, ms -> µs) -- exactly
 //     Python's data.ts input, the only case Python's own single-input
 //     mark_read ever actually receives in practice.
+//   - Every timestamp source above turns out to be the Go zero time.Time
+//     (IsZero()): falls back to time.Now(), porting user.py:689's own
+//     `timestamp or (time.time() * 1000)` defensive fallback for a
+//     falsy/missing input. This matters here specifically because Go's zero
+//     time.Time is year 1, not the Unix epoch -- TimeToMicros of an
+//     unguarded zero time.Time would send a large NEGATIVE microsecond
+//     value to mark_group_readstate instead of Python's "now" substitute.
 func readTimeMicros(msg *bridgev2.MatrixReadReceipt) int64 {
 	if msg.ExactMessage != nil {
 		if meta, ok := msg.ExactMessage.Metadata.(*MessageMetadata); ok && meta != nil && meta.TimestampMicro != 0 {
 			return meta.TimestampMicro
 		}
-		return gchatmeow.TimeToMicros(msg.ExactMessage.Timestamp)
+		if ts := msg.ExactMessage.Timestamp; !ts.IsZero() {
+			return gchatmeow.TimeToMicros(ts)
+		}
+	} else if ts := msg.Receipt.Timestamp; !ts.IsZero() {
+		return gchatmeow.TimeToMicros(ts)
 	}
-	return gchatmeow.TimeToMicros(msg.Receipt.Timestamp)
+	return gchatmeow.TimeToMicros(time.Now())
 }
 
 // HandleMatrixReadReceipt issues mark_group_readstate for a Matrix read
