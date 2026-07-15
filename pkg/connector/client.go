@@ -100,6 +100,12 @@ type GChatClient struct {
 	// gchatmeow.Client connection -- mirrors saveFn/disconnectFn above.
 	paginatedWorldFn func(ctx context.Context, req *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error)
 
+	// catchUpUserFn issues the catch_up_user RPC that backfill.go's catchUp
+	// needs. Defaults to conn.CatchUpUser; overridden in tests so catchUp's
+	// watermark/dispatch/failure behavior can be exercised without a live
+	// gchatmeow.Client connection -- mirrors paginatedWorldFn above.
+	catchUpUserFn func(ctx context.Context, req *pb.CatchUpUserRequest) (*pb.CatchUpResponse, error)
+
 	// queueChatResyncFn queues one planned chat-list-sync entry (sync.go's
 	// syncChats). Defaults to c.UserLogin.QueueRemoteEvent; overridden in
 	// tests that construct a UserLogin without a full bridgev2.Bridge+DB
@@ -409,22 +415,43 @@ func (c *GChatClient) reportState(state gchatmeow.ConnState, err error) {
 // (possibly rotated) cookies into UserLoginMetadata so a later restart resumes
 // with the freshest session (Task 10 review carry-over (c); see also
 // login.go's SubmitCookies, which persists the initial post-validation
-// snapshot once at login). Also kicks off the chat-list sync (sync.go's
-// syncChats, Task 12) the FIRST time this conn reaches Connected (gated by
-// shouldSyncOnConnect, see its doc comment for why) -- matching Python's
-// on_connect_later, which calls self.sync() once per connect() call, right
-// before pushing BridgeStateEvent.CONNECTED (user.py:555-560). syncChats
-// runs in its own goroutine rather than inline: handleConnState is conn's
-// OnConnectionState callback and runs on conn's own supervision goroutine
-// (see wireAndStart's doc comment), so blocking it here on a full
-// paginated_world RPC round trip would stall that client's ability to
-// notice a subsequent reconnect/disconnect for as long as the sync takes.
+// snapshot once at login).
+//
+// It also branches on shouldSyncOnConnect's one-time-per-conn latch to pick
+// between two mutually exclusive actions, both run in their own goroutine
+// (see below for why): the FIRST time this conn reaches Connected, it kicks
+// off the chat-list sync (sync.go's syncChats, Task 12), matching Python's
+// on_connect_later calling self.sync() once per connect() call right before
+// pushing BridgeStateEvent.CONNECTED (user.py:555-560). EVERY SUBSEQUENT
+// Connected transition for the same conn -- i.e. every reconnect, including
+// gchatmeow's own internal webchannel reconnects (see shouldSyncOnConnect's
+// doc comment) -- instead runs backfill.go's catchUp, replaying whatever
+// happened on the account during the gap through the normal event-queue
+// path (M2 Task 7, M1 review Important #2: a SID-expiring re-register
+// resets the channel's AID to 0, so the server never replays that gap on
+// its own -- pkg/gchatmeow/client.go's wireChannel doc comment flags this
+// exact risk). Reusing shouldSyncOnConnect's existing latch instead of a
+// second one keeps the "first connect vs. reconnect" distinction in exactly
+// one place, and automatically inherits its failure/retry behavior:
+// syncChats resets the latch on a failed first sync (resetSyncLatch, its
+// own doc comment) specifically so the NEXT Connected retries the first
+// sync rather than incorrectly running catchUp against portals that were
+// never created.
+//
+// Both syncChats and catchUp run in their own goroutine rather than inline:
+// handleConnState is conn's OnConnectionState callback and runs on conn's
+// own supervision goroutine (see wireAndStart's doc comment), so blocking it
+// here on a full paginated_world/catch_up_user RPC round trip would stall
+// that client's ability to notice a subsequent reconnect/disconnect for as
+// long as the call takes.
 func (c *GChatClient) handleConnState(ctx context.Context, state gchatmeow.ConnState, err error) {
 	c.reportState(state, err)
 	if state == gchatmeow.ConnStateConnected {
 		c.persistCookies(ctx)
 		if c.shouldSyncOnConnect() {
 			go c.syncChats(ctx)
+		} else {
+			go c.catchUp(ctx)
 		}
 	}
 }

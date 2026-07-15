@@ -436,6 +436,20 @@ func splitEventBodies(evt *pb.Event) []*pb.Event {
 	return out
 }
 
+// SplitEventBodies is splitEventBodies exported for callers outside this
+// package. onReceiveArray uses the unexported form for every LIVE
+// StreamEventsResponse event; CatchUpUser/CatchUpGroup (api.go) responses
+// carry raw multi-body Events with the exact same field-8 "bodies" shape
+// (googlechat.proto does not distinguish "live" from "catch-up" Event
+// framing), so the connector's reconnect gap-replay path (pkg/connector,
+// M2 Task 7) needs the identical flattening step before handing each result
+// to the same per-event handler a live stream event goes through --
+// mirrors the Python megabridge's own exported Client.SplitEventBodies,
+// used the same way by its catch-up replay (portal.go's backfillPortal).
+func SplitEventBodies(evt *pb.Event) []*pb.Event {
+	return splitEventBodies(evt)
+}
+
 // ensureToken refreshes the XSRF token when it is missing or older than
 // xsrfRefreshInterval, mirroring client.py:147-149's pre-connect check. A fresh
 // token is a no-op.
