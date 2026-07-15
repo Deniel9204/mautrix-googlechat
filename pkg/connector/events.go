@@ -738,10 +738,21 @@ func typingContextGroupID(tc *pb.TypingContext) *pb.GroupId {
 //     passed as handle_googlechat_typing's `sender` parameter). IsFromMe
 //     decides the double-puppet-vs-ghost intent exactly like every other
 //     inbound event in this file (queueMessagePosted, queueMessageReaction,
-//     queueReadReceiptChanged); Python's own self-typing case is handled
-//     identically via puppet.intent_for(self) (portal.py:1608), gated by an
-//     extra direct-chat membership check (portal.py:1604-1607) this
-//     function relies on the framework's own GetIntentFor to perform.
+//     queueReadReceiptChanged); Python's own self-typing case resolves the
+//     SAME puppet.intent_for(self) (portal.py:1608). KNOWN GAP (gchat-port-
+//     auditor, M4 Task 5): Python additionally gates that self-typing case
+//     on an explicit direct-chat room-membership check (portal.py:1604-1607,
+//     `if self.is_direct and puppet.gcid == source.gcid: ... if membership
+//     != Membership.JOIN: return`) that this function does NOT replicate --
+//     bridgev2's own intent resolution (mautrix-go bridgev2/portal.go's
+//     getIntentAndUserMXIDFor/ensureFunctionalMember) does not perform an
+//     equivalent room-membership check before typing is sent. Reachable only
+//     when the room is a DM, the typist is this login's own gaia (Google
+//     Chat echoing your own typing state back to you), AND the resolved
+//     ghost/double-puppet intent has not yet joined that DM room (e.g. no
+//     double puppeting configured, or a very early DM-creation race) --
+//     worst case is intent.MarkTyping erroring (EventHandlingResultFailed +
+//     a warning log) where Python would have silently no-op'd instead.
 //   - Timeout: typingTimeout (6s, this file's own top-of-file doc comment)
 //     when state == TYPING, 0 (immediately stop) for STOPPED or any other/
 //     absent value -- porting Python's `timeout=6000 if status ==
