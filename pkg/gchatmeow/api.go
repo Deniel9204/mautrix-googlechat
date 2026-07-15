@@ -67,6 +67,11 @@ type Client struct {
 	// Client at an httptest server instead of the real Google Chat host.
 	baseURL string
 
+	// uploadBaseURL overrides uploadURL (upload.go) when non-empty, same
+	// seam as baseURL above but for the separate /uploads endpoint (which
+	// is NOT under apiBaseURL's /u/0/api/ path).
+	uploadBaseURL string
+
 	// --- Task 8 orchestration state (methods live in client.go) ---
 	//
 	// OnStreamEvent is called once per flattened event body, synchronously and
