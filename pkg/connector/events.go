@@ -71,7 +71,7 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 	log := zerolog.Ctx(ctx)
 	switch evt.GetBody().GetType().(type) {
 	case *pb.Event_EventBody_GroupViewed:
-		log.Debug().Msg("googlechat: unhandled GroupViewed event (M2+)")
+		return c.queueGroupViewed(ctx, evt)
 	case *pb.Event_EventBody_GroupUpdated:
 		log.Debug().Msg("googlechat: unhandled GroupUpdated event (M2+)")
 	case *pb.Event_EventBody_MessagePosted:
@@ -89,7 +89,7 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 	case *pb.Event_EventBody_TypingStateChanged:
 		log.Debug().Msg("googlechat: unhandled TypingStateChanged event (M2+)")
 	case *pb.Event_EventBody_ReadReceiptChanged:
-		log.Debug().Msg("googlechat: unhandled ReadReceiptChanged event (M2+)")
+		return c.queueReadReceiptChanged(ctx, evt)
 	default:
 		log.Debug().Msg("googlechat: unhandled event with no/unknown body type (M2+)")
 	}
@@ -499,5 +499,169 @@ func (c *GChatClient) queueMessageReaction(ctx context.Context, evt *pb.Event) b
 		Str("gc_reaction_type", reaction.GetType().String()).
 		Any("result", res).
 		Msg("googlechat: queued inbound reaction")
+	return res
+}
+
+// queueReadReceiptChanged handles the ReadReceiptChanged event body
+// (EventBody field 33, "read_receipt_changed") and queues one
+// bridgev2.RemoteReadReceipt (simplevent.Receipt) per entry in the event's
+// ReadReceiptSet, porting handle_googlechat_read_receipts's own extraction
+// (portal.py:1587-1592):
+//
+//	async def handle_googlechat_read_receipts(self, evt) -> None:
+//	    for rr in evt.read_receipt_set.read_receipts:
+//	        await self.mark_read(rr.user.user_id.id, rr.read_time_micros)
+//
+// Python's own Portal.mark_read (portal.py:1594-1598) resolves the closest
+// message at-or-before rr.read_time_micros (DBMessage.get_closest_before)
+// and marks THAT message read via the reading user's own ghost/double-puppet
+// intent. bridgev2's framework does the equivalent lookup itself once this
+// event reaches it (handleRemoteReadReceipt, mautrix-go
+// bridgev2/portal.go:3690-3769, via GetLastNonFakePartAtOrBeforeTime -- see
+// docs/research/07-gap-analysis.md row 68), so this function only needs to
+// supply ReadUpTo (rr.read_time_micros converted to a time.Time) and the
+// reading user's own Sender -- not look up a message itself.
+//
+//   - group: the outer Event's own group_id (this file's top-of-file doc
+//     comment) -- ReadReceiptChangedEvent DOES carry its own group_id field
+//     (proto field 1), but Python's on_stream_event (user.py:674-682) only
+//     ever overrides group_id from the body for TYPING_STATE_CHANGED; every
+//     other type, including this one, routes on the outer Event.group_id,
+//     which gchatmeow's splitEventBodies has already copied onto this
+//     per-body Event -- so this function reads evt.GetGroupId(), not the
+//     body's own field, for consistency with queueMessageDeleted/
+//     queueMessageReaction above (neither of which has a body-level group
+//     id at all to be tempted by).
+//   - sender: rr.user.user_id.id -- the READER's own gaia id, which may be
+//     any member of the conversation, including this login's own account
+//     (Google Chat can announce your own read state back to you via this
+//     same event on some clients); IsThisUser decides IsFromMe exactly like
+//     queueMessagePosted/queueMessageReaction above, so a self-read receipt
+//     correctly routes through double puppeting rather than a ghost intent,
+//     matching Python's puppet.intent_for(self) (portal.py:1598), which
+//     does the identical double-puppet-if-self resolution.
+//   - ReadUpTo: rr.read_time_micros converted via gchatmeow.MicrosToTime --
+//     Google Chat's own microsecond epoch time, same unit conversion this
+//     file already applies to every other inbound event's timestamp.
+//
+// One bridgev2.RemoteReadReceipt is queued PER read_receipts entry (Python's
+// own for loop does the same, one mark_read call per rr) since
+// simplevent.Receipt carries a single Sender -- a ReadReceiptSet announcing
+// several users' read states at once needs one event per user. If any entry
+// fails to queue, the loop stops there and returns that failure (rather than
+// continuing and silently losing track of it): handleGChatEvent only
+// advances the watermark on a fully-Success result, so a partial failure
+// here re-delivers this whole event -- including entries already
+// successfully queued -- on the next reconnect's catch-up replay, which is
+// safe because read receipts are idempotent (re-marking an already-read
+// message read is a no-op).
+func (c *GChatClient) queueReadReceiptChanged(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
+	log := zerolog.Ctx(ctx)
+	id, isDM, groupOK := gchatmeow.GroupIDToParts(evt.GetGroupId())
+	if !groupOK {
+		log.Warn().Msg("googlechat: ReadReceiptChanged event with no usable group id, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+	group := gcid.GroupID{ID: id, IsDM: isDM}
+
+	receipts := evt.GetBody().GetReadReceiptChanged().GetReadReceiptSet().GetReadReceipts()
+	if len(receipts) == 0 {
+		log.Debug().Msg("googlechat: ReadReceiptChanged event with no read receipts, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+
+	res := bridgev2.EventHandlingResultIgnored
+	for _, rr := range receipts {
+		senderUserID := gcid.MakeUserID(rr.GetUser().GetUserId().GetId())
+		res = c.queueRemoteEvent(&simplevent.Receipt{
+			EventMeta: simplevent.EventMeta{
+				Type:      bridgev2.RemoteEventReadReceipt,
+				PortalKey: gcid.MakePortalKey(group, c.UserLogin.ID),
+				Sender: bridgev2.EventSender{
+					Sender:   senderUserID,
+					IsFromMe: c.IsThisUser(ctx, senderUserID),
+				},
+				Timestamp: gchatmeow.MicrosToTime(rr.GetReadTimeMicros()),
+			},
+			ReadUpTo: gchatmeow.MicrosToTime(rr.GetReadTimeMicros()),
+		})
+		if !res.Success {
+			break
+		}
+	}
+	log.Debug().
+		Str("gc_group_id", group.ID).
+		Bool("is_dm", group.IsDM).
+		Int("receipt_count", len(receipts)).
+		Any("result", res).
+		Msg("googlechat: queued inbound read receipt(s)")
+	return res
+}
+
+// queueGroupViewed handles the GroupViewed event body (EventBody field 3,
+// "group_viewed") and queues a bridgev2.RemoteReadReceipt (simplevent.Receipt)
+// for the login's OWN user, porting portal.py:556-557's
+//
+//	elif evt.body.HasField("group_viewed"):
+//	    await self.mark_read(source.gcid, evt.body.group_viewed.view_time)
+//
+// where `self` is the Portal and `self.mark_read` is Portal.mark_read
+// (portal.py:1594-1598, the SAME helper handle_googlechat_read_receipts uses
+// above) -- group_viewed represents the LOGIN'S OWN account viewing this
+// conversation from some OTHER Google Chat client (a phone, a different
+// browser tab, chat.google.com directly, ...), reported back over the same
+// event stream this bridge is subscribed to; `source` at portal.py:556-557
+// is the User whose stream this event arrived on, i.e. always this login's
+// own account -- there is no other user_id anywhere on GroupViewedEvent to
+// read a different sender from. This is Google Chat's own-read-marker sync,
+// distinct from read_receipt_changed's per-OTHER-user receipts above (though
+// as queueReadReceiptChanged's own doc comment notes, that event CAN also
+// carry this login's own gaia id on some clients -- group_viewed is the
+// SEPARATE, GC-client-driven channel for the same fact).
+//
+// EventSender{IsFromMe: true} tells bridgev2 to resolve the intent via this
+// login's own double puppet (mautrix-go bridgev2/networkinterface.go's
+// EventSender.IsFromMe doc comment: "the UserLogin who the event was
+// received through is used as the sender... Double puppeting will be used
+// if available"), exactly matching Python's puppet.intent_for(self)
+// resolving to the double-puppet intent for the portal's own receiving user
+// (portal.py:1596-1598) -- see docs/research/07-gap-analysis.md row 77,
+// "Own read marker (group_viewed) | simplevent.Receipt with
+// EventSender{IsFromMe: true}".
+//
+//   - group: evt.GetGroupId() (the outer Event's own group_id), same
+//     reasoning as queueReadReceiptChanged above -- GroupViewedEvent also
+//     carries its own group_id field (proto field 1) that Python's
+//     on_stream_event never reads for this event type either.
+//   - ReadUpTo: evt.body.group_viewed.view_time converted via
+//     gchatmeow.MicrosToTime, exactly like read_receipt_changed's own
+//     read_time_micros above.
+func (c *GChatClient) queueGroupViewed(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
+	log := zerolog.Ctx(ctx)
+	id, isDM, groupOK := gchatmeow.GroupIDToParts(evt.GetGroupId())
+	if !groupOK {
+		log.Warn().Msg("googlechat: GroupViewed event with no usable group id, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+	group := gcid.GroupID{ID: id, IsDM: isDM}
+	viewTime := evt.GetBody().GetGroupViewed().GetViewTime()
+
+	res := c.queueRemoteEvent(&simplevent.Receipt{
+		EventMeta: simplevent.EventMeta{
+			Type:      bridgev2.RemoteEventReadReceipt,
+			PortalKey: gcid.MakePortalKey(group, c.UserLogin.ID),
+			Sender: bridgev2.EventSender{
+				Sender:   gcid.MakeUserID(string(c.UserLogin.ID)),
+				IsFromMe: true,
+			},
+			Timestamp: gchatmeow.MicrosToTime(viewTime),
+		},
+		ReadUpTo: gchatmeow.MicrosToTime(viewTime),
+	})
+	log.Debug().
+		Str("gc_group_id", group.ID).
+		Bool("is_dm", group.IsDM).
+		Any("result", res).
+		Msg("googlechat: queued own-user read marker (group_viewed)")
 	return res
 }

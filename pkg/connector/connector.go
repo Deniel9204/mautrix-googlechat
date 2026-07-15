@@ -56,6 +56,22 @@ func (gc *GChatConnector) GetDBMetaTypes() database.MetaTypes {
 	}
 }
 
+// GetCapabilities deliberately leaves ImplicitReadReceipts at its zero value
+// (false) -- unlike mautrix-meta, which sets it true for Messenger/Instagram
+// (_reference/meta/pkg/connector/capabilities.go), because "should the
+// bridge call HandleMatrixReadReceipt with fake data when receiving a new
+// message" (networkinterface.go:365-368's own doc comment) only needs to be
+// true when the network requires each message to be marked read
+// independently and does NOT automatically do so when the same account
+// sends a message. Google Chat is not that network: user.py's own
+// handle_matrix_message (matrix.py) never calls User.mark_read after
+// sending, and NOTHING else in portal.py calls it either except the one
+// genuine-read-receipt path this connector already wires (handlereceipt.go,
+// M4 Task 4) -- if Google Chat's own server needed an explicit nudge to
+// treat a self-authored message as already read, the Python bridge would
+// have needed one too, and it has none. This matches
+// _reference/googlechat-megabridge/pkg/connector/connector.go's own
+// GetCapabilities, which returns the same empty struct.
 func (gc *GChatConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
 	return &bridgev2.NetworkGeneralCapabilities{}
 }

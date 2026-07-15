@@ -189,6 +189,16 @@ type GChatClient struct {
 	// above.
 	updateReactionFn func(ctx context.Context, req *pb.UpdateReactionRequest) (*pb.UpdateReactionResponse, error)
 
+	// markGroupReadstateFn issues the mark_group_readstate RPC that
+	// handlereceipt.go's HandleMatrixReadReceipt needs to push a Matrix read
+	// receipt in a portal room to Google Chat (M4 Task 4). Defaults to
+	// conn.MarkGroupReadstate; overridden in tests so the outbound read
+	// receipt path (request construction: group id, ExactMessage vs receipt
+	// timestamp selection) can be exercised without a live gchatmeow.Client
+	// connection -- mirrors editMessageFn/deleteMessageFn/updateReactionFn
+	// above.
+	markGroupReadstateFn func(ctx context.Context, req *pb.MarkGroupReadstateRequest) (*pb.MarkGroupReadstateResponse, error)
+
 	// getMessageFn resolves a previously-bridged message row by its network
 	// message id, used by reactionTopicID (handlereaction.go) as a fallback
 	// when a reaction carries no cached *ReactionMetadata.TopicID -- notably
