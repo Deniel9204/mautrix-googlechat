@@ -234,6 +234,21 @@ func normalizeAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 				foundBreak = true
 				break
 			} else if start+length > end {
+				// The int64->int32 narrowing below (the proto schema is
+				// int32) is safe without its own overflow check ONLY
+				// because of an invariant enforced elsewhere, not anything
+				// local to this branch: `cur` (whose StartIndex/Length
+				// produced `end`) always precedes any tail spliced from it
+				// in the flattened annotations slice, and
+				// renderAnnotations's bounds check (the int64-promoted
+				// `annEnd > int64(offset)+int64(length)` guard) always
+				// evaluates `cur` itself before it can ever reach a
+				// corrupted tail derived from an adversarially huge `cur`
+				// -- so a `cur` large enough to make this narrowing wrap
+				// is guaranteed to be rejected first. Do not weaken or
+				// reorder that check without re-deriving this safety
+				// argument (see the port audit in
+				// .superpowers/sdd/m3-task-1-report.md).
 				tail := ggproto.Clone(annotation).(*pb.Annotation)
 				truncatedLength := int32(end - start)
 				annotation.Length = &truncatedLength
