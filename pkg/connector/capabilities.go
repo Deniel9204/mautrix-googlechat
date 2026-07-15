@@ -127,8 +127,9 @@ var gchatCapsFlat = &event.RoomFeatures{
 //   - an explicit Matrix thread reply always becomes a GC thread message,
 //     and ALSO keeps any additional non-fallback reply pointer;
 //   - a plain (non-thread) Matrix reply whose target is itself already
-//     inside a GC thread gets redirected into that thread (dropping the
-//     reply pointer, since GC groups it structurally instead);
+//     inside a GC thread gets redirected into that thread, dropping the
+//     reply pointer (`reply_to = None`, portal.py:900), since GC groups it
+//     structurally instead;
 //   - a plain Matrix reply to a standalone/top-level message stays a
 //     genuine cross-topic quote-reply, with NO thread at all.
 //
@@ -142,10 +143,27 @@ var gchatCapsFlat = &event.RoomFeatures{
 // capabilities fully supported instead matches mautrix-meta's own
 // precedent (metaCapsWithThreads keeps Reply fully supported alongside
 // Thread) and lets bridgev2 hand Task 6/7's connector code BOTH ThreadRoot
-// and ReplyTo when relevant, so the exact portal.py:891-907 composition
-// logic above can be replicated precisely at the point that actually
-// builds the CreateMessageRequest/CreateTopicRequest (M3 Task 6/7), rather
-// than being lossily approximated by this generic per-portal toggle.
+// and ReplyTo when relevant.
+//
+// M3 Task 7 (buildReplyTarget, handlematrix.go) deliberately does NOT
+// replicate the second bullet's "dropping the reply pointer" clause,
+// though: unlike portal.py's own Python-side elif (portal.py:896-900),
+// which explicitly clears reply_to when rerouting a plain reply into an
+// existing thread, bridgev2's own generic auto-derivation
+// (mautrix-go bridgev2/portal.go:1248-1273) only clears ReplyTo when the
+// connector's Reply capability is NOT supported (`if !caps.Reply.Partial()
+// { replyTo = nil }`) -- which never applies here, since Reply stays fully
+// supported alongside Thread per this doc comment's own reasoning above.
+// So this connector's ThreadRoot+ReplyTo composition is a strict superset
+// of Python's: the first and third bullets above are replicated precisely
+// (see buildReplyTarget's own doc comment and
+// TestHandleMatrixMessageReplyAndThreadBothSet), while the second bullet's
+// case keeps its quote-reply decoration instead of losing it -- a
+// deliberate, tested deviation (M3 Task 7 gchat-port-auditor pass), not a
+// gap: the resulting SendReplyTarget is well-formed either way, since
+// buildReplyTarget's "thread_id or reply_to" fallback (client.py:429) means
+// a reply auto-rerouted into a thread gets the SAME nested topic_id a
+// genuine explicit-thread-reply would.
 var gchatCapsThreaded *event.RoomFeatures
 
 func init() {
