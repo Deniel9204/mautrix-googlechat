@@ -57,10 +57,10 @@ func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) {
 
 // handleMessagePosted handles the MessagePosted event body (EventBody field
 // 6, "message_posted"). That one body shape is shared between brand new
-// messages (Event.type == MESSAGE_POSTED) and edits of an existing message
-// (Event.type == MESSAGE_UPDATED) -- the body itself never says which; only
-// the OUTER Event.type does. This mirrors portal.py's handle_event, which
-// HasField("message_posted") is true for both and only branches on evt.type
+// messages (Event.type == MESSAGE_POSTED, plus every other non-edit type
+// that can carry this body -- see below) and edits of an existing message
+// (Event.type == MESSAGE_UPDATED); the body itself never says which, only
+// the OUTER Event.type does. This mirrors portal.py's handle_event exactly
 // (portal.py:539-543):
 //
 //	if evt.body.HasField("message_posted"):
@@ -69,22 +69,29 @@ func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) {
 //	    else:
 //	        await self.handle_googlechat_message(...)
 //
+// Python's else is unconditional: ANY Event.type other than the literal
+// MESSAGE_UPDATED, with a message_posted body, is treated as a new message
+// -- not just the literal MESSAGE_POSTED value. docs/research/02's wire
+// protocol notes (§ "event dispatch", rows 21-23) record this as real,
+// observed behavior: ON_HOLD_MESSAGE_POSTED/_UPDATED/_PUBLISHED (Workspace
+// DLP-held messages) carry this same message_posted body and Python bridges
+// them as ordinary messages too, since none of them equal MESSAGE_UPDATED.
+// An earlier revision of this function used a three-way switch keyed on the
+// literal MESSAGE_POSTED value, which silently dropped every ON_HOLD_*
+// event (and any other future type Google adds to this same body arm) --
+// message loss relative to Python, caught by the M2 Task 4 gchat-port-auditor
+// pass. Matching Python's literal if/else here (instead of enumerating every
+// type that isn't MESSAGE_UPDATED) is what keeps this correct as Google adds
+// new event types to the enum.
+//
 // M2 Task 4 only builds a RemoteMessage for the new-message case
-// (queueMessagePosted). MESSAGE_UPDATED (RemoteEdit) is M4's job; it gets
-// its own switch arm here rather than being folded into the MESSAGE_POSTED
-// one so that a future change only has to fill this arm in, not restructure
-// the dispatch.
+// (queueMessagePosted). MESSAGE_UPDATED (RemoteEdit) is M4's job.
 func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) {
-	log := zerolog.Ctx(ctx)
-	switch evt.GetType() {
-	case pb.Event_MESSAGE_POSTED:
-		c.queueMessagePosted(ctx, evt)
-	case pb.Event_MESSAGE_UPDATED:
-		log.Debug().Msg("googlechat: unhandled MessagePosted/MESSAGE_UPDATED (edit) event (M4)")
-	default:
-		log.Debug().Str("event_type", evt.GetType().String()).
-			Msg("googlechat: MessagePosted body with unexpected outer event type")
+	if evt.GetType() == pb.Event_MESSAGE_UPDATED {
+		zerolog.Ctx(ctx).Debug().Msg("googlechat: unhandled MessagePosted/MESSAGE_UPDATED (edit) event (M4)")
+		return
 	}
+	c.queueMessagePosted(ctx, evt)
 }
 
 // queueMessagePosted extracts the sender, group, and timestamp from evt's

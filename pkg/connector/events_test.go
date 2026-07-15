@@ -226,3 +226,34 @@ func TestHandleGChatEventMessageUpdatedNotQueuedYet(t *testing.T) {
 		t.Fatalf("len(queued) = %d, want 0 (MESSAGE_UPDATED/edits are M4)", len(*queued))
 	}
 }
+
+// TestHandleGChatEventMessagePostedOnHoldTypesAreQueued pins the
+// gchat-port-auditor fix: portal.py's handle_event dispatches a
+// message_posted body to handle_googlechat_message for ANY Event.type other
+// than the literal MESSAGE_UPDATED (portal.py:539-543's `else` is
+// unconditional), not just Event.type == MESSAGE_POSTED. docs/research/02
+// documents ON_HOLD_MESSAGE_POSTED/_UPDATED/_PUBLISHED (Workspace DLP-held
+// messages) as real, observed event types carrying this same body -- an
+// earlier revision of handleMessagePosted keyed a switch on the literal
+// MESSAGE_POSTED value and silently dropped these (and any other future
+// non-MESSAGE_UPDATED type), which is message loss relative to Python.
+func TestHandleGChatEventMessagePostedOnHoldTypesAreQueued(t *testing.T) {
+	onHoldTypes := []pb.Event_EventType{
+		pb.Event_ON_HOLD_MESSAGE_POSTED,
+		pb.Event_ON_HOLD_MESSAGE_UPDATED,
+		pb.Event_ON_HOLD_MESSAGE_PUBLISHED,
+	}
+	for _, et := range onHoldTypes {
+		t.Run(et.String(), func(t *testing.T) {
+			gc, queued := newEventTestClient("112233")
+			evt := messagePostedEvent(spaceGroupID("space-1"), "msg-on-hold", "98765", "held message", 1)
+			evt.Type = et.Enum()
+
+			gc.handleGChatEvent(context.Background(), evt)
+
+			if len(*queued) != 1 {
+				t.Fatalf("len(queued) = %d, want 1 (event type %v carries message_posted and is not MESSAGE_UPDATED, so Python's else branch bridges it as a new message)", len(*queued), et)
+			}
+		})
+	}
+}
