@@ -345,6 +345,23 @@ func TestParse(t *testing.T) {
 			wantText: "1. one\n2. two\nafter",
 		},
 		{
+			// Regression test (gchat-port-auditor re-audit finding): an
+			// empty <li></li> must not vanish from JoinEntityString's
+			// output -- its blank line must survive between its
+			// neighbors, even though (deliberately, see JoinEntityString's
+			// doc comment) it contributes no zero-length LIST_ITEM entity
+			// of its own. Before the fix, the empty middle item was
+			// dropped entirely and "foo"/"bar" were merged onto one line.
+			name:     "unordered list with an empty <li> -- blank line survives, item not merged away",
+			content:  htmlContent("<ul><li>foo</li><li></li><li>bar</li></ul>"),
+			wantText: "foo\n\nbar",
+			wantAnnotes: []*pb.Annotation{
+				gchatfmt.MakeFormatAnnotation(0, 3, pb.FormatMetadata_BULLETED_LIST_ITEM),
+				gchatfmt.MakeFormatAnnotation(5, 3, pb.FormatMetadata_BULLETED_LIST_ITEM),
+				gchatfmt.MakeFormatAnnotation(0, 8, pb.FormatMetadata_BULLETED_LIST),
+			},
+		},
+		{
 			name:     "blockquote followed by more text -- no dangling separator",
 			content:  htmlContent("<blockquote>quoted</blockquote>more text"),
 			wantText: "> quoted\nmore text",

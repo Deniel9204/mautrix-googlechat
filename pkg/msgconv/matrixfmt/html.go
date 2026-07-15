@@ -297,14 +297,37 @@ func JoinEntityString(with string, strings ...*EntityString) *EntityString {
 	entities := make(BodyRangeList, 0, totalEntities)
 	wroteAny := false
 	for _, s := range strings {
-		if s == nil || len(s.Text) == 0 {
-			continue
+		// entity_string.py:154-159 -- join writes `separator` for EVERY
+		// item unconditionally, even one with empty text (Python's
+		// EntityString objects are never nil/None; the empty case there
+		// is just an EntityString with text=""). An earlier version of
+		// this port (caught by the gchat-port-auditor re-audit of the
+		// JoinEntityString fix above) instead `continue`d past any item
+		// with zero-length text -- including a nil *EntityString, this
+		// package's sentinel for "empty/absent content" (e.g. an empty
+		// <li></li>, whose rendered content is nil because
+		// nodeToTagAwareString(nil, ctx) has nothing to iterate) --
+		// which skipped its separator slot entirely, silently merging it
+		// into whatever came before/after instead of preserving it as a
+		// blank line. <ul><li>foo</li><li></li><li>bar</li></ul> used to
+		// render "foo\nbar" (the empty middle item vanished); it must
+		// render "foo\n\nbar" (the empty item's own blank line survives).
+		//
+		// This does NOT fabricate an entity for the empty item -- unlike
+		// Python's format(), which appends an entity even for
+		// zero-length content (offset=0, length=0), this port's Format()
+		// deliberately treats a nil receiver as "nothing to format" (see
+		// its own doc comment) since a zero-length annotation is a
+		// meaningless no-op on the wire; only the item's structural
+		// position in the text (and hence its separator) needs to
+		// survive, not a content-free entity.
+		if s != nil {
+			for _, entity := range s.Entities {
+				entity.Start += len(text)
+				entities = append(entities, entity)
+			}
+			text = append(text, s.Text...)
 		}
-		for _, entity := range s.Entities {
-			entity.Start += len(text)
-			entities = append(entities, entity)
-		}
-		text = append(text, s.Text...)
 		text = append(text, withUnits...)
 		wroteAny = true
 	}
