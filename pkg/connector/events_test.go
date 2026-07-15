@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
@@ -508,5 +509,210 @@ func TestHandleGChatEventMessageDeletedNoMessageIDSkipped(t *testing.T) {
 
 	if len(*queued) != 0 {
 		t.Fatalf("len(queued) = %d, want 0 (no message id)", len(*queued))
+	}
+}
+
+// --- MESSAGE_REACTION (M4 Task 3): message_reaction body ->
+// bridgev2.RemoteReaction / bridgev2.RemoteReactionRemove (both the same
+// simplevent.Reaction type). Ports handle_googlechat_reaction's own
+// extraction (portal.py:1166-1208): evt.message_id.message_id identifies
+// the reacted-to message; group id comes from the outer Event (same as
+// every other body arm, see this file's top-of-file doc comment), never
+// from anything on MessageReactionEvent itself (it carries no group id).
+// evt.type (ADD/REMOVE) selects RemoteEventReaction/RemoteEventReactionRemove;
+// evt.emoji.unicode is normalized both ways (variationselector.Remove for
+// EmojiID, .Add for the value handed toward Matrix) -- see handlereaction.go's
+// top-of-file doc comment. ------------------------------------------------
+
+// messageReactionEvent builds a *pb.Event shaped like a real MessageReaction
+// event reaching handleGChatEvent, mirroring messageDeletedEvent's shape for
+// the message_reaction body arm.
+func messageReactionEvent(groupID *pb.GroupId, gcMessageID, senderGaia, emojiUnicode string, reactionType pb.MessageReactionEvent_ReactionEventType, timestampMicros int64) *pb.Event {
+	return &pb.Event{
+		GroupId: groupID,
+		Type:    pb.Event_MESSAGE_REACTED.Enum(),
+		Body: &pb.Event_EventBody{
+			EventType: pb.Event_MESSAGE_REACTED.Enum(),
+			Type: &pb.Event_EventBody_MessageReaction{
+				MessageReaction: &pb.MessageReactionEvent{
+					MessageId: &pb.MessageId{MessageId: proto.String(gcMessageID)},
+					Emoji:     &pb.Emoji{Content: &pb.Emoji_Unicode{Unicode: emojiUnicode}},
+					UserId:    &pb.UserId{Id: proto.String(senderGaia)},
+					Timestamp: proto.Int64(timestampMicros),
+					Type:      reactionType.Enum(),
+				},
+			},
+		},
+	}
+}
+
+func TestHandleGChatEventMessageReactionAddQueuesRemoteReaction(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-1", "98765", "❤", pb.MessageReactionEvent_ADD, 1700000000123456)
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success", res)
+	}
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	reaction, ok := (*queued)[0].(bridgev2.RemoteReaction)
+	if !ok {
+		t.Fatalf("queued event does not implement bridgev2.RemoteReaction: %T", (*queued)[0])
+	}
+	if got, want := reaction.GetTargetMessage(), gcid.MakeMessageID("msg-1"); got != want {
+		t.Errorf("GetTargetMessage() = %q, want %q", got, want)
+	}
+	typed := (*queued)[0].(bridgev2.RemoteEvent)
+	if got := typed.GetType(); got != bridgev2.RemoteEventReaction {
+		t.Errorf("GetType() = %v, want RemoteEventReaction", got)
+	}
+
+	wantPortalKey := gcid.MakePortalKey(gcid.GroupID{ID: "space-1", IsDM: false}, gc.UserLogin.ID)
+	if got := typed.GetPortalKey(); got != wantPortalKey {
+		t.Errorf("GetPortalKey() = %+v, want %+v", got, wantPortalKey)
+	}
+
+	sender := typed.GetSender()
+	if got, want := sender.Sender, gcid.MakeUserID("98765"); got != want {
+		t.Errorf("GetSender().Sender = %q, want %q", got, want)
+	}
+	if sender.IsFromMe {
+		t.Error("GetSender().IsFromMe = true, want false (reactor is not the login's own gaia)")
+	}
+
+	emoji, emojiID := reaction.GetReactionEmoji()
+	if emojiID != networkid.EmojiID("❤") {
+		t.Errorf("EmojiID = %q, want %q (bare, for per-emoji dedup)", emojiID, "❤")
+	}
+	wantMatrixEmoji := "❤️" // variation selector added back toward Matrix
+	if emoji != wantMatrixEmoji {
+		t.Errorf("Emoji = %q, want %q (variation selector added toward Matrix)", emoji, wantMatrixEmoji)
+	}
+}
+
+// TestHandleGChatEventMessageReactionAddNormalizesEmojiAlreadyHavingSelector
+// proves the EmojiID stays bare even if a MessageReactionEvent's
+// evt.emoji.unicode were to unexpectedly carry a variation selector already
+// (defensive normalization -- GC's own wire protocol is not documented to
+// ever include one, see handlereaction.go's top-of-file doc comment).
+func TestHandleGChatEventMessageReactionAddNormalizesEmojiAlreadyHavingSelector(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-1", "98765", "❤️", pb.MessageReactionEvent_ADD, 1)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	reaction := (*queued)[0].(bridgev2.RemoteReaction)
+	_, emojiID := reaction.GetReactionEmoji()
+	if emojiID != networkid.EmojiID("❤") {
+		t.Errorf("EmojiID = %q, want %q (selector stripped)", emojiID, "❤")
+	}
+}
+
+func TestHandleGChatEventMessageReactionRemoveQueuesRemoteReactionRemove(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-2", "98765", "\U0001F44D", pb.MessageReactionEvent_REMOVE, 1)
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success", res)
+	}
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	removeEvt, ok := (*queued)[0].(bridgev2.RemoteReactionRemove)
+	if !ok {
+		t.Fatalf("queued event does not implement bridgev2.RemoteReactionRemove: %T", (*queued)[0])
+	}
+	if got, want := removeEvt.GetRemovedEmojiID(), networkid.EmojiID("\U0001F44D"); got != want {
+		t.Errorf("GetRemovedEmojiID() = %q, want %q", got, want)
+	}
+	typed := (*queued)[0].(bridgev2.RemoteEvent)
+	if got := typed.GetType(); got != bridgev2.RemoteEventReactionRemove {
+		t.Errorf("GetType() = %v, want RemoteEventReactionRemove", got)
+	}
+}
+
+// --- MESSAGE_REACTION: DM room -- portal key is receiver-scoped -----------
+
+func TestHandleGChatEventMessageReactionDMPortalKeyHasReceiver(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageReactionEvent(dmGroupID("dm-1"), "msg-3", "98765", "❤", pb.MessageReactionEvent_ADD, 1)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	typed := (*queued)[0].(bridgev2.RemoteEvent)
+	wantPortalKey := gcid.MakePortalKey(gcid.GroupID{ID: "dm-1", IsDM: true}, gc.UserLogin.ID)
+	if got := typed.GetPortalKey(); got != wantPortalKey {
+		t.Errorf("GetPortalKey() = %+v, want %+v", got, wantPortalKey)
+	}
+	if wantPortalKey.Receiver != gc.UserLogin.ID {
+		t.Fatalf("test setup: DM portal key must be receiver-scoped, got Receiver=%q", wantPortalKey.Receiver)
+	}
+}
+
+// --- MESSAGE_REACTION: own reaction sets IsFromMe --------------------------
+
+func TestHandleGChatEventMessageReactionOwnReactionSetsIsFromMe(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-4", "112233", "❤", pb.MessageReactionEvent_ADD, 1)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	typed := (*queued)[0].(bridgev2.RemoteEvent)
+	sender := typed.GetSender()
+	if !sender.IsFromMe {
+		t.Error("GetSender().IsFromMe = false, want true (reactor gaia == login's own gaia)")
+	}
+}
+
+// --- MESSAGE_REACTION: malformed/unknown events are skipped, not queued or
+// panicked -------------------------------------------------------------
+
+func TestHandleGChatEventMessageReactionNoGroupIDSkipped(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageReactionEvent(nil, "msg-5", "98765", "❤", pb.MessageReactionEvent_ADD, 1)
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success (Ignored, so the watermark still advances past the garbage)", res)
+	}
+	if len(*queued) != 0 {
+		t.Fatalf("len(queued) = %d, want 0 (no usable group id)", len(*queued))
+	}
+}
+
+func TestHandleGChatEventMessageReactionNoMessageIDSkipped(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageReactionEvent(spaceGroupID("space-1"), "", "98765", "❤", pb.MessageReactionEvent_ADD, 1)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 0 {
+		t.Fatalf("len(queued) = %d, want 0 (no message id)", len(*queued))
+	}
+}
+
+// TestHandleGChatEventMessageReactionUnknownTypeSkipped pins portal.py:1207-1208's
+// `else: self.log.debug(...)` branch: a MessageReactionEvent.type outside
+// {ADD, REMOVE} must be logged and ignored, not queued as either kind.
+func TestHandleGChatEventMessageReactionUnknownTypeSkipped(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-6", "98765", "❤", pb.MessageReactionEvent_ReactionEventType(99), 1)
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success (Ignored, so the watermark still advances)", res)
+	}
+	if len(*queued) != 0 {
+		t.Fatalf("len(queued) = %d, want 0 (unknown reaction event type)", len(*queued))
 	}
 }

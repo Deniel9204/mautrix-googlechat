@@ -178,6 +178,16 @@ type GChatClient struct {
 	// gchatmeow.Client connection -- mirrors editMessageFn above.
 	deleteMessageFn func(ctx context.Context, req *pb.DeleteMessageRequest) (*pb.DeleteMessageResponse, error)
 
+	// updateReactionFn issues the update_reaction RPC that handlereaction.go's
+	// HandleMatrixReaction/HandleMatrixReactionRemove need to push a Matrix
+	// reaction add/remove of a previously bridged message to Google Chat (M4
+	// Task 3). Defaults to conn.UpdateReaction; overridden in tests so the
+	// outbound reaction path (request construction: ADD vs REMOVE type, the
+	// emoji, the target MessageId) can be exercised without a live
+	// gchatmeow.Client connection -- mirrors editMessageFn/deleteMessageFn
+	// above.
+	updateReactionFn func(ctx context.Context, req *pb.UpdateReactionRequest) (*pb.UpdateReactionResponse, error)
+
 	// addPendingToIgnoreFn registers a send's local_id as a pending-to-ignore
 	// transaction on msg.Portal (handlematrix.go's HandleMatrixMessage, Task
 	// 6's echo-dedup mechanism), BEFORE the create_topic RPC is issued --

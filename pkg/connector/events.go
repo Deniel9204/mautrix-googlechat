@@ -39,6 +39,7 @@ import (
 	"context"
 
 	"github.com/rs/zerolog"
+	"go.mau.fi/util/variationselector"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
@@ -82,7 +83,7 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 	case *pb.Event_EventBody_MessageDeleted:
 		return c.queueMessageDeleted(ctx, evt)
 	case *pb.Event_EventBody_MessageReaction:
-		log.Debug().Msg("googlechat: unhandled MessageReaction event (M2+)")
+		return c.queueMessageReaction(ctx, evt)
 	case *pb.Event_EventBody_UserStatusUpdated:
 		log.Debug().Msg("googlechat: unhandled UserStatusUpdated event (M2+)")
 	case *pb.Event_EventBody_TypingStateChanged:
@@ -383,5 +384,120 @@ func (c *GChatClient) queueMessageDeleted(ctx context.Context, evt *pb.Event) br
 		Bool("is_dm", group.IsDM).
 		Any("result", res).
 		Msg("googlechat: queued inbound deletion")
+	return res
+}
+
+// queueMessageReaction handles the MessageReaction event body (EventBody
+// field 22, "message_reaction") and queues a bridgev2.RemoteReaction or
+// bridgev2.RemoteReactionRemove (both are the same simplevent.Reaction type,
+// see mautrix-go bridgev2/simplevent/reaction.go's own doc comment) for it,
+// porting handle_googlechat_reaction's own extraction (portal.py:1166-1208):
+//
+//   - target message id: evt.message_id.message_id -- the SAME field
+//     Python reads (portal.py:1170-1172's
+//     `DBMessage.get_by_gcid(evt.message_id.message_id, self.gcid, self.gc_receiver)`).
+//     Like MessageDeletedEvent, MessageReactionEvent carries no separate
+//     Message payload to pull a group id from; group comes from the outer
+//     Event's own group_id, same as every other body arm (this file's
+//     top-of-file doc comment).
+//   - sender: evt.user_id.id -- Python's `evt.user_id.id`
+//     (portal.py:1169's `p.Puppet.get_by_gcid(evt.user_id.id)`), the
+//     REACTOR's gaia id, distinct from MessagePosted's evt.creator (this
+//     body arm has no creator field at all, only user_id).
+//   - emoji: evt.emoji.unicode, normalized both ways (see handlereaction.go's
+//     top-of-file doc comment on variation selectors): EmojiID keeps the
+//     bare form GC's own wire protocol already uses (variationselector.Remove
+//     is applied defensively in case a future server response ever includes
+//     one; GC's own evt.emoji.unicode is not documented to), matching
+//     PreHandleMatrixReaction's identical bare-form EmojiID so a
+//     Matrix-initiated reaction and its own inbound echo key identically;
+//     Emoji gets the selector added back (variationselector.Add) for the
+//     value handed toward Matrix, mirroring portal.py:1183's
+//     `matrix_reaction = variation_selector.add(evt.emoji.unicode)`.
+//   - add vs remove: evt.type selects the RemoteEventType --
+//     MessageReactionEvent.ADD -> RemoteEventReaction (portal.py:1179's
+//     `if evt.type == googlechat.MessageReactionEvent.ADD:`),
+//     MessageReactionEvent.REMOVE -> RemoteEventReactionRemove
+//     (portal.py:1197's `elif evt.type == ... REMOVE:`). Any other value
+//     (portal.py:1207-1208's `else: self.log.debug(f"Unknown reaction event
+//     type {evt.type}")`) is logged and ignored rather than queued -- GC's
+//     own proto2 default for an absent type field IS ADD (matching
+//     Python's implicit behavior for a field GC always sets on the wire in
+//     practice), so this branch only ever fires for a genuinely unexpected
+//     future enum value.
+//   - timestamp: evt.timestamp (MessageReactionEvent field 4), Google
+//     Chat's microsecond epoch time -- Python divides by 1000 once
+//     (`timestamp=evt.timestamp // 1000`, portal.py:1185) to reach Matrix's
+//     millisecond convention; here that conversion lives in
+//     gchatmeow.MicrosToTime (EventMeta.Timestamp), same as every other
+//     inbound event in this file.
+//
+// The uniqueness key bridgev2 dedups/removes reactions by is (message, part,
+// sender, EmojiID) -- portal.getTargetReaction (mautrix-go bridgev2/portal.go:3293-3299)
+// and portal.handleRemoteReaction's own duplicate check
+// (portal.go:3464-3471) both key off exactly this tuple, matching Python's
+// own (emoji, sender, message) DBReaction row identity (portal.py:1176-1178).
+// Part is left implicit (simplevent.Reaction carries no PartID -- Google
+// Chat messages are always single-part, gcid.TextPartID) exactly like
+// queueMessageDeleted's TargetMessage above.
+//
+// Unlike queueMessagePosted, CreatePortal is left false (the zero value): a
+// reaction to a message in a portal that doesn't exist yet has nothing to
+// attach to, mirroring queueMessageEdit/queueMessageDeleted's identical
+// reasoning.
+func (c *GChatClient) queueMessageReaction(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
+	log := zerolog.Ctx(ctx)
+	reaction := evt.GetBody().GetMessageReaction()
+	gcMessageID := reaction.GetMessageId().GetMessageId()
+	if gcMessageID == "" {
+		log.Warn().Msg("googlechat: MessageReaction event with no message id, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+	id, isDM, groupOK := gchatmeow.GroupIDToParts(evt.GetGroupId())
+	if !groupOK {
+		log.Warn().Str("gc_message_id", gcMessageID).
+			Msg("googlechat: MessageReaction event with no usable group id, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+	group := gcid.GroupID{ID: id, IsDM: isDM}
+
+	var eventType bridgev2.RemoteEventType
+	switch reaction.GetType() {
+	case pb.MessageReactionEvent_ADD:
+		eventType = bridgev2.RemoteEventReaction
+	case pb.MessageReactionEvent_REMOVE:
+		eventType = bridgev2.RemoteEventReactionRemove
+	default:
+		log.Debug().
+			Str("gc_message_id", gcMessageID).
+			Int("gc_reaction_type", int(reaction.GetType())).
+			Msg("googlechat: unknown MessageReaction event type, skipping")
+		return bridgev2.EventHandlingResultIgnored
+	}
+
+	senderUserID := gcid.MakeUserID(reaction.GetUserId().GetId())
+	bareEmoji := variationselector.Remove(reaction.GetEmoji().GetUnicode())
+
+	res := c.queueRemoteEvent(&simplevent.Reaction{
+		EventMeta: simplevent.EventMeta{
+			Type:      eventType,
+			PortalKey: gcid.MakePortalKey(group, c.UserLogin.ID),
+			Sender: bridgev2.EventSender{
+				Sender:   senderUserID,
+				IsFromMe: c.IsThisUser(ctx, senderUserID),
+			},
+			Timestamp: gchatmeow.MicrosToTime(reaction.GetTimestamp()),
+		},
+		TargetMessage: gcid.MakeMessageID(gcMessageID),
+		EmojiID:       networkid.EmojiID(bareEmoji),
+		Emoji:         variationselector.Add(bareEmoji),
+	})
+	log.Debug().
+		Str("gc_message_id", gcMessageID).
+		Str("gc_group_id", group.ID).
+		Bool("is_dm", group.IsDM).
+		Str("gc_reaction_type", reaction.GetType().String()).
+		Any("result", res).
+		Msg("googlechat: queued inbound reaction")
 	return res
 }

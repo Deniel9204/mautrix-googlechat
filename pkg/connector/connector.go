@@ -51,6 +51,7 @@ func (gc *GChatConnector) GetDBMetaTypes() database.MetaTypes {
 		Portal:    func() any { return &PortalMetadata{} },
 		Ghost:     func() any { return &GhostMetadata{} },
 		Message:   func() any { return &MessageMetadata{} },
+		Reaction:  func() any { return &ReactionMetadata{} },
 		UserLogin: func() any { return &UserLoginMetadata{} },
 	}
 }

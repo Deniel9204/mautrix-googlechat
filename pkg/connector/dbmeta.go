@@ -50,3 +50,23 @@ type MessageMetadata struct {
 type GhostMetadata struct {
 	Email string `json:"email,omitempty"`
 }
+
+type ReactionMetadata struct {
+	// Google Chat topic id the reacted-to message belongs to -- the same
+	// value MessageMetadata.TopicID stores on the message row itself (M3
+	// Task 6), cached here too at reaction-creation time
+	// (handlereaction.go's HandleMatrixReaction) so a later Matrix
+	// redaction of this reaction (HandleMatrixReactionRemove) can build the
+	// UpdateReaction RPC's message_id.parent_id.topic_id directly off the
+	// already-resolved *database.Reaction bridgev2 hands back
+	// (MatrixReactionRemove.TargetReaction), with no extra DB.Message
+	// lookup for the target message row. This is a deliberate improvement
+	// over portal.py's handle_matrix_redaction reaction branch
+	// (portal.py:816-829), which re-fetches the target DBMessage row fresh
+	// on every removal (`DBMessage.get_by_gcid(reaction.gc_msgid, ...)`) --
+	// unnecessary here because a Google Chat message's topic membership is
+	// immutable once posted (unlike last_edit_time, which genuinely changes
+	// over a message's lifetime and so must stay live on the message row
+	// instead of being cached).
+	TopicID string `json:"topic_id,omitempty"`
+}
