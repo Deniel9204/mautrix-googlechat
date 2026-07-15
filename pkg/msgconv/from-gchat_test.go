@@ -398,3 +398,106 @@ func TestToMatrix_ThreadRootSetEvenForAttachmentOnlyMessage(t *testing.T) {
 		t.Errorf("ThreadRoot = %v, want %q even with no text parts", cm.ThreadRoot, "topic1")
 	}
 }
+
+// --- ReplyTo (M3 Task 7, quote-replies) --------------------------------------
+//
+// Ports handle_googlechat_message's reply_to resolution (portal.py:1390-1396):
+// `if evt.reply_to: reply_to_db = await DBMessage.get_by_gcid(evt.reply_to.id.message_id, ...)`
+// -- the wire-level source is always evt.reply_to.id.message_id (ReplyToMessage.id,
+// MessageId.message_id, proto field 37 -> field 1 -> field 2). Unlike Python
+// (which resolves the DB row and hands its Matrix mxid to content.set_reply
+// right there in portal.py, since Matrix event id resolution requires a DB
+// lookup that belongs in the connector, not msgconv, matching msgconv's own
+// "no portal, no intent" package doc), ToMatrix here only surfaces the
+// network message id itself via cm.ReplyTo (a
+// *networkid.MessageOptionalPartID); resolving it to a concrete Matrix event
+// (or dropping it if the target was never bridged) is bridgev2's own generic
+// job (mautrix-go bridgev2/portal.go:2768-2801, GetFirstOrSpecificPartByID),
+// not this connector's, and not msgconv's.
+
+// replyMessage builds a *pb.Message with a ReplyToMessage set, mirroring
+// topicMessage's plain-field-construction style above.
+func replyMessage(text, replyToMessageID string) *pb.Message {
+	msg := &pb.Message{TextBody: proto.String(text)}
+	msg.ReplyTo = &pb.ReplyToMessage{Id: &pb.MessageId{MessageId: proto.String(replyToMessageID)}}
+	return msg
+}
+
+// TestToMatrix_ReplyToSetsConvertedMessageReplyTo is the headline inbound
+// case: a message with reply_to set must produce a ConvertedMessage whose
+// ReplyTo.MessageID is exactly reply_to.id.message_id, with no PartID
+// override (nil -- "refer to the first part", matching every other
+// single-part Google Chat message; networkid.MessageOptionalPartID's own doc
+// comment).
+func TestToMatrix_ReplyToSetsConvertedMessageReplyTo(t *testing.T) {
+	mc := msgconv.New()
+	msg := replyMessage("a reply", "target1")
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if cm.ReplyTo == nil {
+		t.Fatal("ReplyTo = nil, want a MessageOptionalPartID")
+	}
+	if string(cm.ReplyTo.MessageID) != "target1" {
+		t.Errorf("ReplyTo.MessageID = %q, want %q", cm.ReplyTo.MessageID, "target1")
+	}
+	if cm.ReplyTo.PartID != nil {
+		t.Errorf("ReplyTo.PartID = %v, want nil", *cm.ReplyTo.PartID)
+	}
+}
+
+// TestToMatrix_NoReplyToLeavesConvertedMessageReplyToNil is the converse: a
+// message with no reply_to at all (the common case) must leave cm.ReplyTo
+// nil, not a zero-value MessageOptionalPartID{} (which would spuriously
+// point bridgev2 at a message with an empty MessageID).
+func TestToMatrix_NoReplyToLeavesConvertedMessageReplyToNil(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{TextBody: proto.String("no reply here")}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if cm.ReplyTo != nil {
+		t.Errorf("ReplyTo = %v, want nil", *cm.ReplyTo)
+	}
+}
+
+// TestToMatrix_ReplyToSetEvenForAttachmentOnlyMessage mirrors
+// TestToMatrix_ThreadRootSetEvenForAttachmentOnlyMessage: ReplyTo must be
+// computed before the empty-text_body early return too, so a future (M5)
+// attachment-only reply still carries the right ReplyTo even with zero text
+// parts.
+func TestToMatrix_ReplyToSetEvenForAttachmentOnlyMessage(t *testing.T) {
+	mc := msgconv.New()
+	msg := replyMessage("", "target1")
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 0 {
+		t.Fatalf("expected 0 parts for empty text_body, got %d", len(cm.Parts))
+	}
+	if cm.ReplyTo == nil || string(cm.ReplyTo.MessageID) != "target1" {
+		t.Errorf("ReplyTo = %v, want MessageID %q even with no text parts", cm.ReplyTo, "target1")
+	}
+}
+
+// TestToMatrix_ReplyToAndThreadRootBothSet covers composing with threads
+// (Task 6): a message that is both a reply into an existing topic
+// (message_id != topic_id -> ThreadRoot) AND carries an explicit reply_to
+// (a quote-reply to a specific message within that thread) must set BOTH
+// cm.ThreadRoot and cm.ReplyTo independently -- they are computed from
+// disjoint proto fields (msg.id.parent_id vs msg.reply_to) and neither
+// setter here has any awareness of the other.
+func TestToMatrix_ReplyToAndThreadRootBothSet(t *testing.T) {
+	mc := msgconv.New()
+	msg := topicMessage("reply2", "topic1", "a reply in a thread")
+	msg.ReplyTo = &pb.ReplyToMessage{Id: &pb.MessageId{MessageId: proto.String("target-in-thread")}}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if cm.ThreadRoot == nil || string(*cm.ThreadRoot) != "topic1" {
+		t.Errorf("ThreadRoot = %v, want %q", cm.ThreadRoot, "topic1")
+	}
+	if cm.ReplyTo == nil || string(cm.ReplyTo.MessageID) != "target-in-thread" {
+		t.Errorf("ReplyTo = %v, want MessageID %q", cm.ReplyTo, "target-in-thread")
+	}
+}

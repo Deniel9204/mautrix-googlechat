@@ -104,9 +104,33 @@ import (
 // reply -> thread auto-conversion the task brief calls out,
 // bridgev2/portal.go:1259-1268).
 //
+// ReplyTo (M3 Task 7), ported from handle_googlechat_message's reply_to
+// resolution (portal.py:1390-1396, `if evt.reply_to: reply_to_db =
+// DBMessage.get_by_gcid(evt.reply_to.id.message_id, ...)`): the wire-level
+// source is always msg.reply_to.id.message_id (ReplyToMessage.id,
+// MessageId.message_id -- proto field 37 -> field 1 -> field 2), set
+// whenever present (a nil-safe getter chain: an absent reply_to, or one
+// missing its id/message_id, yields "" and cm.ReplyTo stays nil). Unlike
+// Python, which resolves the DB row and its Matrix mxid right here (a DB
+// lookup that belongs in the connector, not msgconv -- msgconv.go's package
+// doc, "no portal, no intent"), this only surfaces the network message id
+// itself via cm.ReplyTo (*networkid.MessageOptionalPartID, PartID left nil
+// -- "refer to the first part", matching every other single-part Google
+// Chat message); resolving it to a concrete Matrix event (or dropping it if
+// the target was never bridged) is bridgev2's own generic job
+// (mautrix-go bridgev2/portal.go:2768-2801, GetFirstOrSpecificPartByID).
+//
+// Independent of ThreadRoot above: a reply can also live in a thread (both
+// message_id != topic_id AND reply_to set, a quote-reply to a specific
+// message within that thread) -- the two are read from disjoint proto
+// fields (msg.id.parent_id vs msg.reply_to) and set with no interaction
+// between them, so both end up populated together in that case, matching
+// what portal.py's own thread_parent + non-fallback reply_to combination
+// produces (portal.py:891-894).
+//
 // Computed BEFORE the empty-text_body early return below (not after), so a
 // future (M5) attachment-only message in a thread still carries the right
-// ThreadRoot even though it has zero text parts today.
+// ThreadRoot/ReplyTo even though it has zero text parts today.
 func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, threadsOnly bool, mention gchatfmt.MentionResolver) (*bridgev2.ConvertedMessage, gchatfmt.ParsedMentions) {
 	cm := &bridgev2.ConvertedMessage{
 		Parts: make([]*bridgev2.ConvertedMessagePart, 0, 1),
@@ -117,6 +141,10 @@ func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, threa
 	if topicID != "" && (topicID != messageID || threadsOnly) {
 		threadRoot := networkid.MessageID(topicID)
 		cm.ThreadRoot = &threadRoot
+	}
+
+	if replyToID := msg.GetReplyTo().GetId().GetMessageId(); replyToID != "" {
+		cm.ReplyTo = &networkid.MessageOptionalPartID{MessageID: networkid.MessageID(replyToID)}
 	}
 
 	text := msg.GetTextBody()

@@ -73,6 +73,20 @@ func threadedMatrixMessage(portal *bridgev2.Portal, body, rootID, rootTopicID st
 	return msg
 }
 
+// replyMatrixMessage builds a *bridgev2.MatrixMessage whose ReplyTo is
+// pre-resolved (bridgev2's own job, mautrix-go bridgev2/portal.go:1248-1273 --
+// not this connector's) to a *database.Message with the given target id and
+// stored MessageMetadata.TimestampMicro, matching what a genuine Matrix
+// quote-reply (m.in_reply_to) hands HandleMatrixMessage.
+func replyMatrixMessage(portal *bridgev2.Portal, body, targetID string, targetTimestampMicro int64) *bridgev2.MatrixMessage {
+	msg := textMatrixMessage(portal, body)
+	msg.ReplyTo = &database.Message{
+		ID:       gcid.MakeMessageID(targetID),
+		Metadata: &MessageMetadata{TimestampMicro: targetTimestampMicro},
+	}
+	return msg
+}
+
 // noopAddPendingToIgnore is the addPendingToIgnoreFn override every
 // HandleMatrixMessage test that doesn't itself assert on the pending
 // registration needs: the real msg.AddPendingToIgnore (Task 6) writes into
@@ -122,7 +136,7 @@ func TestHandleMatrixMessageSpacePortalBuildsCreateTopicRequest(t *testing.T) {
 		t.Error("MessageInfo.AcceptFormatAnnotations = false, want true (client.py:467-469)")
 	}
 	if gotReq.GetMessageInfo().GetReplyTo() != nil {
-		t.Error("MessageInfo.ReplyTo is set, want nil (M2 has no quote-reply support yet)")
+		t.Error("MessageInfo.ReplyTo is set, want nil (msg.ReplyTo is nil -- not a quote-reply)")
 	}
 	if gotReq.GetLocalId() == "" {
 		t.Error("LocalId is empty, want a generated dedup token")
@@ -853,5 +867,194 @@ func TestHandleMatrixMessageThreadedFormattingAndMentionsWired(t *testing.T) {
 	wantAnn := gchatfmt.MakeFormatAnnotation(2, 1, pb.FormatMetadata_BOLD)
 	if len(gotReq.GetAnnotations()) != 1 || gotReq.GetAnnotations()[0].String() != wantAnn.String() {
 		t.Errorf("Annotations = %s, want [%s]", formatAnnotationsForTest(gotReq.GetAnnotations()), wantAnn.String())
+	}
+}
+
+// --- HandleMatrixMessage: quote-replies (M3 Task 7, SendReplyTarget) -------
+//
+// Ports client.py's send_message reply_to_wrapped construction
+// (client.py:423-438): SendReplyTarget{id: MessageId{parent_id.topic_id: {
+// group_id, topic_id: thread_id or reply_to}, message_id: reply_to},
+// create_time: reply_to_ts}, gated on `if reply_to else None`. thread_id is
+// this connector's own topicID local (set when routing into an existing
+// thread, sendThreadedMessage) or "" (sendNewTopic, no thread) -- the "or
+// reply_to" fallback then uses the reply target's OWN message id as its
+// (guessed) topic id, which portal.py's own upstream routing
+// (portal.py:896-900, elif reply_to.gc_parent_id != reply_to.gcid: reroute
+// to a thread post and clear reply_to) guarantees is correct whenever
+// thread_id is empty: a reply_to that survives to this point with no
+// thread_id is always the head of its own topic.
+
+// TestHandleMatrixMessageReplyBuildsSendReplyTarget covers the plain
+// (non-threaded) quote-reply case: msg.ReplyTo set, msg.ThreadRoot nil ->
+// create_topic with message_info.reply_to populated from the target's own
+// stored id + µs create_time (MessageMetadata.TimestampMicro), and --
+// matching client.py's `thread_id or reply_to` fallback with thread_id ==
+// "" here -- the reply target's own nested topic_id falls back to the
+// target's own message id.
+func TestHandleMatrixMessageReplyBuildsSendReplyTarget(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.CreateTopicRequest
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			gotReq = req
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := replyMatrixMessage(spacePortal("space1"), "a reply", "target1", 555_000)
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+
+	replyTarget := gotReq.GetMessageInfo().GetReplyTo()
+	if replyTarget == nil {
+		t.Fatal("MessageInfo.ReplyTo is nil, want a SendReplyTarget")
+	}
+	if got := replyTarget.GetId().GetMessageId(); got != "target1" {
+		t.Errorf("ReplyTo.Id.MessageId = %q, want %q", got, "target1")
+	}
+	if got := replyTarget.GetCreateTime(); got != 555_000 {
+		t.Errorf("ReplyTo.CreateTime = %d, want %d (the target's stored µs create_time)", got, 555_000)
+	}
+	if got := replyTarget.GetId().GetParentId().GetTopicId().GetTopicId(); got != "target1" {
+		t.Errorf("ReplyTo.Id.ParentId.TopicId.TopicId = %q, want %q (thread_id empty -> falls back to the target's own id, client.py:429)", got, "target1")
+	}
+	if got := replyTarget.GetId().GetParentId().GetTopicId().GetGroupId().GetSpaceId().GetSpaceId(); got != "space1" {
+		t.Errorf("ReplyTo.Id.ParentId.TopicId.GroupId.SpaceId = %q, want %q", got, "space1")
+	}
+}
+
+// TestHandleMatrixMessageReplyInDMPortalBuildsDmGroupID mirrors the DM/space
+// coverage pattern used for the plain create_topic and threaded paths above,
+// for the reply target's own nested GroupId.
+func TestHandleMatrixMessageReplyInDMPortalBuildsDmGroupID(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.CreateTopicRequest
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			gotReq = req
+			return createTopicResponse("t", 1), nil
+		},
+	}
+
+	msg := replyMatrixMessage(dmPortal("dm1"), "a reply", "target1", 555_000)
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+
+	if got := gotReq.GetMessageInfo().GetReplyTo().GetId().GetParentId().GetTopicId().GetGroupId().GetDmId().GetDmId(); got != "dm1" {
+		t.Errorf("ReplyTo.Id.ParentId.TopicId.GroupId.DmId = %q, want %q", got, "dm1")
+	}
+}
+
+// TestHandleMatrixMessageReplyAndThreadBothSet covers the "reply can also be
+// in a thread" composition case the task brief calls out: bridgev2 can hand
+// HandleMatrixMessage a MatrixMessage with BOTH ThreadRoot and ReplyTo set
+// (an explicit Matrix thread reply that ALSO carries a non-fallback
+// m.in_reply_to to a specific message within that thread, portal.py's own
+// comment at portal.py:893-894: "If there's an additional non-fallback
+// reply, it'll also be used." -- or bridgev2's own reply->thread-root
+// auto-derivation, mautrix-go bridgev2/portal.go:1259-1271, which does NOT
+// clear ReplyTo when the connector supports the Reply capability). Thread
+// ROUTING must stay governed purely by ThreadRoot (create_message, Task 6,
+// unchanged); the reply target's own nested topic_id must use the thread's
+// topic id (client.py's `thread_id or reply_to`, thread_id truthy here),
+// NOT the reply target's own message id.
+func TestHandleMatrixMessageReplyAndThreadBothSet(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.CreateMessageRequest
+	topicCalled := false
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			topicCalled = true
+			return createTopicResponse("wrong-path", 1), nil
+		},
+		createMessageFn: func(_ context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
+			gotReq = req
+			return createMessageResponse("reply-msg-7", 1), nil
+		},
+	}
+
+	msg := threadedMatrixMessage(spacePortal("space1"), "a reply", "topic1", "topic1")
+	msg.ReplyTo = &database.Message{
+		ID:       gcid.MakeMessageID("target-in-thread"),
+		Metadata: &MessageMetadata{TimestampMicro: 777_000},
+	}
+
+	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
+	}
+	if topicCalled {
+		t.Error("createTopicFn was called for a threaded reply, want createMessageFn only (thread routing must stay governed by ThreadRoot)")
+	}
+	if got := gotReq.GetParentId().GetTopicId().GetTopicId(); got != "topic1" {
+		t.Errorf("ParentId.TopicId.TopicId = %q, want %q (thread routing unaffected by ReplyTo)", got, "topic1")
+	}
+
+	replyTarget := gotReq.GetMessageInfo().GetReplyTo()
+	if replyTarget == nil {
+		t.Fatal("MessageInfo.ReplyTo is nil, want a SendReplyTarget")
+	}
+	if got := replyTarget.GetId().GetMessageId(); got != "target-in-thread" {
+		t.Errorf("ReplyTo.Id.MessageId = %q, want %q", got, "target-in-thread")
+	}
+	if got := replyTarget.GetCreateTime(); got != 777_000 {
+		t.Errorf("ReplyTo.CreateTime = %d, want %d", got, 777_000)
+	}
+	if got := replyTarget.GetId().GetParentId().GetTopicId().GetTopicId(); got != "topic1" {
+		t.Errorf("ReplyTo.Id.ParentId.TopicId.TopicId = %q, want %q (thread_id truthy -> used verbatim, client.py:429, NOT the reply target's own id)", got, "topic1")
+	}
+}
+
+// TestHandleMatrixMessageReplyMissingTimestampGraceful covers the Go-only
+// defensive case Python never hits (its DBMessage.timestamp column is
+// NOT NULL, mautrix_googlechat/db/message.py:40): a *database.Message handed
+// in via msg.ReplyTo whose stored MessageMetadata.TimestampMicro is
+// unavailable (zero, absent Metadata, or a Metadata value of an unexpected
+// type -- e.g. a pre-Task-7 legacy row). Rather than send a malformed
+// SendReplyTarget (id set, create_time missing/0, risking the WHOLE
+// create_topic/create_message call being rejected server-side), the chosen
+// graceful degradation is to log a warning and send the message with NO
+// reply target at all -- it still lands as a normal message/thread post,
+// just without the quote-reply decoration.
+func TestHandleMatrixMessageReplyMissingTimestampGraceful(t *testing.T) {
+	cases := []struct {
+		name     string
+		metadata any
+	}{
+		{"zero TimestampMicro", &MessageMetadata{TimestampMicro: 0}},
+		{"nil Metadata", nil},
+		{"wrong Metadata type", "not-a-MessageMetadata"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			login := newTestUserLogin(&UserLoginMetadata{})
+			var gotReq *pb.CreateTopicRequest
+			gc := &GChatClient{
+				UserLogin:            login,
+				addPendingToIgnoreFn: noopAddPendingToIgnore,
+				createTopicFn: func(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+					gotReq = req
+					return createTopicResponse("t", 1), nil
+				},
+			}
+
+			msg := textMatrixMessage(spacePortal("space1"), "a reply")
+			msg.ReplyTo = &database.Message{ID: gcid.MakeMessageID("target-no-ts"), Metadata: tc.metadata}
+
+			if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
+				t.Fatalf("HandleMatrixMessage() error = %v, want nil (missing timestamp must degrade gracefully, not error)", err)
+			}
+			if gotReq.GetMessageInfo().GetReplyTo() != nil {
+				t.Errorf("MessageInfo.ReplyTo = %v, want nil (no usable create_time -> send without a reply target)", gotReq.GetMessageInfo().GetReplyTo())
+			}
+		})
 	}
 }

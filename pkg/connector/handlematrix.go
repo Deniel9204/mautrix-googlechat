@@ -19,8 +19,15 @@ package connector
 // capabilities.go) to build that pre-resolved ThreadRoot rather than
 // re-implementing portal.py:886-907's DBMessage lookups itself.
 //
-// Field-by-field fidelity notes for each RPC's request live on sendNewTopic
-// and sendThreadedMessage's own doc comments, below.
+// M3 Task 7 implements reply_to_wrapped/message_info.reply_to (the other
+// half of client.py:423-438/453-456,467-469 the above paragraph doesn't
+// cover): msg.ReplyTo != nil (bridgev2's own pre-resolved quote-reply
+// target, mautrix-go bridgev2/portal.go:1248-1273) builds a SendReplyTarget
+// via buildReplyTarget, below, composing independently of ThreadRoot -- a
+// reply can also be posted into a thread (both set at once).
+//
+// Field-by-field fidelity notes for each RPC's request live on sendNewTopic,
+// sendThreadedMessage, and buildReplyTarget's own doc comments, below.
 //
 // Known gap, tracked rather than fixed here (gchat-port-auditor, M2 Task 5
 // review): portal.py's _handle_matrix_text also unconditionally calls
@@ -39,6 +46,7 @@ import (
 	"fmt"
 	"math/rand"
 
+	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -121,6 +129,92 @@ func threadRootTopicID(root *database.Message) (string, bool) {
 	return string(root.ID), true
 }
 
+// buildReplyTarget builds message_info.reply_to (M3 Task 7), porting
+// send_message's reply_to_wrapped construction (client.py:423-438) field by
+// field:
+//
+//	reply_to_wrapped = SendReplyTarget(
+//	    id=MessageId(
+//	        parent_id=MessageParentId(
+//	            topic_id=TopicId(group_id=..., topic_id=thread_id or reply_to),
+//	        ),
+//	        message_id=reply_to,
+//	    ),
+//	    create_time=reply_to_ts,
+//	) if reply_to else None
+//
+// replyTo is msg.ReplyTo, bridgev2's own pre-resolved reply target
+// (mautrix-go bridgev2/portal.go:1248-1273) -- nil (-> nil return, matching
+// Python's `if reply_to else None` gate) whenever the Matrix event carried
+// no (non-fallback) m.in_reply_to relation.
+//
+// threadTopicID is the SAME "thread_id" sendNewTopic/sendThreadedMessage
+// compute for routing: "" from sendNewTopic (no thread), or the topic being
+// posted into from sendThreadedMessage. It drives the reply target's own
+// nested topic_id via exactly Python's "thread_id or reply_to" fallback:
+// truthy threadTopicID (we ARE posting into a thread) wins outright; empty
+// falls back to the reply target's own message id. That fallback is only
+// ever exercised in the no-thread case, and is correct there: portal.py's
+// own upstream thread_id/reply_to selection (portal.py:896-900, `elif
+// reply_to.gc_parent_id != reply_to.gcid: thread_id = reply_to.gc_parent_id;
+// reply_to = None`) guarantees a reply_to that survives to this point with
+// no thread_id is always the head of its own topic (message_id ==
+// topic_id) -- this connector doesn't need to replicate that upstream
+// selection itself (see threadRootTopicID's own doc comment on leaning on
+// bridgev2's generic thread/reply resolution instead), because bridgev2
+// hands ReplyTo/ThreadRoot through independently rather than pre-clearing
+// ReplyTo the way portal.py's Python-side elif does -- see
+// TestHandleMatrixMessageReplyAndThreadBothSet's doc comment for the
+// resulting "both set at once" case this connector must (and does) still
+// handle correctly.
+//
+// create_time is the target's own stored µs create_time
+// (MessageMetadata.TimestampMicro, replyTo.Metadata -- stamped on every
+// bridged message, both directions, since M2/M3 Task 6; see
+// MessageMetadata's own doc comment on why it exists). Python's
+// reply_to_ts is always available (DBMessage.timestamp is a NOT NULL
+// column, mautrix_googlechat/db/message.py:40) so client.py never has a
+// missing-timestamp case to handle; this Go port defensively covers the
+// scenarios Python's schema rules out (a legacy pre-Task-7 DB row with no
+// TimestampMicro stored, or a Metadata value of an unexpected type) by
+// logging a warning and returning nil -- sending the message WITHOUT any
+// reply target, rather than risking a malformed SendReplyTarget (id set,
+// create_time missing/0) getting the whole create_topic/create_message call
+// rejected server-side. The message itself still sends normally either way
+// (as a plain message or thread post); only the quote-reply decoration is
+// lost.
+func buildReplyTarget(ctx context.Context, group gcid.GroupID, replyTo *database.Message, threadTopicID string) *pb.SendReplyTarget {
+	if replyTo == nil {
+		return nil
+	}
+	replyToID := gcid.ParseMessageID(replyTo.ID)
+	meta, ok := replyTo.Metadata.(*MessageMetadata)
+	if !ok || meta == nil || meta.TimestampMicro == 0 {
+		zerolog.Ctx(ctx).Warn().
+			Str("reply_to_id", replyToID).
+			Msg("googlechat: reply target has no stored create_time, sending without a quote-reply target")
+		return nil
+	}
+	topicID := threadTopicID
+	if topicID == "" {
+		topicID = replyToID
+	}
+	return &pb.SendReplyTarget{
+		Id: &pb.MessageId{
+			ParentId: &pb.MessageParentId{
+				Parent: &pb.MessageParentId_TopicId{
+					TopicId: &pb.TopicId{
+						GroupId: gchatmeow.PartsToGroupID(group.ID, group.IsDM),
+						TopicId: proto.String(topicID),
+					},
+				},
+			},
+			MessageId: proto.String(replyToID),
+		},
+		CreateTime: proto.Int64(meta.TimestampMicro),
+	}
+}
+
 // sendNewTopic issues create_topic, matching send_message's else branch
 // (client.py:459-472) field-by-field:
 //
@@ -172,9 +266,12 @@ func threadRootTopicID(root *database.Message) (string, bool) {
 //     empty -- grep-verified: send_message never gates this on
 //     `len(annotations)`) -- so it stays unconditional here too, matching
 //     Python exactly rather than gating it on len(annotations) > 0.
-//     message_info.reply_to is left unset: quote-reply support is M3 Task 7,
-//     matching what send_message would build with reply_to=None
-//     (client.py:423-437, reply_to_wrapped stays nil in that case).
+//     message_info.reply_to (M3 Task 7): buildReplyTarget(ctx, group,
+//     msg.ReplyTo, "") -- nil (matching send_message's own reply_to=None ->
+//     reply_to_wrapped=nil, client.py:423-437) when msg.ReplyTo is nil, else
+//     a SendReplyTarget built from it. See buildReplyTarget's own doc
+//     comment for the full field-by-field port, including the "" passed
+//     here for its threadTopicID parameter (no thread on this path).
 //   - retention_settings is left unset: it is never set by send_message at
 //     all (client.py:460-471 never mentions it).
 //   - topic_and_message_id is never set by send_message either (proto field
@@ -211,6 +308,10 @@ func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMess
 		HistoryV2:   proto.Bool(true),
 		MessageInfo: &pb.MessageInfo{
 			AcceptFormatAnnotations: proto.Bool(true),
+			// M3 Task 7: threadTopicID is "" here (no thread) -- see
+			// buildReplyTarget's own doc comment for the "thread_id or
+			// reply_to" fallback this drives.
+			ReplyTo: buildReplyTarget(ctx, group, msg.ReplyTo, ""),
 		},
 	}
 
@@ -276,8 +377,12 @@ func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMess
 //   - message_id (proto field 6, CreateMessageRequest only) is never set by
 //     send_message's threaded branch (client.py:442-457 never mentions it)
 //     and is likewise left unset here.
-//   - message_info.reply_to is left unset for the same M3 Task 7 reason as
-//     sendNewTopic.
+//   - message_info.reply_to (M3 Task 7): buildReplyTarget(ctx, group,
+//     msg.ReplyTo, topicID) -- same as sendNewTopic, except topicID (the
+//     thread this message is being posted into) is passed as
+//     threadTopicID here rather than "", driving the "thread_id or
+//     reply_to" fallback's thread_id-truthy arm (see buildReplyTarget's own
+//     doc comment).
 func (c *GChatClient) sendThreadedMessage(ctx context.Context, msg *bridgev2.MatrixMessage, group gcid.GroupID, topicID, text string, annotations []*pb.Annotation, localID string, txnID networkid.TransactionID) (*bridgev2.MatrixMessageResponse, error) {
 	send := c.createMessageFn
 	if send == nil {
@@ -302,6 +407,12 @@ func (c *GChatClient) sendThreadedMessage(ctx context.Context, msg *bridgev2.Mat
 		Annotations: annotations,
 		MessageInfo: &pb.MessageInfo{
 			AcceptFormatAnnotations: proto.Bool(true),
+			// M3 Task 7: threadTopicID is topicID here (the thread this
+			// message is being posted into) -- see buildReplyTarget's own
+			// doc comment for the "thread_id or reply_to" fallback this
+			// drives, and TestHandleMatrixMessageReplyAndThreadBothSet for
+			// the "reply also in a thread" composition case.
+			ReplyTo: buildReplyTarget(ctx, group, msg.ReplyTo, topicID),
 		},
 	}
 
