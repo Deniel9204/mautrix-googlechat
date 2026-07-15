@@ -7,6 +7,7 @@ tool go.mau.fi/util/cmd/maubuild
 require (
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/util v0.9.11-0.20260625130032-7f1066352431
+	golang.org/x/net v0.56.0
 	google.golang.org/protobuf v1.36.11
 	maunium.net/go/mautrix v0.28.2-0.20260708122614-d9c352f407dd
 )
@@ -31,7 +32,6 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/mod v0.37.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
