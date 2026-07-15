@@ -406,10 +406,12 @@ func TestHandleMatrixReactionRemoveDMPortalBuildsDmGroupID(t *testing.T) {
 }
 
 // TestHandleMatrixReactionRemoveFallsBackToMessageIDWhenNoTopicIDMetadata
-// covers a reaction row with no cached ReactionMetadata at all (e.g. a
-// pre-Task-3 legacy row, or a Metadata value of an unexpected type): the
-// topic id must fall back to the reaction's own target message id, exactly
-// like HandleMatrixReaction/threadRootTopicID's identical fallback.
+// covers a reaction row with no cached ReactionMetadata AND no lookup
+// capability at all (getMessageFn is nil and UserLogin.Bridge is nil, this
+// package's lightweight test harness -- see reactionTopicID's own doc
+// comment, handlereaction.go): the topic id must fall back to the
+// reaction's own target message id as the last resort, exactly like
+// HandleMatrixReaction/threadRootTopicID's identical fallback.
 func TestHandleMatrixReactionRemoveFallsBackToMessageIDWhenNoTopicIDMetadata(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.UpdateReactionRequest
@@ -433,6 +435,158 @@ func TestHandleMatrixReactionRemoveFallsBackToMessageIDWhenNoTopicIDMetadata(t *
 	}
 	if got := gotReq.GetMessageId().GetParentId().GetTopicId().GetTopicId(); got != "headmsg1" {
 		t.Errorf("MessageId.ParentId.TopicId.TopicId = %q, want %q", got, "headmsg1")
+	}
+}
+
+// TestHandleMatrixReactionRemoveLooksUpTopicIDForGCOriginatedReaction pins
+// the gchat-port-auditor P0 fix: a reaction added from the Google Chat side
+// (queueMessageReaction, events.go) never populates ReactionMetadata (it has
+// no per-message payload to read a topic id off directly), so a reaction row
+// with NO cached metadata but that targets a genuine THREAD REPLY (whose own
+// message id is NOT its topic id) must resolve the real topic id via a fresh
+// DB.Message lookup (getMessageFn) -- not silently substitute the reply's
+// own message id as if it were the topic, which would send update_reaction
+// at the wrong thread entirely. Mirrors Python's own unconditional
+// `DBMessage.get_by_gcid(reaction.gc_msgid, ...)` lookup at
+// portal.py:818-819, which never has this gap because it always re-fetches
+// regardless of which side created the reaction.
+func TestHandleMatrixReactionRemoveLooksUpTopicIDForGCOriginatedReaction(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.UpdateReactionRequest
+	var gotReceiver networkid.UserLoginID
+	var gotLookupID networkid.MessageID
+	gc := &GChatClient{
+		UserLogin: login,
+		updateReactionFn: func(_ context.Context, req *pb.UpdateReactionRequest) (*pb.UpdateReactionResponse, error) {
+			gotReq = req
+			return &pb.UpdateReactionResponse{}, nil
+		},
+		getMessageFn: func(_ context.Context, receiver networkid.UserLoginID, id networkid.MessageID) (*database.Message, error) {
+			gotReceiver = receiver
+			gotLookupID = id
+			return &database.Message{
+				ID:       id,
+				Metadata: &MessageMetadata{TopicID: "topic1"},
+			}, nil
+		},
+	}
+
+	// reply-msg-1 is a THREAD REPLY: its own message id is NOT its topic id
+	// (topic1 is), and this row was never touched by HandleMatrixReaction
+	// (no ReactionMetadata cached) -- exactly what a GC-originated reaction
+	// looks like once bridgev2 fetches it back for a Matrix redaction.
+	target := &database.Reaction{
+		MessageID: gcid.MakeMessageID("reply-msg-1"),
+		EmojiID:   networkid.EmojiID("❤"),
+		// Metadata is nil -- no cache, forces the lookup path.
+	}
+	remove := matrixReactionRemove(spacePortal("space1"), target)
+
+	if err := gc.HandleMatrixReactionRemove(context.Background(), remove); err != nil {
+		t.Fatalf("HandleMatrixReactionRemove() error = %v, want nil", err)
+	}
+	if got := gotReq.GetMessageId().GetParentId().GetTopicId().GetTopicId(); got != "topic1" {
+		t.Errorf("MessageId.ParentId.TopicId.TopicId = %q, want %q (looked up via getMessageFn, NOT the reply's own id)", got, "topic1")
+	}
+	if got := gotReq.GetMessageId().GetMessageId(); got != "reply-msg-1" {
+		t.Errorf("MessageId.MessageId = %q, want %q", got, "reply-msg-1")
+	}
+	if gotReceiver != login.ID {
+		t.Errorf("getMessageFn receiver = %q, want %q", gotReceiver, login.ID)
+	}
+	if gotLookupID != gcid.MakeMessageID("reply-msg-1") {
+		t.Errorf("getMessageFn id = %q, want %q (the reacted-to message, not the reaction's own mxid)", gotLookupID, "reply-msg-1")
+	}
+}
+
+// TestHandleMatrixReactionRemoveLookupFallsBackToMessagesOwnIDWhenHeadOfTopic
+// covers the common non-threaded (or head-of-topic) case through the SAME
+// lookup path: a looked-up message with no stored TopicID (or, here, one
+// equal to its own id) must still resolve correctly via
+// threadRootTopicID's own message_id==topic_id fallback -- the lookup path
+// and the cached-metadata fast path must agree for this case.
+func TestHandleMatrixReactionRemoveLookupFallsBackToMessagesOwnIDWhenHeadOfTopic(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.UpdateReactionRequest
+	gc := &GChatClient{
+		UserLogin: login,
+		updateReactionFn: func(_ context.Context, req *pb.UpdateReactionRequest) (*pb.UpdateReactionResponse, error) {
+			gotReq = req
+			return &pb.UpdateReactionResponse{}, nil
+		},
+		getMessageFn: func(_ context.Context, _ networkid.UserLoginID, id networkid.MessageID) (*database.Message, error) {
+			return &database.Message{ID: id}, nil // no Metadata at all
+		},
+	}
+
+	target := &database.Reaction{MessageID: gcid.MakeMessageID("headmsg1"), EmojiID: networkid.EmojiID("❤")}
+	remove := matrixReactionRemove(spacePortal("space1"), target)
+
+	if err := gc.HandleMatrixReactionRemove(context.Background(), remove); err != nil {
+		t.Fatalf("HandleMatrixReactionRemove() error = %v, want nil", err)
+	}
+	if got := gotReq.GetMessageId().GetParentId().GetTopicId().GetTopicId(); got != "headmsg1" {
+		t.Errorf("MessageId.ParentId.TopicId.TopicId = %q, want %q", got, "headmsg1")
+	}
+}
+
+// TestHandleMatrixReactionRemoveLookupErrorFallsBackGracefully proves a
+// failed DB lookup does not abort the whole removal (the un-reaction RPC
+// still proceeds, matching Python's own behavior of never conditioning the
+// react() call on the lookup succeeding) -- it just falls back to the
+// reaction's own target message id as a last resort, same as having no
+// lookup capability at all.
+func TestHandleMatrixReactionRemoveLookupErrorFallsBackGracefully(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.UpdateReactionRequest
+	gc := &GChatClient{
+		UserLogin: login,
+		updateReactionFn: func(_ context.Context, req *pb.UpdateReactionRequest) (*pb.UpdateReactionResponse, error) {
+			gotReq = req
+			return &pb.UpdateReactionResponse{}, nil
+		},
+		getMessageFn: func(context.Context, networkid.UserLoginID, networkid.MessageID) (*database.Message, error) {
+			return nil, errors.New("db: boom")
+		},
+	}
+
+	target := &database.Reaction{MessageID: gcid.MakeMessageID("msg1"), EmojiID: networkid.EmojiID("❤")}
+	remove := matrixReactionRemove(spacePortal("space1"), target)
+
+	if err := gc.HandleMatrixReactionRemove(context.Background(), remove); err != nil {
+		t.Fatalf("HandleMatrixReactionRemove() error = %v, want nil (lookup failure must not abort the RPC)", err)
+	}
+	if got := gotReq.GetMessageId().GetParentId().GetTopicId().GetTopicId(); got != "msg1" {
+		t.Errorf("MessageId.ParentId.TopicId.TopicId = %q, want %q (fallback after a failed lookup)", got, "msg1")
+	}
+}
+
+// TestHandleMatrixReactionRemoveLookupNilMessageFallsBackGracefully covers
+// a lookup that succeeds but finds no row (nil, nil) -- e.g. the reacted-to
+// message was itself since deleted -- falling back the same way a lookup
+// error does, rather than panicking on a nil dereference.
+func TestHandleMatrixReactionRemoveLookupNilMessageFallsBackGracefully(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.UpdateReactionRequest
+	gc := &GChatClient{
+		UserLogin: login,
+		updateReactionFn: func(_ context.Context, req *pb.UpdateReactionRequest) (*pb.UpdateReactionResponse, error) {
+			gotReq = req
+			return &pb.UpdateReactionResponse{}, nil
+		},
+		getMessageFn: func(context.Context, networkid.UserLoginID, networkid.MessageID) (*database.Message, error) {
+			return nil, nil
+		},
+	}
+
+	target := &database.Reaction{MessageID: gcid.MakeMessageID("msg1"), EmojiID: networkid.EmojiID("❤")}
+	remove := matrixReactionRemove(spacePortal("space1"), target)
+
+	if err := gc.HandleMatrixReactionRemove(context.Background(), remove); err != nil {
+		t.Fatalf("HandleMatrixReactionRemove() error = %v, want nil", err)
+	}
+	if got := gotReq.GetMessageId().GetParentId().GetTopicId().GetTopicId(); got != "msg1" {
+		t.Errorf("MessageId.ParentId.TopicId.TopicId = %q, want %q (fallback after a nil lookup result)", got, "msg1")
 	}
 }
 

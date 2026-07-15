@@ -51,6 +51,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/util/variationselector"
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
@@ -170,11 +171,15 @@ func (c *GChatClient) HandleMatrixReaction(ctx context.Context, msg *bridgev2.Ma
 //   - message_id.message_id: gcid.ParseMessageID(msg.TargetReaction.MessageID)
 //     -- Python's `reaction_target.gcid` (portal.py:826), the reacted-to
 //     message's own id (NOT the reaction's own Matrix event id).
-//   - message_id.parent_id.topic_id.topic_id: reactionTopicID(msg.TargetReaction)
-//     reads the *ReactionMetadata this same reaction's own HandleMatrixReaction
-//     call cached (see ReactionMetadata's doc comment, dbmeta.go, for why
-//     this avoids Python's own fresh `DBMessage.get_by_gcid(reaction.gc_msgid, ...)`
-//     lookup at portal.py:818-819).
+//   - message_id.parent_id.topic_id.topic_id: c.reactionTopicID(ctx, msg.TargetReaction),
+//     which prefers the *ReactionMetadata a Matrix-initiated HandleMatrixReaction
+//     call already cached (the fast path -- no lookup needed, see
+//     ReactionMetadata's doc comment, dbmeta.go) and otherwise falls back to
+//     a fresh DB.Message lookup, exactly like Python's own unconditional
+//     `DBMessage.get_by_gcid(reaction.gc_msgid, ...)` at portal.py:818-819 --
+//     see reactionTopicID's own doc comment for why the fallback is required
+//     (a reaction added from the Google Chat side, queueMessageReaction in
+//     events.go, has nothing to cache a topic id from at add-time).
 //   - emoji.unicode: string(msg.TargetReaction.EmojiID) -- the SAME bare
 //     emoji this reaction's own PreHandleMatrixReaction/HandleMatrixReaction
 //     pair stored as the per-emoji dedup key (EmojiID, not the DB row's
@@ -192,7 +197,7 @@ func (c *GChatClient) HandleMatrixReactionRemove(ctx context.Context, msg *bridg
 	}
 
 	messageID := gcid.ParseMessageID(msg.TargetReaction.MessageID)
-	topicID := reactionTopicID(msg.TargetReaction)
+	topicID := c.reactionTopicID(ctx, msg.TargetReaction)
 
 	req := &pb.UpdateReactionRequest{
 		MessageId: &pb.MessageId{
@@ -225,23 +230,77 @@ func (c *GChatClient) HandleMatrixReactionRemove(ctx context.Context, msg *bridg
 	return nil
 }
 
-// reactionTopicID resolves the topic id an outbound reaction/un-reaction RPC
-// must be posted into from an already-resolved *database.Reaction, reading
-// back the *ReactionMetadata HandleMatrixReaction cached at add-time (see
-// ReactionMetadata's own doc comment, dbmeta.go). Falls back to the
-// reaction's own target message id when no metadata is present -- a
-// pre-Task-3 legacy row, or a Metadata value of an unexpected type --
-// exactly like threadRootTopicID (handlematrix.go) does for messages:
-// message_id == topic_id for any head-of-topic message, so a target whose
-// OWN id IS the topic id (the common case) still routes correctly even with
-// no TopicID recorded at all. r is never nil here: bridgev2's own
-// handleMatrixRedaction already checked redactionTargetReaction != nil
-// before ever calling HandleMatrixReactionRemove (mautrix-go
-// bridgev2/portal.go:2523-2526), exactly like HandleMatrixMessageRemove's
-// TargetMessage guarantee (handleredact.go).
-func reactionTopicID(r *database.Reaction) string {
+// reactionTopicID resolves the topic id an outbound un-reaction RPC must be
+// posted into from an already-resolved *database.Reaction. Two sources are
+// consulted, in order:
+//
+//  1. The *ReactionMetadata HandleMatrixReaction cached at add-time (see
+//     ReactionMetadata's own doc comment, dbmeta.go) -- the fast path, no
+//     lookup needed. This is ALWAYS present for a reaction that was itself
+//     added via Matrix (HandleMatrixReaction always sets it), but is NEVER
+//     present for a reaction that was added from the Google Chat side
+//     instead (queueMessageReaction, events.go, mirrors an inbound
+//     MessageReactionEvent -- a proto message with no per-message payload
+//     to read a topic id off directly, unlike HandleMatrixReaction, which
+//     already has the full, DB-resolved msg.TargetMessage in hand). A
+//     reaction added on Google Chat and later un-reacted via a Matrix
+//     redaction (e.g. a double-puppeted user removing their own
+//     GC-mirrored reaction from Element, or any room moderator redacting
+//     someone else's -- bridgev2's own handleMatrixRedaction does not
+//     require the redacter to be the reaction's own sender, mautrix-go
+//     bridgev2/portal.go:2531's `// TODO ignore if sender doesn't match?`)
+//     is exactly the case an earlier revision of this function got wrong:
+//     it fell back straight to the reaction's own target message id,
+//     silently treating a THREAD REPLY's message id as if it were the
+//     thread's topic id whenever no cached metadata existed -- which,
+//     since queueMessageReaction never populates one, was every single
+//     GC-originated reaction, not a rare legacy-row edge case. Caught by
+//     the M4 Task 3 gchat-port-auditor pass.
+//  2. A fresh DB.Message lookup (getMessageFn, defaulting to
+//     c.UserLogin.Bridge.DB.Message.GetFirstPartByID) for the reaction's
+//     own target message, reading that message's OWN stored
+//     MessageMetadata.TopicID via threadRootTopicID (handlematrix.go) --
+//     exactly Python's own unconditional `DBMessage.get_by_gcid(reaction.gc_msgid, ...)`
+//     lookup (portal.py:818-819), which never caches and always re-fetches
+//     regardless of which side originally created the reaction. Every
+//     bridged message (both directions) already stamps its own
+//     MessageMetadata.TopicID at ingest time (msgconv_adapter.go /
+//     handlematrix.go, M3 Task 6), so this lookup is always able to
+//     resolve the real topic id when the message row still exists.
+//
+// Only if BOTH sources come up empty (no cached metadata AND either no live
+// bridgev2.Bridge to query -- e.g. this package's lightweight tests -- or
+// the lookup itself fails or finds nothing) does this fall back to the
+// reaction's own target message id, matching threadRootTopicID's identical
+// last-resort fallback: message_id == topic_id for any head-of-topic
+// message, so a target whose OWN id IS the topic id (the common,
+// non-threaded case) still routes correctly either way. r is never nil
+// here: bridgev2's own handleMatrixRedaction already checked
+// redactionTargetReaction != nil before ever calling
+// HandleMatrixReactionRemove (mautrix-go bridgev2/portal.go:2523-2526),
+// exactly like HandleMatrixMessageRemove's TargetMessage guarantee
+// (handleredact.go).
+func (c *GChatClient) reactionTopicID(ctx context.Context, r *database.Reaction) string {
 	if meta, ok := r.Metadata.(*ReactionMetadata); ok && meta != nil && meta.TopicID != "" {
 		return meta.TopicID
 	}
-	return string(r.MessageID)
+
+	get := c.getMessageFn
+	if get == nil {
+		if c.UserLogin == nil || c.UserLogin.Bridge == nil {
+			return string(r.MessageID)
+		}
+		get = c.UserLogin.Bridge.DB.Message.GetFirstPartByID
+	}
+	msg, err := get(ctx, c.UserLogin.ID, r.MessageID)
+	if err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).
+			Msg("googlechat: failed to look up reacted-to message for its topic id, falling back to the reaction's own message id")
+		return string(r.MessageID)
+	}
+	if msg == nil {
+		return string(r.MessageID)
+	}
+	topicID, _ := threadRootTopicID(msg)
+	return topicID
 }

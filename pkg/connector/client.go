@@ -22,6 +22,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
@@ -187,6 +188,19 @@ type GChatClient struct {
 	// gchatmeow.Client connection -- mirrors editMessageFn/deleteMessageFn
 	// above.
 	updateReactionFn func(ctx context.Context, req *pb.UpdateReactionRequest) (*pb.UpdateReactionResponse, error)
+
+	// getMessageFn resolves a previously-bridged message row by its network
+	// message id, used by reactionTopicID (handlereaction.go) as a fallback
+	// when a reaction carries no cached *ReactionMetadata.TopicID -- notably
+	// every reaction added from the Google Chat side (queueMessageReaction,
+	// events.go, has no per-message payload on MessageReactionEvent to read
+	// a topic id off directly, unlike a Matrix-initiated HandleMatrixReaction,
+	// which already has msg.TargetMessage -- and therefore its stored
+	// MessageMetadata.TopicID -- in hand with no lookup at all). Defaults to
+	// c.UserLogin.Bridge.DB.Message.GetFirstPartByID; overridden in tests
+	// that construct a UserLogin without a full bridgev2.Bridge+DB harness,
+	// for the same reason savePortalRevisionFn (backfill.go) exists.
+	getMessageFn func(ctx context.Context, receiver networkid.UserLoginID, id networkid.MessageID) (*database.Message, error)
 
 	// addPendingToIgnoreFn registers a send's local_id as a pending-to-ignore
 	// transaction on msg.Portal (handlematrix.go's HandleMatrixMessage, Task
