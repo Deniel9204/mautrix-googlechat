@@ -319,6 +319,15 @@ func convertOneAttachment(ctx context.Context, portal *bridgev2.Portal, intent b
 	// portal.py:1561-1572's manual async_inplace_encrypt_attachment +
 	// "mxc_url = None" dance) -- nothing extra needed here beyond assigning
 	// both return values through.
+	//
+	// Size is effectively checked twice -- once by media.maxFileSize() above
+	// (rejecting at download time, so an oversize file is never fetched in
+	// full), and again inside UploadMediaStream, which independently compares
+	// size against the homeserver's MediaConfig.UploadSize and returns
+	// bridgev2.ErrMediaTooLarge. Both derive from the SAME homeserver-reported
+	// value (SetMaxFileSize is bridgev2's own plumbing of MediaConfig.UploadSize
+	// into this connector, connector.go), so the second check is a redundant
+	// safety net, not a second policy -- intentional, not an oversight.
 	mxcURL, file, err := intent.UploadMediaStream(ctx, portal.MXID, int64(len(data)), false, func(w io.Writer) (*bridgev2.FileStreamResult, error) {
 		if _, werr := w.Write(data); werr != nil {
 			return nil, werr
