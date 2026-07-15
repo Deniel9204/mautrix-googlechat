@@ -16,6 +16,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
@@ -581,6 +582,15 @@ func TestHandleGChatEventMessageReactionAddQueuesRemoteReaction(t *testing.T) {
 	}
 	if sender.IsFromMe {
 		t.Error("GetSender().IsFromMe = true, want false (reactor is not the login's own gaia)")
+	}
+
+	tsProvider, ok := (*queued)[0].(bridgev2.RemoteEventWithTimestamp)
+	if !ok {
+		t.Fatalf("queued event does not implement bridgev2.RemoteEventWithTimestamp: %T", (*queued)[0])
+	}
+	wantTS := gchatmeow.MicrosToTime(1700000000123456)
+	if got := tsProvider.GetTimestamp(); !got.Equal(wantTS) {
+		t.Errorf("GetTimestamp() = %v, want %v (evt.timestamp is microseconds)", got, wantTS)
 	}
 
 	emoji, emojiID := reaction.GetReactionEmoji()
