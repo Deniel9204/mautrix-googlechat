@@ -120,6 +120,17 @@ func TestParse(t *testing.T) {
 			wantHTML: "visible  visible",
 		},
 		{
+			name: "bulleted list and list item",
+			text: "one two",
+			annotations: []*pb.Annotation{
+				gchatfmt.MakeFormatAnnotation(0, 7, pb.FormatMetadata_BULLETED_LIST),
+				gchatfmt.MakeFormatAnnotation(0, 3, pb.FormatMetadata_BULLETED_LIST_ITEM),
+				gchatfmt.MakeFormatAnnotation(4, 3, pb.FormatMetadata_BULLETED_LIST_ITEM),
+			},
+			wantBody: "one two",
+			wantHTML: "<ul><li>one</li> <li>two</li></ul>",
+		},
+		{
 			name: "@room / MENTION_ALL renders as the literal @room",
 			text: "hey @all check this out",
 			annotations: []*pb.Annotation{
@@ -293,6 +304,29 @@ func TestParse_MalformedAnnotationFallsBackGracefully(t *testing.T) {
 
 	if body != "hi" {
 		t.Errorf("body = %q, want %q", body, "hi")
+	}
+	if html != "" {
+		t.Errorf("html = %q, want empty on malformed annotation fallback", html)
+	}
+}
+
+// TestParse_HugeLengthAnnotationFallsBackGracefully is the P0 regression
+// test from the port audit: a Length near int32 max, added to a small
+// StartIndex, overflows a naive int32 sum (wire-controlled fields, unlike
+// Python's arbitrary-precision ints) and can wrap to a value that passes
+// an unpromoted ">" bounds check, which then panics as an out-of-range
+// slice bound instead of degrading to the plain-text fallback. Must not
+// panic; must fall back exactly like any other malformed annotation.
+func TestParse_HugeLengthAnnotationFallsBackGracefully(t *testing.T) {
+	const text = "hello world this is a test message of some length"
+	annotations := []*pb.Annotation{
+		gchatfmt.MakeFormatAnnotation(5, 2147483647, pb.FormatMetadata_BOLD),
+	}
+
+	body, html := gchatfmt.Parse(context.Background(), text, annotations, nil)
+
+	if body != text {
+		t.Errorf("body = %q, want %q", body, text)
 	}
 	if html != "" {
 		t.Errorf("html = %q, want empty on malformed annotation fallback", html)

@@ -208,12 +208,20 @@ func normalizeAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 	var insertAnnotations []*pb.Annotation
 	for i < len(annotations) {
 		cur := annotations[i]
-		end := cur.GetStartIndex() + cur.GetLength()
+		// int64: StartIndex/Length are wire-controlled int32 fields: Python's
+		// equivalent addition (from_googlechat.py:93) is on arbitrary-
+		// precision ints and can never overflow. A malformed/adversarial
+		// annotation (e.g. Length near int32 max) would silently wrap an
+		// int32 sum, producing a bogus `end` and wrong (not just
+		// Python-divergent) truncation decisions below -- see the identical
+		// concern in renderAnnotations's bounds check, which is the actual
+		// panic backstop for any annotation that reaches it un-truncated.
+		end := int64(cur.GetStartIndex()) + int64(cur.GetLength())
 
 		foundBreak := false
 		for i2, annotation := range annotations[i+1:] {
-			start := annotation.GetStartIndex()
-			length := annotation.GetLength()
+			start := int64(annotation.GetStartIndex())
+			length := int64(annotation.GetLength())
 			if start >= end {
 				splitAt := i + 1 + i2
 				next := make([]*pb.Annotation, 0, len(annotations)+len(insertAnnotations))
@@ -227,10 +235,10 @@ func normalizeAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 				break
 			} else if start+length > end {
 				tail := ggproto.Clone(annotation).(*pb.Annotation)
-				truncatedLength := end - start
+				truncatedLength := int32(end - start)
 				annotation.Length = &truncatedLength
-				tailStart := start + truncatedLength
-				tailLength := length - truncatedLength
+				tailStart := int32(start + int64(truncatedLength))
+				tailLength := int32(length - int64(truncatedLength))
 				tail.StartIndex = &tailStart
 				tail.Length = &tailLength
 				insertAnnotations = append(insertAnnotations, tail)
@@ -286,14 +294,25 @@ func renderAnnotations(
 			// M5. Leave the underlying text as plain, unwrapped content.
 			continue
 		}
-		if start < offset || annLen < 0 || start+annLen > offset+length {
+		// int64: start/annLen are wire-controlled int32 fields, and a
+		// malformed/adversarial annotation (e.g. Length near int32 max)
+		// makes the naive int32 sum `start+annLen` silently wrap, which can
+		// produce a negative value that passes the `> offset+length` check
+		// and then panics as an out-of-range slice bound below. Python's
+		// equivalent assert (from_googlechat.py:137) can't overflow since
+		// Python ints are arbitrary precision; this promotion is Go's
+		// equivalent safety net -- the actual backstop against untrusted
+		// server data, since normalizeAnnotations only truncates an
+		// annotation when it finds ANOTHER one to compare it against.
+		annEnd := int64(start) + int64(annLen)
+		if start < offset || annLen < 0 || annEnd > int64(offset)+int64(length) {
 			// Overlapping/out-of-bounds annotations should have been
 			// resolved by normalizeAnnotations; malformed server data
 			// (or a bug) could still violate this. Python asserts here;
 			// Go must not panic on untrusted input, so this degrades to
 			// an error that Parse catches and falls back to plain text
 			// for the whole message.
-			return "", fmt.Errorf("gchatfmt: annotation [%d,%d) out of parent bounds [%d,%d)", start, start+annLen, offset, offset+length)
+			return "", fmt.Errorf("gchatfmt: annotation [%d,%d) out of parent bounds [%d,%d)", start, annEnd, offset, offset+length)
 		}
 
 		relStart := start - offset
