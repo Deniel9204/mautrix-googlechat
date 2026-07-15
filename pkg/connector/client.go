@@ -70,24 +70,24 @@ type GChatClient struct {
 	// UserLoginMetadata.Revision watermark (gchat-port-auditor P1 finding,
 	// M2 Task 7). catchUp checks this flag and skips its RPC call entirely
 	// while it is true, deferring (not losing) that reconnect's catch-up
-	// opportunity: once the first sync finishes, advanceRevision
+	// opportunity: once the first sync finishes, advanceUserRevision
 	// (backfill.go) picks up tracking from the very next live event, same as
 	// any other reconnect.
 	syncInProgress bool
 
 	// metaMu guards all UserLoginMetadata mutations + the paired Save, and
 	// the loggedOut flag; held across Save (I/O). Most metadata writes are
-	// infrequent (cookies on connect/logout), but advanceRevision
-	// (backfill.go) also updates the revision watermark here once per
-	// inbound event that carries a revision -- so on a busy account this
-	// lock IS taken on the live event path, at Google Chat's own
-	// event-revision cadence (matching Python's set_revision, called from
-	// on_stream_event for every revisioned event, user.py:674-682; no
-	// regression, just no longer connect/logout-only). Without this lock,
-	// the now-multiple independent, unsynchronized writers -- persistCookies
-	// (conn's OnConnectionState goroutine), LogoutRemote (a bridgev2
-	// goroutine), Connect's pre-flight read of meta.Cookies (a third
-	// goroutine), and advanceRevision (both the live-event and catchUp
+	// infrequent (cookies on connect/logout), but advanceUserRevision
+	// (backfill.go) also updates the user revision watermark here once per
+	// successfully handled inbound event that carries a user_revision -- so
+	// on a busy account this lock IS taken on the live event path, at Google
+	// Chat's own event-revision cadence (matching Python's set_revision,
+	// called from on_stream_event for every user-revisioned event,
+	// user.py:674-682; no regression, just no longer connect/logout-only).
+	// Without this lock, the now-multiple independent, unsynchronized writers
+	// -- persistCookies (conn's OnConnectionState goroutine), LogoutRemote (a
+	// bridgev2 goroutine), Connect's pre-flight read of meta.Cookies (a third
+	// goroutine), and advanceUserRevision (both the live-event and catchUp
 	// goroutines) -- can race on the same *UserLoginMetadata, and worse: a
 	// Connected callback
 	// still in flight when LogoutRemote runs can write live cookies back over
@@ -195,6 +195,18 @@ type GChatClient struct {
 	// several distinct event shapes that will end up queued from
 	// handleGChatEvent.
 	queueRemoteEventFn func(evt bridgev2.RemoteEvent) bridgev2.EventHandlingResult
+
+	// savePortalRevisionFn parks a group_revision watermark on one portal's
+	// PortalMetadata.Revision (backfill.go's advancePortalRevision, the
+	// group-revision half of M2 Task 7's split between the user watermark and
+	// the per-portal one). Defaults to a real
+	// bridgev2.Bridge.GetPortalByKey + Portal.Save; overridden in tests
+	// because this package's lightweight test UserLogins have a nil Bridge
+	// (newTestUserLogin, client_test.go) that the real lookup would
+	// dereference -- and so the group-revision-routing tests can observe the
+	// (portalKey, revision) pair without a full DB harness. Mirrors every
+	// other *Fn seam on this type.
+	savePortalRevisionFn func(ctx context.Context, portalKey networkid.PortalKey, revision int64)
 }
 
 var _ bridgev2.NetworkAPI = (*GChatClient)(nil)
@@ -297,7 +309,12 @@ func (c *GChatClient) wireAndStart(ctx context.Context, conn *gchatmeow.Client) 
 	c.mu.Lock()
 	c.initialSyncDone = false
 	c.mu.Unlock()
-	conn.OnStreamEvent = c.handleGChatEvent
+	conn.OnStreamEvent = func(ctx context.Context, ev *pb.Event) {
+		// handleGChatEvent returns an EventHandlingResult (so catchUp's drain
+		// can observe a handling failure, backfill.go); the live-stream
+		// callback has no use for it and discards it.
+		c.handleGChatEvent(ctx, ev)
+	}
 	conn.OnConnectionState = func(state gchatmeow.ConnState, err error) {
 		c.handleConnState(ctx, state, err)
 	}

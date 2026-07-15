@@ -10,25 +10,31 @@ package connector
 // and evt.GetType() are always this specific event's own, never the parent
 // multi-body frame's.
 //
-// This is a type-switch skeleton over every event body type the proto
-// defines. M1 left every arm as a "not yet handled" debug log; M2 Task 4
-// fills in MessagePosted (new messages only -- see handleMessagePosted's
-// doc comment for why edits share this same body arm but are routed
-// elsewhere). Later M2+ tasks fill in the rest.
+// dispatchGChatEvent (below) is a type-switch skeleton over every event body
+// type the proto defines. M1 left every arm as a "not yet handled" debug
+// log; M2 Task 4 fills in MessagePosted (new messages only -- see
+// handleMessagePosted's doc comment for why edits share this same body arm
+// but are routed elsewhere). Later M2+ tasks fill in the rest.
 //
-// Every event, regardless of body type, first goes through advanceRevision
-// (backfill.go) -- ports user.py:674-682's on_stream_event, which
-// unconditionally checks `evt.HasField("user_revision")` before its own
-// type-based dispatch, not only during an explicit catch-up. This is what
-// keeps UserLoginMetadata.Revision (the catch_up_user watermark backfill.go's
-// catchUp reads on a reconnect) tracking live traffic: without it, the
-// watermark could only ever move forward from inside catchUp's own replay,
-// so after a period of live traffic it would go stale, and the NEXT
-// reconnect's catch_up_user call would request "since account creation"
-// instead of "since the last processed event" -- eventually provoking a
-// permanent ABORTED_FROM_REVISION_TOO_OLD/ABORTED_CUTOFF_EXCEEDED response
-// that never recovers (gchat-port-auditor P0 finding on M2 Task 7's initial
-// review, closed by adding this call).
+// handleGChatEvent advances the revision watermark(s) ONLY AFTER a
+// successful dispatch, and only from the dispatch's result -- porting
+// user.py:674-682's on_stream_event, which advances the user watermark from
+// evt.user_revision on every event, but ORDERED so the message is delivered
+// first. Ordering matters: an earlier revision of this handler advanced the
+// watermark at the TOP, before dispatch, so if QueueRemoteEvent FAILED the
+// message was dropped yet the cursor moved past it -> unrecoverable +
+// invisible on the next catch_up (M2-review Important #3, "persist watermark
+// only after successful handling"). Now dispatch runs first; the watermark
+// advances only when dispatch reports Success (a real queue, or a
+// legitimate ignore/no-op), never after a Failed one -- so a dropped event
+// is re-fetched on the next reconnect's catch_up_user. user_revision feeds
+// the user watermark (advanceUserRevision) and group_revision the per-portal
+// one (advancePortalRevision); the two are separate revision spaces and must
+// not cross (see those functions' doc comments, M2-review Important #2).
+//
+// Returns the dispatch result so backfill.go's catchUp drain can observe a
+// handling failure and stop before advancing past it; the live-stream
+// OnStreamEvent callback (wireAndStart, client.go) discards it.
 import (
 	"context"
 
@@ -42,16 +48,33 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) {
+func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
+	res := c.dispatchGChatEvent(ctx, evt)
+	if res.Success {
+		c.advanceUserRevision(ctx, evt)
+		c.advancePortalRevision(ctx, evt)
+	} else {
+		zerolog.Ctx(ctx).Warn().Msg("googlechat: event handling failed, not advancing revision watermark (next catch_up will retry it)")
+	}
+	return res
+}
+
+// dispatchGChatEvent routes evt to its body-type handler and returns the
+// handling result. Non-message body arms are still unhandled (M2+) and
+// report EventHandlingResultIgnored (Success, no-op) -- they carry nothing to
+// deliver, so treating them as successfully handled lets the watermark
+// advance past them (matching Python advancing on any user_revision event),
+// while a genuine QueueRemoteEvent failure on the MessagePosted arm surfaces
+// as a non-Success result and blocks the advance.
+func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
-	c.advanceRevision(ctx, evt)
 	switch evt.GetBody().GetType().(type) {
 	case *pb.Event_EventBody_GroupViewed:
 		log.Debug().Msg("googlechat: unhandled GroupViewed event (M2+)")
 	case *pb.Event_EventBody_GroupUpdated:
 		log.Debug().Msg("googlechat: unhandled GroupUpdated event (M2+)")
 	case *pb.Event_EventBody_MessagePosted:
-		c.handleMessagePosted(ctx, evt)
+		return c.handleMessagePosted(ctx, evt)
 	case *pb.Event_EventBody_WebPushNotification:
 		log.Debug().Msg("googlechat: unhandled WebPushNotification event (M2+)")
 	case *pb.Event_EventBody_MembershipChanged:
@@ -69,6 +92,7 @@ func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) {
 	default:
 		log.Debug().Msg("googlechat: unhandled event with no/unknown body type (M2+)")
 	}
+	return bridgev2.EventHandlingResultIgnored
 }
 
 // handleMessagePosted handles the MessagePosted event body (EventBody field
@@ -101,13 +125,17 @@ func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) {
 // new event types to the enum.
 //
 // M2 Task 4 only builds a RemoteMessage for the new-message case
-// (queueMessagePosted). MESSAGE_UPDATED (RemoteEdit) is M4's job.
-func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) {
+// (queueMessagePosted). MESSAGE_UPDATED (RemoteEdit) is M4's job. Returns the
+// handling result so handleGChatEvent can gate the watermark advance on it;
+// the MESSAGE_UPDATED/edit no-op reports Ignored (Success) -- it is a
+// deliberate deferral to M4, not a failure, so the watermark still advances
+// past it (the live edit already happened; M2 simply does not mirror it yet).
+func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	if evt.GetType() == pb.Event_MESSAGE_UPDATED {
 		zerolog.Ctx(ctx).Debug().Msg("googlechat: unhandled MessagePosted/MESSAGE_UPDATED (edit) event (M4)")
-		return
+		return bridgev2.EventHandlingResultIgnored
 	}
-	c.queueMessagePosted(ctx, evt)
+	return c.queueMessagePosted(ctx, evt)
 }
 
 // queueMessagePosted extracts the sender, group, and timestamp from evt's
@@ -133,24 +161,28 @@ func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) {
 // A missing/malformed payload (nil message, empty message id, or a group id
 // neither GroupIDToParts oneof arm sets) is logged and dropped rather than
 // queuing a broken RemoteMessage -- matching how sync.go's syncChats skips a
-// world item with no usable group id.
-func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) {
+// world item with no usable group id. These skips report Ignored (Success):
+// there is nothing deliverable, so the watermark should advance past the
+// garbage rather than re-fetch it on every reconnect. Only the actual
+// queue's result (which may be a genuine Failed) is returned as-is, so a real
+// delivery failure blocks the watermark advance (handleGChatEvent).
+func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	msg := evt.GetBody().GetMessagePosted().GetMessage()
 	if msg == nil {
 		log.Warn().Msg("googlechat: MessagePosted event with no message payload, skipping")
-		return
+		return bridgev2.EventHandlingResultIgnored
 	}
 	gcMessageID := msg.GetId().GetMessageId()
 	if gcMessageID == "" {
 		log.Warn().Msg("googlechat: MessagePosted event with no message id, skipping")
-		return
+		return bridgev2.EventHandlingResultIgnored
 	}
 	id, isDM, ok := gchatmeow.GroupIDToParts(evt.GetGroupId())
 	if !ok {
 		log.Warn().Str("gc_message_id", gcMessageID).
 			Msg("googlechat: MessagePosted event with no usable group id, skipping")
-		return
+		return bridgev2.EventHandlingResultIgnored
 	}
 	group := gcid.GroupID{ID: id, IsDM: isDM}
 	senderUserID := gcid.MakeUserID(msg.GetCreator().GetUserId().GetId())
@@ -190,4 +222,5 @@ func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) {
 		Bool("is_dm", isDM).
 		Any("result", res).
 		Msg("googlechat: queued inbound message")
+	return res
 }

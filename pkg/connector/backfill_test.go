@@ -15,6 +15,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
@@ -567,11 +568,15 @@ func TestHandleConnStateSetsSyncInProgressSynchronously(t *testing.T) {
 	waitUntilSyncNotInProgress(t, gc, 2*time.Second)
 }
 
-// --- advanceRevision: every event (not just catch-up replay) moves the ----
+// --- watermark advancement on the live handleGChatEvent path -------------
+// Every successfully handled event (not just catch-up replay) moves the
 // watermark, mirroring user.py:674-682's on_stream_event (gchat-port-auditor
 // P0 fix: without this, the watermark could only ever move forward from
 // inside catchUp's own replay, so it would go stale during ordinary live
-// traffic and eventually make catch_up_user permanently fail).
+// traffic and eventually make catch_up_user permanently fail). The USER
+// watermark advances ONLY from user_revision; group_revision goes to the
+// per-portal watermark instead (M2-review Important #2); and the advance
+// happens only AFTER a successful queue (M2-review Important #3).
 
 func TestHandleGChatEventAdvancesRevisionWatermark(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 10}
@@ -580,21 +585,136 @@ func TestHandleGChatEventAdvancesRevisionWatermark(t *testing.T) {
 	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-1", "98765", "hi", 1)
 	evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(20)}}
 	var saveCount int
+	var portalSaved bool
 	gc := &GChatClient{
 		UserLogin: login,
 		queueRemoteEventFn: func(bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
 			return bridgev2.EventHandlingResultQueued
+		},
+		saveFn:               func(context.Context) error { saveCount++; return nil },
+		savePortalRevisionFn: func(context.Context, networkid.PortalKey, int64) { portalSaved = true },
+	}
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if meta.Revision != 20 {
+		t.Errorf("Metadata.Revision = %d, want 20 (a live event's own user_revision advances the user watermark, not just catch-up replay)", meta.Revision)
+	}
+	if saveCount != 1 {
+		t.Errorf("save called %d times, want 1", saveCount)
+	}
+	if portalSaved {
+		t.Error("savePortalRevisionFn was called for a user_revision-only event, want not called (group_revision is unset)")
+	}
+}
+
+// TestHandleGChatEventGroupRevisionDoesNotAdvanceUserWatermark RED-verifies
+// the M2-whole-branch Important #2 fix: user_revision and group_revision are
+// SEPARATE revision spaces. An event carrying only group_revision must NOT
+// advance the persisted user watermark (UserLoginMetadata.Revision, the
+// catch_up_user cursor) -- folding it in could over-advance past
+// not-yet-delivered user-stream events -> permanent loss. It must instead be
+// parked on the per-portal watermark for M6's catch_up_group. Against the old
+// eventRevision = max(user,group) fold, this test fails (the user watermark
+// would jump to 999).
+func TestHandleGChatEventGroupRevisionDoesNotAdvanceUserWatermark(t *testing.T) {
+	meta := &UserLoginMetadata{Revision: 10}
+	login := newTestUserLogin(meta)
+	login.ID = gcid.MakeUserLoginID("112233")
+	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-1", "98765", "hi", 1)
+	evt.RevisionType = &pb.Event_GroupRevision{GroupRevision: &pb.WriteRevision{Timestamp: proto.Int64(999)}}
+	var userSaveCount int
+	var gotPortalKey networkid.PortalKey
+	var gotPortalRev int64
+	gc := &GChatClient{
+		UserLogin: login,
+		queueRemoteEventFn: func(bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
+			return bridgev2.EventHandlingResultQueued
+		},
+		saveFn: func(context.Context) error { userSaveCount++; return nil },
+		savePortalRevisionFn: func(_ context.Context, key networkid.PortalKey, rev int64) {
+			gotPortalKey = key
+			gotPortalRev = rev
+		},
+	}
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if meta.Revision != 10 {
+		t.Errorf("UserLoginMetadata.Revision = %d, want 10 (group_revision must NOT advance the user catch_up_user watermark -- separate revision space)", meta.Revision)
+	}
+	if userSaveCount != 0 {
+		t.Errorf("user metadata saved %d times, want 0 (group_revision routes to the portal, never the user login)", userSaveCount)
+	}
+	if gotPortalRev != 999 {
+		t.Errorf("portal revision saved = %d, want 999 (group_revision must be parked on PortalMetadata.Revision for M6 catch_up_group)", gotPortalRev)
+	}
+	wantKey := gcid.MakePortalKey(gcid.GroupID{ID: "space-1", IsDM: false}, login.ID)
+	if gotPortalKey != wantKey {
+		t.Errorf("portal key = %+v, want %+v", gotPortalKey, wantKey)
+	}
+}
+
+// TestHandleGChatEventFailedQueueLeavesUserWatermarkUnchanged pins the
+// M2-whole-branch Important #3 fix: the watermark advances only AFTER a
+// successful queue. A QueueRemoteEvent that returns a non-Success result
+// (the message was dropped) must leave UserLoginMetadata.Revision untouched
+// so the next reconnect's catch_up_user re-fetches it.
+func TestHandleGChatEventFailedQueueLeavesUserWatermarkUnchanged(t *testing.T) {
+	meta := &UserLoginMetadata{Revision: 10}
+	login := newTestUserLogin(meta)
+	login.ID = gcid.MakeUserLoginID("112233")
+	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-1", "98765", "hi", 1)
+	evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(999)}}
+	var saveCount int
+	gc := &GChatClient{
+		UserLogin: login,
+		queueRemoteEventFn: func(bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
+			return bridgev2.EventHandlingResultFailed // Success == false
 		},
 		saveFn: func(context.Context) error { saveCount++; return nil },
 	}
 
 	gc.handleGChatEvent(context.Background(), evt)
 
-	if meta.Revision != 20 {
-		t.Errorf("Metadata.Revision = %d, want 20 (a live event's own user_revision advances the watermark, not just catch-up replay)", meta.Revision)
+	if meta.Revision != 10 {
+		t.Errorf("UserLoginMetadata.Revision = %d, want 10 (a FAILED queue must not advance the watermark -- the dropped message is retried on the next reconnect's catch_up)", meta.Revision)
 	}
-	if saveCount != 1 {
-		t.Errorf("save called %d times, want 1", saveCount)
+	if saveCount != 0 {
+		t.Errorf("save called %d times, want 0 (nothing was successfully handled)", saveCount)
+	}
+}
+
+// TestCatchUpStopsDrainOnQueueFailure proves the catchUp drain stops the
+// moment a caught-up event fails to handle, rather than fetching further
+// pages and letting a later success advance the persisted watermark past the
+// dropped event (M2-review Important #3, replay side).
+func TestCatchUpStopsDrainOnQueueFailure(t *testing.T) {
+	meta := &UserLoginMetadata{Revision: 100}
+	login := newTestUserLogin(meta)
+	login.ID = gcid.MakeUserLoginID("112233")
+	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-a", "98765", "a", 1)
+	evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(200)}}
+	var calls int
+	gc := &GChatClient{
+		UserLogin: login,
+		catchUpUserFn: func(context.Context, *pb.CatchUpUserRequest) (*pb.CatchUpResponse, error) {
+			calls++
+			return &pb.CatchUpResponse{Status: pb.CatchUpResponse_PAGINATED.Enum(), Events: []*pb.Event{evt}}, nil
+		},
+		queueRemoteEventFn: func(bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
+			return bridgev2.EventHandlingResultFailed
+		},
+		saveFn: func(context.Context) error { return nil },
+	}
+
+	gc.catchUp(context.Background())
+
+	if calls != 1 {
+		t.Errorf("catchUpUserFn called %d times, want 1 (drain must stop on the first queue failure, not fetch page 2)", calls)
+	}
+	if meta.Revision != 100 {
+		t.Errorf("UserLoginMetadata.Revision = %d, want 100 (watermark must not advance past an event that failed to queue)", meta.Revision)
 	}
 }
 
