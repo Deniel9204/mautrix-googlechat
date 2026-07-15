@@ -115,6 +115,11 @@
 //     tag's closing tag, parser.py:268-273): a purely cosmetic
 //     whitespace-collapsing refinement with no effect on offsets,
 //     annotations, or any behavior this task's tests exercise.
+//   - parse_node's default " " join separator for <pre>/<code> content
+//     with 2+ direct child nodes (entity_string.py:152, see nodeToString's
+//     doc comment): reproducing it would inject unrequested spaces into
+//     monospace content, which is the wrong direction to copy a quirk in;
+//     documented as a deliberate deviation rather than silently ignored.
 package matrixfmt
 
 import (
@@ -290,6 +295,7 @@ func JoinEntityString(with string, strings ...*EntityString) *EntityString {
 	}
 	text := make(utf16Text, 0, totalLen+len(strings)*len(withUnits))
 	entities := make(BodyRangeList, 0, totalEntities)
+	wroteAny := false
 	for _, s := range strings {
 		if s == nil || len(s.Text) == 0 {
 			continue
@@ -300,6 +306,27 @@ func JoinEntityString(with string, strings ...*EntityString) *EntityString {
 		}
 		text = append(text, s.Text...)
 		text = append(text, withUnits...)
+		wroteAny = true
+	}
+	// entity_string.py:160-161 -- join appends `separator` after EVERY
+	// item, then strips exactly ONE trailing occurrence once the loop
+	// ends, not per item. A first attempt at this port (caught by the
+	// gchat-port-auditor review) omitted that trailing strip entirely:
+	// every join with a non-empty separator -- every list/blockquote/
+	// ordered-list call site, all joined with "\n" -- left a dangling
+	// separator at the end. That corrupted both the rendered text (an
+	// extra newline whenever more content follows, e.g. a <ul> immediately
+	// followed by a <p>) and, for <ul>, the enclosing LIST annotation's
+	// own span: .Format() (unorderedListToString) wraps [0, len(text))
+	// AFTER this trailing "\n" was appended, so the annotation ended up
+	// one UTF-16 code unit too long. The bug was invisible in every
+	// existing test because a list/blockquote as the ONLY/LAST content in
+	// a message gets the dangling separator trimmed away by Parse's outer
+	// TrimSpace anyway -- see convert_test.go's
+	// "list or blockquote followed by more content" cases, added
+	// specifically to catch a regression here.
+	if wroteAny && len(withUnits) > 0 {
+		text = text[:len(text)-len(withUnits)]
 	}
 	return &EntityString{Text: text, Entities: entities}
 }
@@ -816,10 +843,32 @@ func (parser *HTMLParser) isBlockTag(tag string) bool {
 func (parser *HTMLParser) nodeToTagAwareString(node *html.Node, ctx Context) *EntityString {
 	strs := parser.nodeToTaggedStrings(node, ctx)
 	var output *EntityString
+	// prevWasBlock ports tag_aware_parse_node's prev_was_block
+	// (parser.py:283-289) EXACTLY, including its surprising real-Python
+	// behavior: it is a one-way latch, never reset back to false for a
+	// later non-block sibling. Every block-tag child always gets its
+	// trailing "\n"; only the FIRST block-tag child seen among ALL of
+	// node's children (block or not) also gets a leading "\n" prepended.
+	// An earlier version of this port (caught by the gchat-port-auditor
+	// review) unconditionally prepended AND appended "\n" for every block
+	// child with no state tracking at all, which double-counts the
+	// leading newline for every block sibling after the first: two
+	// adjacent <p> elements (the extremely common case a Matrix client
+	// emits for a blank-line-separated multi-paragraph plain-text
+	// message) rendered as "a\n\n\nb" (two blank lines) instead of the
+	// correct "a\n\nb" (one) -- and compounded further whenever a
+	// list/blockquote (whose own handlers, e.g. <p>'s trailing
+	// AppendString("\n"), already contribute one of the two newlines a
+	// block wrap is supposed to produce) was one of the siblings.
+	prevWasBlock := false
 	for _, str := range strs {
 		tstr := str.EntityString
 		if parser.isBlockTag(str.tag) {
-			tstr = NewEntityString("\n").Append(tstr).AppendString("\n")
+			tstr = tstr.AppendString("\n")
+			if !prevWasBlock {
+				tstr = NewEntityString("\n").Append(tstr)
+			}
+			prevWasBlock = true
 		}
 		if output == nil {
 			output = tstr
@@ -837,6 +886,21 @@ func (parser *HTMLParser) nodeToStrings(node *html.Node, ctx Context) (strs []*E
 	return
 }
 
+// nodeToString joins node's children with NO separator. Used by
+// headerToString (matches Python: header_to_fstring calls
+// self.fs.join(children, "") explicitly, parser.py:115) and by
+// codeToString/preToString (a deliberate, acknowledged deviation: Python's
+// parse_node, used only for <pre>/<code>, calls self.fs.join(items) with
+// NO separator argument, which defaults to " " (entity_string.py:152) --
+// for the overwhelmingly common case of a single flat text child this
+// makes no observable difference, but a <code>/<pre> containing 2+ direct
+// child nodes, e.g. <code>foo<b>bar</b>baz</code>, would get real Python's
+// spurious injected spaces ("foo bar baz") that this port does not
+// reproduce ("foobarbaz", matching the source exactly). Flagged by the
+// gchat-port-auditor review as undocumented; left as Go's behavior rather
+// than "fixed" to match Python, since inserting unrequested whitespace
+// into a monospace/code block is arguably the wrong direction to copy a
+// quirk in.
 func (parser *HTMLParser) nodeToString(node *html.Node, ctx Context) *EntityString {
 	return JoinEntityString("", parser.nodeToStrings(node, ctx)...)
 }

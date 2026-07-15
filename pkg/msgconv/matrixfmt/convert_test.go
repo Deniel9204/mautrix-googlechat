@@ -316,6 +316,52 @@ func TestParse(t *testing.T) {
 			content:  htmlContent("<blockquote>line one<br/>line two</blockquote>"),
 			wantText: "> line one\n> line two",
 		},
+		{
+			// Regression test (gchat-port-auditor finding): JoinEntityString
+			// used to leave a dangling trailing separator, and
+			// nodeToTagAwareString used to unconditionally prepend a
+			// leading "\n" before every block-tag sibling instead of only
+			// the first -- both bugs were invisible whenever the affected
+			// block was the ONLY/LAST content in the message, because
+			// Parse's outer TrimSpace happened to eat the extra newlines
+			// off the very end. Trailing content after the list exposes
+			// both: without the fixes this produced text
+			// "one\ntwo\n\n\nafter" (spurious blank lines) and a
+			// BULLETED_LIST annotation of length 8 (one UTF-16 code unit
+			// past "one\ntwo", into a stray "\n" that isn't part of any
+			// list item).
+			name:     "unordered list followed by a paragraph -- no dangling separator, LIST span stays exact",
+			content:  htmlContent("<ul><li>one</li><li>two</li></ul><p>after</p>"),
+			wantText: "one\ntwo\nafter",
+			wantAnnotes: []*pb.Annotation{
+				gchatfmt.MakeFormatAnnotation(0, 3, pb.FormatMetadata_BULLETED_LIST_ITEM),
+				gchatfmt.MakeFormatAnnotation(4, 3, pb.FormatMetadata_BULLETED_LIST_ITEM),
+				gchatfmt.MakeFormatAnnotation(0, 7, pb.FormatMetadata_BULLETED_LIST),
+			},
+		},
+		{
+			name:     "ordered list followed by a paragraph -- no dangling separator",
+			content:  htmlContent("<ol><li>one</li><li>two</li></ol><p>after</p>"),
+			wantText: "1. one\n2. two\nafter",
+		},
+		{
+			name:     "blockquote followed by more text -- no dangling separator",
+			content:  htmlContent("<blockquote>quoted</blockquote>more text"),
+			wantText: "> quoted\nmore text",
+		},
+		{
+			// Regression test (gchat-port-auditor finding): a second <p>
+			// sibling must not get its OWN leading blank line on top of
+			// the first paragraph's trailing one -- real Python's
+			// prev_was_block latch (parser.py:283-289) never resets, so
+			// only the very first block-tag child in a run of siblings
+			// gets a leading newline prepended. Matrix clients commonly
+			// emit exactly this shape (<p>...</p><p>...</p>) for a
+			// blank-line-separated multi-paragraph plain-text message.
+			name:     "two consecutive paragraphs -- exactly one blank line, not two",
+			content:  htmlContent("<p>a</p><p>b</p>"),
+			wantText: "a\n\nb",
+		},
 	}
 
 	for _, test := range tests {
