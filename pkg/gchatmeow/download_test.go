@@ -296,6 +296,97 @@ func TestDownloadAttachmentCookiesPerHost(t *testing.T) {
 	}
 }
 
+// TestDownloadAttachmentCookiesAcrossRedirectChain verifies the core reason
+// DownloadAttachment follows redirects manually instead of relying on
+// net/http's default policy: a single call whose redirect chain crosses
+// allowlisted -> non-allowlisted -> allowlisted hosts must attach cookies on
+// the first and third hops and withhold them on the second, and -- critically
+// -- must RE-attach cookies on the third hop after they were withheld on the
+// second. client.py:217-219's comment names this exact scenario ("Follow
+// redirects manually in order to re-add authorization headers when
+// redirected from googleusercontent.com back to chat.google.com"); Go's
+// default automatic redirect-following would instead permanently strip the
+// Cookie header on the first cross-host hop and never restore it.
+func TestDownloadAttachmentCookiesAcrossRedirectChain(t *testing.T) {
+	var cookieAtHop1, cookieAtHop2, cookieAtHop3 string
+
+	var hop2, hop3 *httptest.Server
+
+	hop3 = newLoopbackServer(t, "127.0.0.12", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookieAtHop3 = r.Header.Get("Cookie")
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("final"))
+	}))
+	defer hop3.Close()
+
+	hop2 = newLoopbackServer(t, "127.0.0.11", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookieAtHop2 = r.Header.Get("Cookie")
+		http.Redirect(w, r, hop3.URL, http.StatusFound)
+	}))
+	defer hop2.Close()
+
+	hop1 := newLoopbackServer(t, "127.0.0.10", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookieAtHop1 = r.Header.Get("Cookie")
+		http.Redirect(w, r, hop2.URL, http.StatusFound)
+	}))
+	defer hop1.Close()
+
+	c, err := NewClient(ClientOpts{Cookies: map[string]string{"SID": "secret"}})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	// Only hop1 and hop3's hosts are allowlisted; hop2's is deliberately
+	// left out so it plays the role of a googleusercontent.com-style hop in
+	// the middle of the chain.
+	c.session.allowedHostSuffixes = []string{
+		testServerHost(t, hop1.URL),
+		testServerHost(t, hop3.URL),
+	}
+
+	data, _, _, err := c.DownloadAttachment(context.Background(), hop1.URL, 0)
+	if err != nil {
+		t.Fatalf("DownloadAttachment: %v", err)
+	}
+	if string(data) != "final" {
+		t.Errorf("data = %q, want %q", data, "final")
+	}
+
+	if !strings.Contains(cookieAtHop1, "SID=secret") {
+		t.Errorf("hop1 (allowlisted) Cookie = %q, want it to contain SID=secret", cookieAtHop1)
+	}
+	if cookieAtHop2 != "" {
+		t.Errorf("hop2 (non-allowlisted) Cookie = %q, want empty", cookieAtHop2)
+	}
+	if !strings.Contains(cookieAtHop3, "SID=secret") {
+		t.Errorf("hop3 (allowlisted again) Cookie = %q, want it to contain SID=secret (must be re-attached after crossing back)", cookieAtHop3)
+	}
+}
+
+// TestDownloadAttachmentFilenameEmptyPathFallback verifies the
+// Content-Disposition-absent fallback for a URL with NO path segment at all
+// yields an empty filename, matching Python's own edge case exactly:
+// "".split("/")[-1] == "" (client.py:229-230) -- not path.Base's "." for an
+// empty string, which download.go's doc comment explicitly calls out as the
+// reason it uses a manual strings.Split instead of Go's path.Base.
+func TestDownloadAttachmentFilenameEmptyPathFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data"))
+	}))
+	defer srv.Close()
+
+	c := newTestDownloadClient(t, nil, "")
+	_, _, filename, err := c.DownloadAttachment(context.Background(), srv.URL, 0)
+	if err != nil {
+		t.Fatalf("DownloadAttachment: %v", err)
+	}
+	if filename != "" {
+		t.Errorf("filename = %q, want empty string for a URL with no path segment", filename)
+	}
+}
+
 // TestDownloadAttachmentFilenameFallback verifies the filename falls back to
 // the URL's last path segment when Content-Disposition is absent --
 // client.py:229-230.
