@@ -41,14 +41,18 @@ import (
 // whole event's mentions, not a per-part concept, but each part still gets
 // an independent object) -- matching the adjacent *MessageMetadata
 // allocation's own "never alias into a sibling part" rule, just above.
-// conv.ToMatrix itself does not render annotations into HTML/pills yet (M2
-// plain-text scope, replaced by M3 Task 4) -- that is orthogonal to
-// m.mentions, which this fixes now regardless.
+//
+// The SAME resolver (built once, below) feeds both conv.ToMatrix -- which,
+// as of M3 Task 4, uses it to render mention pills into HTML via
+// gchatfmt.Parse -- and inboundMentions' content.Mentions walk, so the two
+// can never disagree about which gaia ids resolve to which MXIDs within a
+// single conversion.
 func convertMessageToMatrix(conv *msgconv.MessageConverter) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
 	return func(ctx context.Context, portal *bridgev2.Portal, _ bridgev2.MatrixAPI, msg *pb.Message) (*bridgev2.ConvertedMessage, error) {
-		cm := conv.ToMatrix(ctx, msg)
+		resolve := newInboundMentionResolver(portal)
+		cm := conv.ToMatrix(ctx, msg, resolve)
 		ts := msg.GetCreateTime()
-		mentions := inboundMentions(msg.GetAnnotations(), newInboundMentionResolver(portal))
+		mentions := inboundMentions(msg.GetAnnotations(), resolve)
 		for _, part := range cm.Parts {
 			part.DBMetadata = &MessageMetadata{TimestampMicro: ts}
 			if mentions != nil {

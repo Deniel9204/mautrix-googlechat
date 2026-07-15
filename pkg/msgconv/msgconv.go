@@ -12,9 +12,12 @@
 // Portal/MatrixAPI for pieces msgconv does NOT need here: ghost/ID lookups
 // and media re-upload, both out of scope until later milestones).
 //
-// M2 scope is plain text only: a Message's text_body becomes one m.text
-// part (ToMatrix, from-gchat.go). M3 adds annotation-based HTML formatting
-// on top of that same part; M5 adds attachment parts alongside it.
+// M2 scope was plain text only: a Message's text_body became one m.text
+// part (ToMatrix, from-gchat.go). M3 (Task 4) adds annotation-based HTML
+// formatting on top of that same part, both directions -- gchatfmt.Parse
+// inbound, matrixfmt.Parse outbound -- via a MentionResolver seam the
+// connector supplies (pkg/connector/mentions.go); M5 adds attachment parts
+// alongside it.
 package msgconv
 
 // MessageConverter holds conversion configuration only -- no portal, no

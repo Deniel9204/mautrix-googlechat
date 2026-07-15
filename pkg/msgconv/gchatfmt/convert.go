@@ -28,8 +28,8 @@
 //     `evt.annotations` -- so the Python bridge always takes the
 //     HTML-formatting branch, even for annotation-free messages. Here the
 //     gate is len(annotations) > 0, matching the evidently-intended
-//     behavior (also documented at pkg/msgconv/from-gchat.go and the M2
-//     test TestToMatrix_AnnotationsPresentIgnored).
+//     behavior (also documented at pkg/msgconv/from-gchat.go and the
+//     test TestToMatrix_NoAnnotationsStaysPlain, pkg/msgconv/from-gchat_test.go).
 //   - Once formatted, Python replaces literal "\n" with "<br/>" in the
 //     final HTML string (:52) -- a blanket string replace done AFTER
 //     rendering, not HTML/context aware (e.g. it would also rewrite a

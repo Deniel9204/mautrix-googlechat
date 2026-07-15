@@ -4,12 +4,12 @@ package connector
 // (HandleMatrixMessage). Ports mautrix_googlechat/portal.py's
 // handle_matrix_message + _handle_matrix_text (portal.py:880-931,1051-1079)
 // together with maugclib/client.py's send_message (client.py:413-475),
-// restricted to M2's plain-text scope: every send goes out as a brand-new
-// top-level message via create_topic (Python's `if thread_id: ... else:
-// CreateTopicRequest` branch, client.py:441-472, always takes the else arm
-// here since M2 never computes a thread_id). Thread-aware create_message
-// routing (a reply into an existing topic) is M3's job, once portal thread
-// state exists to route on.
+// restricted to M2/M3's create_topic scope: every send goes out as a
+// brand-new top-level message via create_topic (Python's `if thread_id:
+// ... else: CreateTopicRequest` branch, client.py:441-472, always takes the
+// else arm here since thread-aware create_message routing -- a reply into
+// an existing topic -- is M3 Task 6's job, once portal thread state exists
+// to route on).
 //
 // Fidelity notes, ported field-by-field from send_message's else branch
 // (client.py:459-472):
@@ -37,7 +37,7 @@ package connector
 //     duplicate (portal.py:909,931, and the check at portal.py:1341). M2
 //     Task 5 generated and sent that token (newLocalID, same prefix and
 //     64-bit random range as Python's random.randint(0,
-//     0xffffffffffffffff)); Task 6 (below) wires it into bridgev2's own
+//     0xffffffffffffffff)); Task 6 wired it into bridgev2's own
 //     pending-transaction mechanism (msg.AddPendingToIgnore, via the
 //     addPendingToIgnore/addPendingToIgnoreFn seam, client.go) as the Go
 //     equivalent of self._local_dedup, registered before send() is called,
@@ -45,23 +45,30 @@ package connector
 //     queueMessagePosted's TransactionID field (events.go) --
 //     RemoteMessageWithTransactionID.GetTransactionID(), which bridgev2's
 //     checkPendingMessage (portal.go) compares against the pending table.
-//   - text_body: the plain-text body from msgConverter().FromMatrix
-//     (pkg/msgconv/from-matrix.go), the M2 subset of fmt.matrix_to_googlechat
-//     (portal.py:1059).
+//   - text_body + annotations: msgConverter().FromMatrix
+//     (pkg/msgconv/from-matrix.go) now delegates to matrixfmt.Parse (M3
+//     Task 2), the full fmt.matrix_to_googlechat (portal.py:1059) --
+//     text_body is the annotation-stripped text, annotations the
+//     HTML-derived formatting/mention list. mergeAnnotations (below) is the
+//     append-only combination point B4 requires (see its own doc comment).
+//     newOutboundMentionResolver (mentions.go, M3 Task 3) is built fresh
+//     per send from msg.Portal and threaded through so a Matrix mention
+//     pill in the message becomes a MENTION annotation (fix B2's outbound
+//     half).
 //   - history_v2=true is sent unconditionally, matching send_message's own
 //     unconditional value (client.py:465) -- not gated on any config or
 //     portal state.
 //   - message_info.accept_format_annotations=true is likewise unconditional
 //     (client.py:467-469, shared by both the create_topic and
-//     create_message branches). message_info.reply_to is left unset: M2 has
-//     no quote-reply support yet (M3), matching what send_message would
-//     build with reply_to=None (client.py:423-437, reply_to_wrapped stays
-//     nil in that case).
-//   - annotations and retention_settings are left unset: annotation-based
-//     formatting is M3 (send_message's `annotations` parameter, which
-//     _handle_matrix_text always passes from matrix_to_googlechat, is empty
-//     until M3 exists to populate it), and retention_settings is never set
-//     by send_message at all (client.py:460-471 never mentions it).
+//     create_message branches, regardless of whether annotations is
+//     empty -- grep-verified: send_message never gates this on
+//     `len(annotations)`) -- so it stays unconditional here too, matching
+//     Python exactly rather than gating it on len(annotations) > 0.
+//     message_info.reply_to is left unset: quote-reply support is M3 Task 7,
+//     matching what send_message would build with reply_to=None
+//     (client.py:423-437, reply_to_wrapped stays nil in that case).
+//   - retention_settings is left unset: it is never set by send_message at
+//     all (client.py:460-471 never mentions it).
 //   - topic_and_message_id is never set by send_message either (proto field
 //     7, unused by this call site in Python) and is likewise left unset
 //     here.
@@ -94,8 +101,9 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// HandleMatrixMessage sends a plain-text Matrix message to Google Chat as a
-// brand-new top-level topic (create_topic; M2 scope, see file doc comment).
+// HandleMatrixMessage sends a Matrix message to Google Chat as a brand-new
+// top-level topic (create_topic; see file doc comment), with full HTML
+// formatting/mention conversion as of M3 Task 4.
 //
 // Non-text/notice message types are rejected with
 // bridgev2.ErrUnsupportedMessageType, matching handle_matrix_message's final
@@ -126,14 +134,26 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 		send = conn.CreateTopic
 	}
 
-	text := c.msgConverter().FromMatrix(ctx, msg.Content)
+	resolve := newOutboundMentionResolver(ctx, msg.Portal)
+	text, textAnnotations := c.msgConverter().FromMatrix(ctx, msg.Content, resolve)
 	localID := newLocalID()
 	txnID := networkid.TransactionID(localID)
 	req := &pb.CreateTopicRequest{
-		GroupId:   gchatmeow.PartsToGroupID(group.ID, group.IsDM),
-		LocalId:   proto.String(localID),
-		TextBody:  proto.String(text),
-		HistoryV2: proto.Bool(true),
+		GroupId:  gchatmeow.PartsToGroupID(group.ID, group.IsDM),
+		LocalId:  proto.String(localID),
+		TextBody: proto.String(text),
+		// mergeAnnotations(nil, textAnnotations): no media/UPLOAD_METADATA
+		// annotation exists yet in M3 (M5's job) -- the nil first argument
+		// is the seam M5 will fill in with the attached file's own
+		// annotation. Wiring it through mergeAnnotations NOW, rather than
+		// assigning textAnnotations directly, is the fix for B4
+		// (docs/research/08d §2.4, see mergeAnnotations' own doc comment):
+		// it keeps this call site append-only from day one, so M5 cannot
+		// reintroduce megabridge's `annotations = entities` bug by simply
+		// setting req.Annotations = textAnnotations after already having
+		// populated it with a file annotation.
+		Annotations: mergeAnnotations(nil, textAnnotations),
+		HistoryV2:   proto.Bool(true),
 		MessageInfo: &pb.MessageInfo{
 			AcceptFormatAnnotations: proto.Bool(true),
 		},
@@ -192,4 +212,40 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 // for in-flight dedup, not unpredictable.
 func newLocalID() string {
 	return fmt.Sprintf("mautrix-googlechat%%%d", rand.Uint64())
+}
+
+// mergeAnnotations combines a message's already-decided annotations
+// (existing -- currently always nil in M3, since there is no media upload
+// path yet; M5 will pass the attached file's own UPLOAD_METADATA annotation
+// here) with the caption/body text's own formatting annotations (text,
+// from matrixfmt.Parse via FromMatrix), always by APPENDING text after
+// existing -- never by replacing existing outright.
+//
+// This is the fix for B4 (docs/research/08d-megabridge-msgconv.md §2.4):
+// megabridge's handlematrix.go built `annotations = []*proto.Annotation{
+// {Type: UPLOAD_METADATA, ...}}` for a media message, then unconditionally
+// ran the caption through its formatter and did `if entities != nil {
+// annotations = entities }` -- REPLACING the UPLOAD_METADATA annotation
+// (and silently dropping the attached file from the wire request) whenever
+// the caption had ANY formatting at all; a plain-text caption only survived
+// by accident, because entities was nil in that case. The correct
+// combination is additive: keep the file annotation, and append the
+// caption's own formatting annotations after it -- exactly what a media
+// message needs to keep BOTH the attached file AND a formatted caption.
+//
+// Both nil-slice fast paths return the other argument's slice unchanged
+// (no allocation), preserving the existing "plain-body outbound -> nil
+// annotations, not an empty-but-non-nil slice" contract when text is empty
+// (see matrixfmt.Parse's own doc comment).
+func mergeAnnotations(existing, text []*pb.Annotation) []*pb.Annotation {
+	if len(text) == 0 {
+		return existing
+	}
+	if len(existing) == 0 {
+		return text
+	}
+	merged := make([]*pb.Annotation, 0, len(existing)+len(text))
+	merged = append(merged, existing...)
+	merged = append(merged, text...)
+	return merged
 }

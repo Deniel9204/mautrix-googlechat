@@ -5,10 +5,13 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/proto"
+	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv"
+	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
 
 // TestToMatrix_PlainText covers the base case ported from
@@ -18,7 +21,7 @@ func TestToMatrix_PlainText(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hello world")}
 
-	cm := mc.ToMatrix(context.Background(), msg)
+	cm := mc.ToMatrix(context.Background(), msg, nil)
 
 	if cm == nil {
 		t.Fatal("ToMatrix returned nil")
@@ -40,10 +43,10 @@ func TestToMatrix_PlainText(t *testing.T) {
 		t.Errorf("Body = %q, want %q", part.Content.Body, "hello world")
 	}
 	if part.Content.Format != "" {
-		t.Errorf("Format = %q, want empty (M2 is plain text, no HTML)", part.Content.Format)
+		t.Errorf("Format = %q, want empty (no annotations -> no HTML)", part.Content.Format)
 	}
 	if part.Content.FormattedBody != "" {
-		t.Errorf("FormattedBody = %q, want empty (M2 is plain text)", part.Content.FormattedBody)
+		t.Errorf("FormattedBody = %q, want empty (no annotations -> no HTML)", part.Content.FormattedBody)
 	}
 }
 
@@ -56,7 +59,7 @@ func TestToMatrix_EmptyBody(t *testing.T) {
 
 	t.Run("explicit empty string", func(t *testing.T) {
 		msg := &pb.Message{TextBody: proto.String("")}
-		cm := mc.ToMatrix(context.Background(), msg)
+		cm := mc.ToMatrix(context.Background(), msg, nil)
 		if len(cm.Parts) != 0 {
 			t.Fatalf("expected 0 parts for empty text_body, got %d", len(cm.Parts))
 		}
@@ -64,7 +67,7 @@ func TestToMatrix_EmptyBody(t *testing.T) {
 
 	t.Run("field absent", func(t *testing.T) {
 		msg := &pb.Message{}
-		cm := mc.ToMatrix(context.Background(), msg)
+		cm := mc.ToMatrix(context.Background(), msg, nil)
 		if len(cm.Parts) != 0 {
 			t.Fatalf("expected 0 parts when text_body is unset, got %d", len(cm.Parts))
 		}
@@ -78,7 +81,7 @@ func TestToMatrix_WhitespaceBody(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("   ")}
 
-	cm := mc.ToMatrix(context.Background(), msg)
+	cm := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part for whitespace-only text_body, got %d", len(cm.Parts))
@@ -89,15 +92,14 @@ func TestToMatrix_WhitespaceBody(t *testing.T) {
 }
 
 // TestToMatrix_UnicodeEmoji proves UTF-8 text (including astral-plane
-// emoji, which are surrogate pairs in UTF-16 / Python) survives untouched.
-// M2 does no UTF-16 offset math (that's M3's annotation work), so there is
-// no surrogate encode/decode step here -- text_body passes through as-is.
+// emoji, which are surrogate pairs in UTF-16 / Python) survives untouched
+// in the plain body.
 func TestToMatrix_UnicodeEmoji(t *testing.T) {
 	mc := msgconv.New()
 	want := "héllo 👋🏽 世界 🇺🇳"
 	msg := &pb.Message{TextBody: proto.String(want)}
 
-	cm := mc.ToMatrix(context.Background(), msg)
+	cm := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
@@ -107,37 +109,105 @@ func TestToMatrix_UnicodeEmoji(t *testing.T) {
 	}
 }
 
-// TestToMatrix_AnnotationsPresentIgnored: M2 must not crash when
-// annotations are present, and must NOT replicate the Python bug at
-// from_googlechat.py:45 (`if annotations:` tests the always-truthy
-// `from __future__ import annotations` feature object instead of
-// `evt.annotations`, so the Python bridge always runs the HTML-formatting
-// path). Here we simply take text_body verbatim regardless of annotations
-// -- formatting is M3's job -- so the output must stay plain (no Format,
-// no FormattedBody) even though annotations are non-empty.
-func TestToMatrix_AnnotationsPresentIgnored(t *testing.T) {
+// TestToMatrix_NoAnnotationsStaysPlain pins the fast path: a message with no
+// annotations must never get an HTML formatted_body, matching gchatfmt.Parse's
+// fix for the Python always-truthy-annotations bug at
+// from_googlechat.py:45 (see gchatfmt's package doc comment) and the
+// task's "keep plain-text fast path" constraint.
+func TestToMatrix_NoAnnotationsStaysPlain(t *testing.T) {
 	mc := msgconv.New()
-	msg := &pb.Message{
-		TextBody: proto.String("bold text"),
-		Annotations: []*pb.Annotation{
-			{StartIndex: proto.Int32(0), Length: proto.Int32(4)},
-		},
-	}
+	msg := &pb.Message{TextBody: proto.String("plain text, nothing special")}
 
-	cm := mc.ToMatrix(context.Background(), msg)
+	cm := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
 	}
 	part := cm.Parts[0]
-	if part.Content.Body != "bold text" {
-		t.Errorf("Body = %q, want %q", part.Content.Body, "bold text")
-	}
 	if part.Content.Format != "" {
-		t.Errorf("Format = %q, want empty -- M2 ignores annotation formatting entirely", part.Content.Format)
+		t.Errorf("Format = %q, want empty", part.Content.Format)
 	}
 	if part.Content.FormattedBody != "" {
 		t.Errorf("FormattedBody = %q, want empty", part.Content.FormattedBody)
+	}
+}
+
+// TestToMatrix_FormatAnnotationsProduceHTML is the headline M3 Task 4
+// behavior: a message with FORMAT_DATA annotations must produce a part
+// with Format=org.matrix.custom.html, the gchatfmt-rendered FormattedBody,
+// and Body left as the plain text_body (unmodified by the HTML rendering).
+func TestToMatrix_FormatAnnotationsProduceHTML(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody: proto.String("hello world"),
+		Annotations: []*pb.Annotation{
+			gchatfmt.MakeFormatAnnotation(0, 5, pb.FormatMetadata_BOLD),
+		},
+	}
+
+	cm := mc.ToMatrix(context.Background(), msg, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	part := cm.Parts[0]
+	if part.Content.Body != "hello world" {
+		t.Errorf("Body = %q, want %q", part.Content.Body, "hello world")
+	}
+	if part.Content.Format != event.FormatHTML {
+		t.Errorf("Format = %q, want %q", part.Content.Format, event.FormatHTML)
+	}
+	wantHTML := "<strong>hello</strong> world"
+	if part.Content.FormattedBody != wantHTML {
+		t.Errorf("FormattedBody = %q, want %q", part.Content.FormattedBody, wantHTML)
+	}
+}
+
+// TestToMatrix_MentionAnnotationUsesPassedResolver proves ToMatrix actually
+// threads the mention parameter into gchatfmt.Parse (not just accepting and
+// ignoring it): a resolver that knows the gaia id must produce a pill in
+// FormattedBody.
+func TestToMatrix_MentionAnnotationUsesPassedResolver(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody:    proto.String("@Bob hi"),
+		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")},
+	}
+	resolve := func(gaiaID string) (id.UserID, string, bool) {
+		if gaiaID == "200" {
+			return "@200_ghost:example.com", "", true
+		}
+		return "", "", false
+	}
+
+	cm := mc.ToMatrix(context.Background(), msg, resolve)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	want := `<a href="https://matrix.to/#/@200_ghost:example.com">@Bob</a> hi`
+	if got := cm.Parts[0].Content.FormattedBody; got != want {
+		t.Errorf("FormattedBody = %q, want %q", got, want)
+	}
+}
+
+// TestToMatrix_NilResolverDoesNotPanic: a nil mention resolver (e.g. a
+// caller that hasn't wired one up) must degrade to gchatfmt's own nil-safe
+// fallback, not panic.
+func TestToMatrix_NilResolverDoesNotPanic(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody:    proto.String("@Bob hi"),
+		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")},
+	}
+
+	cm := mc.ToMatrix(context.Background(), msg, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
+	}
+	if got := cm.Parts[0].Content.FormattedBody; got != "@Bob hi" {
+		t.Errorf("FormattedBody = %q, want %q (unpilled fallback)", got, "@Bob hi")
 	}
 }
 
@@ -150,12 +220,55 @@ func TestToMatrix_PartID(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hi")}
 
-	cm := mc.ToMatrix(context.Background(), msg)
+	cm := mc.ToMatrix(context.Background(), msg, nil)
 
 	if len(cm.Parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(cm.Parts))
 	}
 	if cm.Parts[0].ID != "" {
 		t.Errorf("PartID = %q, want empty for the sole part", cm.Parts[0].ID)
+	}
+}
+
+// TestToMatrix_TextPartAppendedNotOverwritten is a B4-adjacent regression
+// guard (docs/research/08d §2.4: a media message with a formatted caption
+// must keep BOTH the file and the caption text, never let one overwrite
+// the other). ToMatrix itself only builds a text part in M3 (attachment
+// parts are M5), but it must add that part via append onto whatever
+// cm.Parts a future combined build already populated, never by replacing
+// the whole slice -- otherwise a caller that had already appended a stub
+// "file" part before calling into text-part construction would lose it.
+// This pins that structural invariant directly against ToMatrix's actual
+// cm.Parts, not a hypothetical helper.
+func TestToMatrix_TextPartAppendedNotOverwritten(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{TextBody: proto.String("a caption")}
+
+	cm := mc.ToMatrix(context.Background(), msg, nil)
+	if len(cm.Parts) != 1 {
+		t.Fatalf("expected 1 text part, got %d", len(cm.Parts))
+	}
+
+	// Simulate a caller (M5) that already has a stub file part and combines
+	// it with ToMatrix's own output by appending, the same way ToMatrix
+	// itself builds cm.Parts (cm.Parts = append(cm.Parts, textPart)).
+	stubFilePart := &bridgev2.ConvertedMessagePart{
+		ID:   "file",
+		Type: event.EventMessage,
+		Content: &event.MessageEventContent{
+			MsgType: event.MsgImage,
+			Body:    "photo.jpg",
+		},
+	}
+	combined := append([]*bridgev2.ConvertedMessagePart{stubFilePart}, cm.Parts...)
+
+	if len(combined) != 2 {
+		t.Fatalf("expected 2 parts (file + text) after combining, got %d", len(combined))
+	}
+	if combined[0].Content.Body != "photo.jpg" {
+		t.Errorf("combined[0] (file part) = %+v, want the stub file part preserved first", combined[0].Content)
+	}
+	if combined[1].Content.Body != "a caption" {
+		t.Errorf("combined[1] (text part) = %+v, want the caption text preserved second", combined[1].Content)
 	}
 }
