@@ -249,6 +249,39 @@ func TestHandleMatrixEditNoExistingMetadataStillWorks(t *testing.T) {
 	}
 }
 
+// TestHandleMatrixEditNonTextMsgTypeRejected pins portal.py:853-862's
+// stricter-than-new-message gate: `# We don't support non-text edits yet /
+// if message.msgtype != MessageType.TEXT: ... return`. Unlike
+// HandleMatrixMessage (handlematrix.go), which accepts BOTH TEXT and NOTICE
+// for a brand new send (portal.py:915), an edit's new content must be
+// literal TEXT -- bridgev2's own generic checkMessageContentCaps
+// (mautrix-go bridgev2/portal.go:1108-1146) whitelists
+// MsgText/MsgNotice/MsgEmote with "no checks for now" and does NOT enforce
+// this, so this method must reject it itself.
+func TestHandleMatrixEditNonTextMsgTypeRejected(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	called := false
+	gc := &GChatClient{
+		UserLogin: login,
+		editMessageFn: func(context.Context, *pb.EditMessageRequest) (*pb.EditMessageResponse, error) {
+			called = true
+			return editMessageResponse(1), nil
+		},
+	}
+
+	target := &database.Message{ID: gcid.MakeMessageID("msg1")}
+	edit := textMatrixEdit(spacePortal("space1"), "an edited notice", target)
+	edit.Content.MsgType = event.MsgNotice
+
+	err := gc.HandleMatrixEdit(context.Background(), edit)
+	if !errors.Is(err, bridgev2.ErrUnsupportedMessageType) {
+		t.Errorf("error = %v, want bridgev2.ErrUnsupportedMessageType", err)
+	}
+	if called {
+		t.Error("editMessageFn was called for a NOTICE edit, want rejected before the RPC")
+	}
+}
+
 // --- HandleMatrixEdit: error paths -------------------------------------------
 
 func TestHandleMatrixEditInvalidPortalIDErrors(t *testing.T) {

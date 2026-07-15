@@ -13,12 +13,19 @@ package connector
 //     `DBMessage.get_by_mxid(message.get_edit(), self.mxid)`, and drops the
 //     edit with no call to this method at all if it's not found -- Python's
 //     `if not target: ... return`, portal.py:844-852);
-//   - rejects a non-text/notice edit via checkMessageContentCaps
-//     (portal.py:854-862's `if message.msgtype != MessageType.TEXT`, gated
-//     here on capabilities.go's GetCapabilities -- this bridge's
-//     File/State/MemberActions maps never claim anything beyond plain text,
-//     matching Python's own text-only restriction, so no separate msgtype
-//     check belongs in THIS method);
+//   - checks the edit against checkMessageContentCaps (mautrix-go
+//     bridgev2/portal.go:1108-1146) -- but that check whitelists
+//     MsgText/MsgNotice/MsgEmote ALL THREE with "no checks for now",
+//     unlike Python's handle_matrix_edit, which is STRICTER than its own
+//     handle_matrix_message: an edit's new content must be literal TEXT
+//     (portal.py:853-862's `# We don't support non-text edits yet / if
+//     message.msgtype != MessageType.TEXT: ... return`), even though a
+//     brand new send accepts TEXT or NOTICE (portal.py:915,
+//     HandleMatrixMessage above). bridgev2's generic cap check does NOT
+//     enforce this asymmetry, so this method re-checks edit.Content.MsgType
+//     itself, below, rather than relying on checkMessageContentCaps (a
+//     gchat-port-auditor finding on an earlier revision of this file, which
+//     had incorrectly assumed the generic cap check already covered this);
 //   - swaps content for content.NewContent (portal.go:1507-1508) so
 //     edit.Content below is ALREADY the unwrapped m.new_content, needing no
 //     special edit-vs-new-message handling here;
@@ -36,15 +43,16 @@ package connector
 // own `!caps.Edit.Partial()` gate silently drop every Matrix edit before it
 // ever reached here (mautrix-go bridgev2/portal.go:1530-1532).
 //
-// This method therefore only needs to build+send the edit_message RPC and
-// record the new last_edit_time -- matching Python's handle_matrix_edit body
-// from `text, annotations = ...` (portal.py:864) onward.
+// This method therefore only needs to reject non-TEXT edits, then build+send
+// the edit_message RPC and record the new last_edit_time -- matching
+// Python's handle_matrix_edit body (portal.py:853-878).
 import (
 	"context"
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/event"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
@@ -91,6 +99,17 @@ var _ bridgev2.EditHandlingNetworkAPI = (*GChatClient)(nil)
 // untouched (matching Python: the assignment at portal.py:874 is inside the
 // `try` block, never reached on an exception).
 func (c *GChatClient) HandleMatrixEdit(ctx context.Context, edit *bridgev2.MatrixEdit) error {
+	// portal.py:853-862's "# We don't support non-text edits yet" gate --
+	// stricter than HandleMatrixMessage's own TEXT-or-NOTICE acceptance for
+	// brand new sends (portal.py:915). bridgev2.ErrUnsupportedMessageType is
+	// the same sentinel HandleMatrixMessage already uses for its own
+	// msgtype gate (handlematrix.go), so this reports identically to Matrix
+	// (a failed-to-send status on the edit event) rather than silently
+	// no-op'ing.
+	if edit.Content.MsgType != event.MsgText {
+		return bridgev2.ErrUnsupportedMessageType
+	}
+
 	group, err := gcid.ParsePortalID(edit.Portal.ID)
 	if err != nil {
 		return fmt.Errorf("googlechat: %w", err)
