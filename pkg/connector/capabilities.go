@@ -84,12 +84,9 @@ var gchatFormatting = event.FormattingFeatureMap{
 	event.FmtUnorderedList:       event.CapLevelFullySupported,
 }
 
-// gchatCapsFlat is advertised for every portal that is not a 2023+
-// "threads only" space: plain (non-threaded) spaces, legacy
-// topic-threading-enabled spaces (PortalMetadata.ThreadsEnabled without
-// ThreadsOnly -- M3 Task 6's routing keys off ThreadsOnly alone, so these
-// are routed exactly like a flat room), and DMs (which never have a thread
-// concept in Google Chat at all). Reply is fully supported; Thread is left
+// gchatCapsFlat is advertised for every portal with no topic-threading
+// concept at all: plain (non-threaded) spaces and DMs (which never have a
+// thread concept in Google Chat). Reply is fully supported; Thread is left
 // at its zero value (CapLevelUnsupported), which is what makes bridgev2's
 // portal.go route a Matrix reply as caps.Reply.Partial() rather than
 // starting a new GC thread.
@@ -99,8 +96,28 @@ var gchatCapsFlat = &event.RoomFeatures{
 	Reply:         event.CapLevelFullySupported,
 }
 
-// gchatCapsThreaded is advertised for a threaded space
-// (PortalMetadata.ThreadsOnly == true, the 2023+ "threads only" model).
+// gchatCapsThreaded is advertised for any portal with PortalMetadata.
+// ThreadsEnabled == true -- BOTH the 2023+ "threads only" model
+// (ThreadsOnly) AND legacy topic-threading-enabled spaces
+// (flat_threads_enabled, ThreadsEnabled without ThreadsOnly). Python's own
+// handle_matrix_message (portal.py:891-907) does not distinguish these two
+// room types for outbound routing purposes at all: its entire thread_id
+// computation is gated on the single `self.threads_enabled` boolean (`=
+// flat_threads_enabled or threads_only`, set_group_meta) -- ThreadsOnly
+// only matters separately for the INBOUND self-referencing head-message
+// case (_append_event_id's `self.threads_only` check, portal.py:1406,
+// ported in pkg/msgconv/from-gchat.go's ToMatrix). An earlier revision of
+// this file keyed roomFeatures purely off ThreadsOnly, silently making
+// every genuine GC thread reply in a legacy (non-ThreadsOnly)
+// threads-enabled room unreachable via bridgev2's own outbound resolution
+// (mautrix-go bridgev2/portal.go:1235-1244 never extracts
+// relatesTo.GetThreadParent() into MatrixMessage.ThreadRoot unless
+// caps.Thread.Partial()) -- caught by the M3 Task 6 gchat-port-auditor
+// pass; see also docs/research/07-gap-analysis.md row 45 ("per-portal
+// GetCapabilities switching Thread/Reply levels" off BOTH
+// threads_only/threads_enabled) and row 352 ("test matrix covering ...
+// flat+threads DM").
+//
 // Both Thread AND Reply are fully supported here -- they are NOT mutually
 // exclusive on Google Chat's wire protocol: maugclib/client.py's
 // send_message sets message_info.reply_to on BOTH the threaded
@@ -137,15 +154,23 @@ func init() {
 }
 
 // roomFeatures picks the RoomFeatures singleton for portal, reading
-// PortalMetadata.ThreadsOnly (set by chatinfo.go's threadingExtraUpdater,
-// M1 Task 12) nil-safely: a nil portal, nil Metadata, or a Metadata of an
-// unexpected type all fall back to gchatCapsFlat, the same default a brand
-// new portal (metadata not yet synced) gets.
+// PortalMetadata.ThreadsOnly || ThreadsEnabled (both set by chatinfo.go's
+// threadingExtraUpdater, M1 Task 12) nil-safely: a nil portal, nil
+// Metadata, or a Metadata of an unexpected type all fall back to
+// gchatCapsFlat, the same default a brand new portal (metadata not yet
+// synced) gets. The explicit `||` (rather than relying on ThreadsEnabled
+// alone, which chatinfo.go always computes as `flat_threads_enabled ||
+// threads_only` and so is already a superset of ThreadsOnly in practice)
+// mirrors Python's own `self.threads_enabled = flat_threads_enabled or
+// threads_only` formula literally, so this stays correct even if the two
+// fields were ever set independently (e.g. directly in a test) rather than
+// through chatinfo.go's normal sync path; see gchatCapsThreaded's doc
+// comment for why both room types get the same RoomFeatures.
 func roomFeatures(portal *bridgev2.Portal) *event.RoomFeatures {
 	if portal == nil {
 		return gchatCapsFlat
 	}
-	if meta, ok := portal.Metadata.(*PortalMetadata); ok && meta != nil && meta.ThreadsOnly {
+	if meta, ok := portal.Metadata.(*PortalMetadata); ok && meta != nil && (meta.ThreadsOnly || meta.ThreadsEnabled) {
 		return gchatCapsThreaded
 	}
 	return gchatCapsFlat

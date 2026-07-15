@@ -56,12 +56,52 @@ func TestGetCapabilitiesFlatRoomAdvertisesReply(t *testing.T) {
 	}
 }
 
-func TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyStillFlat(t *testing.T) {
-	// ThreadsEnabled (legacy topic-based threading) without ThreadsOnly is
-	// still a flat room for reply/thread routing purposes -- only the 2023+
-	// threaded-space model (ThreadsOnly) switches the portal into Thread
-	// mode; M3 Task 6's routing is keyed off ThreadsOnly alone.
+// TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread
+// pins a fix made during M3 Task 6's own gchat-port-auditor pass: a legacy
+// topic-threaded space (ThreadsEnabled without the 2023+ ThreadsOnly model)
+// must ALSO advertise Thread -- an earlier revision of roomFeatures keyed
+// purely off ThreadsOnly and routed these rooms exactly like a flat one,
+// which silently made every genuine GC thread reply in such a room
+// unreachable via bridgev2's own outbound resolution (mautrix-go
+// bridgev2/portal.go:1235-1244 never extracts relatesTo.GetThreadParent()
+// into MatrixMessage.ThreadRoot unless caps.Thread.Partial()), so Task 6's
+// create_message routing (handlematrix.go's sendThreadedMessage) could
+// never be reached for this room type at all.
+//
+// Python's own handle_matrix_message (portal.py:891-907) confirms these two
+// room types are NOT distinguished at all for outbound routing purposes: the
+// whole thread_id computation is gated on `self.threads_enabled` (`=
+// flat_threads_enabled or threads_only`, portal.py set_group_meta), the
+// SAME boolean for both the 2023+ threads-only model and legacy
+// flat-with-threads-enabled spaces -- ThreadsOnly only matters separately
+// for the INBOUND self-referencing head-message case
+// (_append_event_id's `self.threads_only` check, portal.py:1406, ported
+// unchanged in pkg/msgconv/from-gchat.go's ToMatrix, which is deliberately
+// NOT changed by this fix). docs/research/07-gap-analysis.md row 45
+// ("per-portal GetCapabilities switching Thread/Reply levels" off BOTH
+// `threads_only`/`threads_enabled`) and row 352 ("test matrix covering ...
+// flat+threads DM") independently corroborate this was always the intended
+// design, not a new decision.
+func TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread(t *testing.T) {
 	portal := portalWithMeta(&PortalMetadata{ThreadsOnly: false, ThreadsEnabled: true})
+
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	if !caps.Reply.Full() {
+		t.Errorf("Reply = %v, want fully supported", caps.Reply)
+	}
+	if !caps.Thread.Full() {
+		t.Errorf("Thread = %v, want fully supported (ThreadsEnabled alone is Python's real threads_enabled gate, portal.py:891)", caps.Thread)
+	}
+}
+
+// TestGetCapabilitiesNeitherFlagSetIsFlat: a portal with BOTH ThreadsOnly
+// and ThreadsEnabled false (a genuinely non-threaded space, or a portal
+// whose chat_info sync hasn't run yet) must still be flat -- the
+// ThreadsEnabled fix above must not accidentally widen to "always
+// threaded".
+func TestGetCapabilitiesNeitherFlagSetIsFlat(t *testing.T) {
+	portal := portalWithMeta(&PortalMetadata{ThreadsOnly: false, ThreadsEnabled: false})
 
 	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
 
