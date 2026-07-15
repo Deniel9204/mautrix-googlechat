@@ -16,7 +16,10 @@ type PortalMetadata struct {
 	Revision int64 `json:"revision,omitempty"`
 	// Threaded space (2023+ "threads only" model).
 	ThreadsOnly bool `json:"threads_only,omitempty"`
-	// Legacy threaded space (topic-based threading enabled).
+	// Whether topic-based threading is enabled at all. Stored as
+	// flat_threads_enabled || threads_only (chatinfo.go), so it's a
+	// superset of ThreadsOnly -- read alongside ThreadsOnly by
+	// capabilities.go, not just for legacy spaces.
 	ThreadsEnabled bool `json:"threads_enabled,omitempty"`
 }
 

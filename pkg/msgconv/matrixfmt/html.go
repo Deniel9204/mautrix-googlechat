@@ -707,22 +707,30 @@ func (parser *HTMLParser) blockquoteToString(node *html.Node, ctx Context) *Enti
 //     "if entity_type == GCEntityType.EMAIL: return self").
 //  3. A matrix.to/matrix: URI naming a user (sigil '@') -> a mention pill,
 //     gated by content.Mentions (the m.mentions allow-list, when present)
-//     and by the MentionResolver seam (GetUIDFromMXID). "@" + the anchor's
-//     own rendered text becomes a Mention entity; the "@" prefix is a
-//     deliberate deviation from the real (self-admittedly incomplete --
-//     see its "# TODO remove potential Google Chat suffix from
-//     displayname" / "# TODO convert Matrix mentions of Google Chat users
-//     to GC mentions" comments, from_matrix/parser.py:50-51)
-//     user_pill_to_fstring, matching megabridge's better-than-Python
-//     behavior instead (docs/research/08d-megabridge-msgconv.md §2.1:
-//     "better than Python: ghosts and real Matrix users") and Google
-//     Chat's own convention of always writing "@Name" as the literal text
-//     under a MENTION annotation (confirmed by gchatfmt's own test
-//     fixtures, e.g. pkg/msgconv/gchatfmt/convert_test.go's "@Bob hi").
-//     Any other Matrix URI (room, event) falls through to case 4, exactly
-//     like Python (room_pill_to_fstring/event_link_to_fstring return None
-//     in the base class and neither is overridden by GC, so link_to_fstring
-//     falls through to url_to_fstring with the original href).
+//     and by the MentionResolver seam (GetUIDFromMXID). Exactly one leading
+//     "@" + the anchor's own rendered text becomes a Mention entity: the
+//     "@" prefix is a deliberate deviation from the real (self-admittedly
+//     incomplete -- see its "# TODO remove potential Google Chat suffix
+//     from displayname" / "# TODO convert Matrix mentions of Google Chat
+//     users to GC mentions" comments, from_matrix/parser.py:50-51)
+//     user_pill_to_fstring, matching Google Chat's own convention of
+//     always writing "@Name" as the literal text under a MENTION
+//     annotation (confirmed by gchatfmt's own test fixtures, e.g.
+//     pkg/msgconv/gchatfmt/convert_test.go's "@Bob hi"). Crucially the "@"
+//     is prepended onto the anchor text with any existing leading "@"
+//     stripped first, so it appears exactly ONCE: gchatfmt (the inverse
+//     package) renders a bridged GC mention as a pill whose anchor text is
+//     the GC entityText, which ALREADY starts with "@" (e.g. "@Bob").
+//     Round-tripping that HTML back through this function (forwarding a
+//     bridged message, or any Matrix client whose pill anchor text
+//     includes a "@") would otherwise double the sigil to "@@Bob" --
+//     megabridge's unconditional prepend had exactly this cross-package
+//     round-trip defect (offsets stay correct, but the text is
+//     duplicated). Any other Matrix URI (room, event) falls through to
+//     case 4, exactly like Python (room_pill_to_fstring/
+//     event_link_to_fstring return None in the base class and neither is
+//     overridden by GC, so link_to_fstring falls through to url_to_fstring
+//     with the original href).
 //  4. Otherwise -> a URL{Href: href} annotation, UNCONDITIONALLY -- this is
 //     the fix for the URL-loss bug (see the package doc comment).
 func (parser *HTMLParser) linkToString(node *html.Node, ctx Context) *EntityString {
@@ -739,7 +747,11 @@ func (parser *HTMLParser) linkToString(node *html.Node, ctx Context) *EntityStri
 		if ctx.AllowedMentions == nil || ctx.AllowedMentions.Has(mxid) {
 			if parser.GetUIDFromMXID != nil {
 				if gaiaID := parser.GetUIDFromMXID(ctx.Ctx, mxid); gaiaID != "" {
-					return NewEntityString("@" + str.TextString()).Format(Mention{GaiaID: gaiaID})
+					// Strip any leading "@" before re-prepending so the
+					// sigil appears exactly once -- see this function's doc
+					// comment, case 3, for the cross-package round-trip
+					// defect (matrixfmt(gchatfmt(x)) -> "@@Bob") this avoids.
+					return NewEntityString("@" + strings.TrimPrefix(str.TextString(), "@")).Format(Mention{GaiaID: gaiaID})
 				}
 			}
 		}

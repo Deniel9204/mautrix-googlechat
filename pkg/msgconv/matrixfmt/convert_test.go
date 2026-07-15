@@ -245,6 +245,28 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
+			// Anchor text that already starts with "@" (the shape gchatfmt
+			// produces for a bridged GC mention -- entityText is "@Bob")
+			// must NOT double the sigil to "@@Bob" when it re-enters this
+			// package (forwarding a bridged message, etc). Regression test
+			// for the cross-package round-trip defect the M3 whole-branch
+			// review found.
+			name: "mention pill whose anchor text already has @ -- single @, not doubled",
+			content: htmlContent(
+				`Hi <a href="https://matrix.to/#/@bob:example.com">@Bob</a>!`,
+			),
+			mention: func(mxid id.UserID) (string, bool) {
+				if mxid == "@bob:example.com" {
+					return "456", true
+				}
+				return "", false
+			},
+			wantText: "Hi @Bob!",
+			wantAnnotes: []*pb.Annotation{
+				gchatfmt.MakeMentionAnnotation(3, 4, "456"),
+			},
+		},
+		{
 			// The classic UTF-16 trap: an astral-plane emoji (2 UTF-16 code
 			// units) sits before the mention. If offsets were computed in
 			// runes instead of UTF-16 code units, this would be off by one.
@@ -557,4 +579,40 @@ func TestRoundTrip_UserMention(t *testing.T) {
 	if html != want {
 		t.Errorf("html = %q, want %q", html, want)
 	}
+}
+
+// TestRoundTrip_MentionSigilNotDoubled is the regression test for the
+// cross-package round-trip defect the M3 whole-branch review found: a
+// bridged GC mention is rendered by gchatfmt as a pill whose anchor text
+// ALREADY starts with "@" (GC's entityText, e.g. "@Bob"). Feeding that
+// exact HTML back through matrixfmt (forwarding a bridged message) must
+// yield text with a SINGLE leading "@", not "@@Bob".
+func TestRoundTrip_MentionSigilNotDoubled(t *testing.T) {
+	// gchatfmt renders a GC MENTION over the text "@Bob" into pill HTML.
+	toMXID := func(gaiaID string) (id.UserID, string, bool) {
+		if gaiaID == "456" {
+			return "@bob:example.com", "@Bob", true
+		}
+		return "", "", false
+	}
+	gcAnnotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "456")}
+	_, pillHTML, _ := gchatfmt.Parse(context.Background(), "@Bob", gcAnnotations, toMXID)
+	if pillHTML != `<a href="https://matrix.to/#/@bob:example.com">@Bob</a>` {
+		t.Fatalf("gchatfmt produced unexpected pill HTML: %q", pillHTML)
+	}
+
+	// Now that same HTML re-enters matrixfmt.
+	toGaia := func(mxid id.UserID) (string, bool) {
+		if mxid == "@bob:example.com" {
+			return "456", true
+		}
+		return "", false
+	}
+	text, annotations := matrixfmt.Parse(context.Background(), htmlContent(pillHTML), toGaia)
+	if text != "@Bob" {
+		t.Errorf("round-tripped text = %q, want %q (single @, not doubled)", text, "@Bob")
+	}
+	assertAnnotations(t, annotations, []*pb.Annotation{
+		gchatfmt.MakeMentionAnnotation(0, 4, "456"),
+	})
 }
