@@ -141,6 +141,15 @@ type GChatClient struct {
 	// type (createTopicFn above, etc.).
 	addPendingToIgnoreFn func(msg *bridgev2.MatrixMessage, txnID networkid.TransactionID)
 
+	// removePendingFn undoes an addPendingToIgnoreFn registration when the
+	// create_topic RPC that followed it fails (handlematrix.go's
+	// HandleMatrixMessage). Defaults to msg.RemovePending; overridden in
+	// tests for the same reason addPendingToIgnoreFn is (the real method
+	// also reaches into bridgev2.Portal's private fields) and so tests can
+	// observe that a failed send's pending registration gets cleaned up
+	// (echo_dedup_test.go) rather than leaking for the life of the process.
+	removePendingFn func(msg *bridgev2.MatrixMessage, txnID networkid.TransactionID)
+
 	// queueRemoteEventFn queues one inbound bridgev2.RemoteEvent built from a
 	// live gchatmeow stream event (events.go's handleGChatEvent, starting
 	// with MESSAGE_POSTED in Task 4; later M2+ event kinds -- edits,
@@ -513,6 +522,19 @@ func (c *GChatClient) addPendingToIgnore(msg *bridgev2.MatrixMessage, txnID netw
 		return
 	}
 	msg.AddPendingToIgnore(txnID)
+}
+
+// removePending routes through removePendingFn when a test has overridden
+// it, and through the real msg.RemovePending otherwise -- mirrors
+// addPendingToIgnore above. See removePendingFn's doc comment for why
+// HandleMatrixMessage calls this wrapper (rather than msg.RemovePending
+// directly) on the create_topic RPC-failure path.
+func (c *GChatClient) removePending(msg *bridgev2.MatrixMessage, txnID networkid.TransactionID) {
+	if c.removePendingFn != nil {
+		c.removePendingFn(msg, txnID)
+		return
+	}
+	msg.RemovePending(txnID)
 }
 
 // msgConverter returns this login's msgconv.MessageConverter, falling back

@@ -113,23 +113,33 @@ func TestHandleMatrixMessageSuccessRemovesLocalIDFromPending(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixMessageFailureLeavesPendingRegistered documents (rather
-// than "fixes") a fidelity match with Python: on a failed send, Python never
-// reaches the `self._local_dedup.remove(local_id)` line (portal.py:925-931's
-// except branch skips the whole else block), so a failed send's local_id
-// leaks in _local_dedup for the rest of the process lifetime. The Go
-// equivalent is that RemovePending is only produced on the success return --
-// an error return has no RemovePending for the caller to act on, so the
-// pending-to-ignore entry this test's addPendingToIgnoreFn recorded is never
-// asked to be removed either. This is intentional (matches Python), not an
-// oversight.
-func TestHandleMatrixMessageFailureLeavesPendingRegistered(t *testing.T) {
+// TestHandleMatrixMessageFailureRemovesPendingRegistration covers the
+// gchat-port-auditor Task 6 finding: a failed create_topic RPC must undo the
+// addPendingToIgnore registration made just before it, via
+// MatrixMessage.RemovePending -- bridgev2's own purpose-built hook for
+// exactly this ("should only be called if sending the message fails," per
+// its doc comment, $REF/mautrix-go bridgev2/portal.go). Python's original
+// leaves local_id in self._local_dedup forever on this path
+// (portal.py:925-931's except branch never reaches the portal.py:931
+// remove() call), but that is an accidental limitation of Python's plain
+// set() (no equivalent "undo" hook existed to call), not a behavior worth
+// reproducing: both bridges are equally long-running daemons, so porting the
+// leak forward would be unbounded growth in bridgev2.Portal.outgoingMessages
+// across every failed send for the life of the process. This test also
+// pins the ordering: registration (before the RPC) must still happen even
+// though it is immediately undone on failure -- Task 6's race-window fix
+// (registering before the RPC, not after) is unconditional, independent of
+// whether the RPC then succeeds or fails.
+func TestHandleMatrixMessageFailureRemovesPendingRegistration(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
-	registered := false
+	var registeredTxnID, removedTxnID networkid.TransactionID
 	gc := &GChatClient{
 		UserLogin: login,
-		addPendingToIgnoreFn: func(*bridgev2.MatrixMessage, networkid.TransactionID) {
-			registered = true
+		addPendingToIgnoreFn: func(_ *bridgev2.MatrixMessage, txnID networkid.TransactionID) {
+			registeredTxnID = txnID
+		},
+		removePendingFn: func(_ *bridgev2.MatrixMessage, txnID networkid.TransactionID) {
+			removedTxnID = txnID
 		},
 		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 			return nil, context.DeadlineExceeded
@@ -143,8 +153,34 @@ func TestHandleMatrixMessageFailureLeavesPendingRegistered(t *testing.T) {
 	if resp != nil {
 		t.Errorf("HandleMatrixMessage() response = %+v, want nil on error", resp)
 	}
-	if !registered {
-		t.Fatal("addPendingToIgnoreFn was never called -- local_id must still be registered before the failed RPC (Task 6 ordering), even though nothing removes it afterward")
+	if registeredTxnID == "" {
+		t.Fatal("addPendingToIgnoreFn was never called -- local_id must still be registered before the failed RPC (Task 6 ordering)")
+	}
+	if removedTxnID != registeredTxnID {
+		t.Errorf("removePendingFn txn id = %q, want it to match the registered txn id %q (RemovePending must undo the exact registration the failed send made)", removedTxnID, registeredTxnID)
+	}
+}
+
+// TestHandleMatrixMessagePropagatesRPCErrorRemovesPendingRegistration
+// exercises the same failure-cleanup path through the REAL (non-seamed)
+// msg.RemovePending, confirming it's safe to call against the bare
+// *bridgev2.Portal test fixtures used throughout this package (unlike
+// AddPendingToIgnore, RemovePending only ever deletes from/reads a possibly-
+// nil map, both safe no-ops in Go) -- i.e. removePendingFn is a test
+// *convenience* for observability, not a requirement for the real method to
+// not panic.
+func TestHandleMatrixMessagePropagatesRPCErrorRemovesPendingRegistration(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	gc := &GChatClient{
+		UserLogin:            login,
+		addPendingToIgnoreFn: noopAddPendingToIgnore,
+		createTopicFn: func(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+			return nil, context.DeadlineExceeded
+		},
+	}
+
+	if _, err := gc.HandleMatrixMessage(context.Background(), textMatrixMessage(spacePortal("space1"), "hello")); err == nil {
+		t.Fatal("HandleMatrixMessage() error = nil, want an error from the failed RPC")
 	}
 }
 

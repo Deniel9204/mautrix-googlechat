@@ -149,6 +149,18 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 
 	resp, err := send(ctx, req)
 	if err != nil {
+		// Undo the registration above via bridgev2's own purpose-built hook
+		// (MatrixMessage.RemovePending, "should only be called if sending
+		// the message fails" per its doc comment). Python's own local_id
+		// leaks forever in self._local_dedup on this path (portal.py:925-931's
+		// except branch never reaches the remove() call at portal.py:931) --
+		// but that is an accidental limitation of Python's plain set(), not a
+		// behavior worth reproducing: bridgev2 hands connectors exactly the
+		// cleanup call Python never had, and both bridges are equally
+		// long-running daemons, so leaving this unpaired would be unbounded
+		// growth in outgoingMessages across every failed send for the life
+		// of the process (gchat-port-auditor, Task 6 review).
+		c.removePending(msg, txnID)
 		return nil, fmt.Errorf("googlechat: create_topic failed: %w", err)
 	}
 
@@ -166,12 +178,7 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 		// RemovePending mirrors portal.py:931's
 		// `self._local_dedup.remove(local_id)` on the success path: once this
 		// response is saved, the pending entry registered above is no longer
-		// needed. Left unset on the error return above -- like Python, which
-		// never reaches the remove() call when _handle_matrix_text raises
-		// (portal.py:925-931's except branch), a failed send leaves its
-		// local_id registered for the rest of the process lifetime rather
-		// than being cleaned up (see echo_dedup_test.go's
-		// TestHandleMatrixMessageFailureLeavesPendingRegistered).
+		// needed.
 		RemovePending: txnID,
 	}, nil
 }
