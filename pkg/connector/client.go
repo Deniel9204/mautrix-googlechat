@@ -25,7 +25,6 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
-	"maunium.net/go/mautrix/event"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
@@ -658,8 +657,6 @@ func (c *GChatClient) IsThisUser(_ context.Context, userID networkid.UserID) boo
 // GetChatInfo and GetUserInfo are implemented in chatinfo.go and userinfo.go
 // (Task 12) respectively.
 
-func (c *GChatClient) GetCapabilities(_ context.Context, _ *bridgev2.Portal) *event.RoomFeatures {
-	return &event.RoomFeatures{MaxTextLength: 4096}
-}
+// GetCapabilities is implemented in capabilities.go (Task 5).
 
 // HandleMatrixMessage is implemented in handlematrix.go.
