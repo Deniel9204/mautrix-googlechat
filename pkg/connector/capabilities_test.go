@@ -281,6 +281,50 @@ func TestGetCapabilitiesEditFullySupportedNoLimits(t *testing.T) {
 	}
 }
 
+// TestGetCapabilitiesM4FeaturesFullySupported pins the whole-branch-review
+// fix for gchatCapsFlat (inherited by gchatCapsThreaded via Clone()): every
+// M4 capability -- delete (Task 2), reaction (Task 3), read receipts (Task
+// 4), and typing notifications (Task 5) -- must be advertised as supported
+// in BOTH threaded and flat portals, exactly like Edit (Task 1) already was.
+// Before this fix, capability-honoring Matrix clients that read
+// com.beeper.room_features would hide reaction/redact/receipt/typing UI in
+// every Google Chat room even though all four are fully implemented.
+func TestGetCapabilitiesM4FeaturesFullySupported(t *testing.T) {
+	for _, threadsOnly := range []bool{true, false} {
+		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
+		caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+		if !caps.Delete.Full() {
+			t.Errorf("ThreadsOnly=%v: Delete = %v, want fully supported", threadsOnly, caps.Delete)
+		}
+		if !caps.Reaction.Full() {
+			t.Errorf("ThreadsOnly=%v: Reaction = %v, want fully supported", threadsOnly, caps.Reaction)
+		}
+		if !caps.ReadReceipts {
+			t.Errorf("ThreadsOnly=%v: ReadReceipts = %v, want true", threadsOnly, caps.ReadReceipts)
+		}
+		if !caps.TypingNotifications {
+			t.Errorf("ThreadsOnly=%v: TypingNotifications = %v, want true", threadsOnly, caps.TypingNotifications)
+		}
+	}
+}
+
+// TestGetCapabilitiesReactionUnrestricted pins that Google Chat's per-emoji
+// (not one-per-user) reaction model is advertised as unrestricted: no
+// ReactionCount cap (handlereaction.go's MaxReactions is likewise left at 0)
+// and no AllowedReactions allow-list, since any Unicode emoji is valid.
+func TestGetCapabilitiesReactionUnrestricted(t *testing.T) {
+	portal := portalWithMeta(&PortalMetadata{})
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	if caps.ReactionCount != 0 {
+		t.Errorf("ReactionCount = %d, want 0 (unlimited)", caps.ReactionCount)
+	}
+	if caps.AllowedReactions != nil {
+		t.Errorf("AllowedReactions = %v, want nil (unrestricted)", caps.AllowedReactions)
+	}
+}
+
 func TestGetCapabilitiesFormattingSameAcrossThreadModes(t *testing.T) {
 	flat := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{ThreadsOnly: false}))
 	threaded := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{ThreadsOnly: true}))

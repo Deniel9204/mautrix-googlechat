@@ -612,7 +612,19 @@ func (c *GChatClient) queueReadReceiptChanged(ctx context.Context, evt *pb.Event
 
 	res := bridgev2.EventHandlingResultIgnored
 	for _, rr := range receipts {
-		senderUserID := gcid.MakeUserID(rr.GetUser().GetUserId().GetId())
+		gaiaID := rr.GetUser().GetUserId().GetId()
+		if gaiaID == "" {
+			// An rr entry with no user id would otherwise resolve to
+			// EventSender{Sender: ""}, which bridgev2 treats as "no sender"
+			// and falls back to the bridge bot intent -- silently marking
+			// the room read as the BOT rather than skipping the entry, as
+			// queueMembershipChanged's identical empty-gaia-id guard
+			// (systemmessage.go) already does for MEMBERSHIP_CHANGED
+			// members. Skip it instead of queuing a bogus bot receipt.
+			log.Warn().Msg("googlechat: ReadReceiptChanged entry with no user id, skipping")
+			continue
+		}
+		senderUserID := gcid.MakeUserID(gaiaID)
 		res = c.queueRemoteEvent(&simplevent.Receipt{
 			EventMeta: simplevent.EventMeta{
 				Type:      bridgev2.RemoteEventReadReceipt,

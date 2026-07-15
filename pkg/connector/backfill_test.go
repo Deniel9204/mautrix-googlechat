@@ -253,6 +253,68 @@ func TestCatchUpSplitsMultiBodyEventsBeforeDispatch(t *testing.T) {
 	}
 }
 
+// TestCatchUpDrainReplaysMutationEventsThroughHandleGChatEvent pins the M4
+// whole-branch-review payoff (Minor #3): this file's own top-of-file doc
+// comment claims catchUp dispatches every returned event through
+// handleGChatEvent -- the SAME dispatch switch a live stream event takes
+// (events.go) -- so M4's edit/reaction/delete handlers apply to
+// gap-replayed events automatically, with no separate backfill-specific
+// event handling to keep in sync. That held structurally (each mutation
+// type's own Success path is pinned per-type in events_test.go), but until
+// now no test actually drove catchUp itself over a page containing a
+// mutation and checked BOTH that the mutation handler ran (not just "some
+// event was queued") AND that the watermark advanced past it. Scripts one
+// COMPLETED page carrying a MESSAGE_UPDATED (edit), MESSAGE_DELETED, and a
+// MESSAGE_REACTED (add) event together, and asserts all three are
+// dispatched as their correct concrete RemoteEvent types in order and the
+// persisted watermark ends at the highest (last) event's user_revision.
+func TestCatchUpDrainReplaysMutationEventsThroughHandleGChatEvent(t *testing.T) {
+	meta := &UserLoginMetadata{Revision: 100}
+	login := newTestUserLogin(meta)
+	login.ID = gcid.MakeUserLoginID("112233")
+
+	editEvt := messageUpdatedEvent(spaceGroupID("space-1"), "msg-edit", "98765", "edited during gap", 5000)
+	editEvt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(200)}}
+	deleteEvt := messageDeletedEvent(spaceGroupID("space-1"), "msg-delete", 1)
+	deleteEvt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(300)}}
+	reactionEvt := messageReactionEvent(spaceGroupID("space-1"), "msg-react", "98765", "❤", pb.MessageReactionEvent_ADD, 1)
+	reactionEvt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(400)}}
+
+	var queued []bridgev2.RemoteEvent
+	gc := &GChatClient{
+		UserLogin: login,
+		catchUpUserFn: func(context.Context, *pb.CatchUpUserRequest) (*pb.CatchUpResponse, error) {
+			return &pb.CatchUpResponse{
+				Status: pb.CatchUpResponse_COMPLETED.Enum(),
+				Events: []*pb.Event{editEvt, deleteEvt, reactionEvt},
+			}, nil
+		},
+		queueRemoteEventFn: func(e bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
+			queued = append(queued, e)
+			return bridgev2.EventHandlingResultQueued
+		},
+		saveFn: func(context.Context) error { return nil },
+	}
+
+	gc.catchUp(context.Background())
+
+	if len(queued) != 3 {
+		t.Fatalf("len(queued) = %d, want 3 (edit, delete, and reaction all dispatched through handleGChatEvent during catch-up replay)", len(queued))
+	}
+	if _, ok := queued[0].(bridgev2.RemoteEdit); !ok {
+		t.Errorf("queued[0] does not implement bridgev2.RemoteEdit: %T (M4 Task 1's edit handler must run during catch-up replay, not just live traffic)", queued[0])
+	}
+	if _, ok := queued[1].(bridgev2.RemoteMessageRemove); !ok {
+		t.Errorf("queued[1] does not implement bridgev2.RemoteMessageRemove: %T (M4 Task 2's delete handler must run during catch-up replay)", queued[1])
+	}
+	if _, ok := queued[2].(bridgev2.RemoteReaction); !ok {
+		t.Errorf("queued[2] does not implement bridgev2.RemoteReaction: %T (M4 Task 3's reaction handler must run during catch-up replay)", queued[2])
+	}
+	if meta.Revision != 400 {
+		t.Errorf("Metadata.Revision = %d, want 400 (watermark advances past every replayed mutation event, not just plain messages -- the last event's user_revision)", meta.Revision)
+	}
+}
+
 // --- catchUp: watermark advances only on success (c) ------------------------
 
 func TestCatchUpAdvancesWatermarkOnSuccess(t *testing.T) {

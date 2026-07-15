@@ -447,6 +447,58 @@ func TestHandleGChatEventReadReceiptChangedNoGroupIDSkipped(t *testing.T) {
 	}
 }
 
+// TestHandleGChatEventReadReceiptChangedEmptyUserIDSkipped pins the
+// whole-branch-review fix guarding against a bogus bot-intent read receipt:
+// an rr entry with no user.user_id.id (gaiaID == "") must be skipped
+// entirely, exactly like queueMembershipChanged's identical empty-gaia-id
+// guard for MEMBERSHIP_CHANGED members (systemmessage.go) -- otherwise it
+// resolves to EventSender{Sender: ""}, which bridgev2 treats as "no sender"
+// and falls back to the bridge BOT intent, silently marking the room read
+// as the bot rather than the (unknown) actual reader.
+func TestHandleGChatEventReadReceiptChangedEmptyUserIDSkipped(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := readReceiptChangedEvent(spaceGroupID("space-1"), [2]any{"", int64(1)})
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success (Ignored, so the watermark still advances)", res)
+	}
+	if len(*queued) != 0 {
+		t.Fatalf("len(queued) = %d, want 0 (empty-user-id entry must be skipped, not queued as a bot receipt)", len(*queued))
+	}
+}
+
+// TestHandleGChatEventReadReceiptChangedEmptyUserIDAmongOthersOnlyQueuesRest
+// pins the same guard in a mixed ReadReceiptSet: an empty-user-id entry
+// alongside real ones must be skipped without aborting the loop or affecting
+// the entries around it (unlike a genuine queue failure, which does stop the
+// loop -- see TestHandleGChatEventReadReceiptChangedStopsOnFirstFailure).
+func TestHandleGChatEventReadReceiptChangedEmptyUserIDAmongOthersOnlyQueuesRest(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := readReceiptChangedEvent(spaceGroupID("space-1"),
+		[2]any{"98765", int64(1)},
+		[2]any{"", int64(2)},
+		[2]any{"55555", int64(3)},
+	)
+
+	res := gc.handleGChatEvent(context.Background(), evt)
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() result = %+v, want Success", res)
+	}
+	if len(*queued) != 2 {
+		t.Fatalf("len(queued) = %d, want 2 (the empty-user-id entry must be skipped, not queued)", len(*queued))
+	}
+	var senders []networkid.UserID
+	for _, q := range *queued {
+		senders = append(senders, q.(bridgev2.RemoteEvent).GetSender().Sender)
+	}
+	if senders[0] != gcid.MakeUserID("98765") || senders[1] != gcid.MakeUserID("55555") {
+		t.Errorf("senders = %v, want [98765, 55555] (empty-user-id entry skipped in place)", senders)
+	}
+}
+
 func TestHandleGChatEventReadReceiptChangedEmptySetSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := readReceiptChangedEvent(spaceGroupID("space-1")) // no receipts

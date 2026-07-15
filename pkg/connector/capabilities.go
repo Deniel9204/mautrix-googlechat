@@ -98,11 +98,42 @@ var gchatFormatting = event.FormattingFeatureMap{
 // this project's protocol research (docs/research). Leaving
 // EditMaxCount/EditMaxAge at their zero values means "unlimited", matching
 // Python exactly rather than inventing a limit it never enforced (M4 Task 1).
+//
+// Delete is fully supported: handleredact.go's HandleMatrixMessageRemove
+// ports delete_message (client.py:367-383) unconditionally, with no
+// age/count limit of its own to advertise -- mirroring Edit's own "leave the
+// limit fields at zero" reasoning above (M4 Task 2). DeleteForMe is left at
+// its zero value (false): Google Chat has no delete-for-me-only concept
+// distinct from a real delete_message, unlike Messenger/WhatsApp.
+//
+// Reaction is fully supported, with NO count/allow-list restriction:
+// handlereaction.go's own top-of-file doc comment explains Google Chat
+// reactions are per-emoji (not one-per-user), so a single sender may apply
+// any number of distinct emoji simultaneously -- ReactionCount is left at
+// its zero value (0 = unlimited, mirroring MaxReactions: 0 in
+// PreHandleMatrixReaction) and AllowedReactions stays nil (unrestricted).
+// CustomEmojiReactions is left at its zero value (false): Google Chat's own
+// wire form (proto Emoji.unicode) never carries a custom/non-Unicode emoji,
+// so there is nothing for this connector to advertise support for (M4 Task 3).
+//
+// ReadReceipts is true: handlereceipt.go's HandleMatrixReadReceipt ports
+// mark_group_readstate, and events.go's queueReadReceiptChanged/
+// queueGroupViewed deliver GC's own read state back to Matrix -- both
+// directions are wired (M4 Task 4).
+//
+// TypingNotifications is true: handletyping.go's HandleMatrixTyping ports
+// mark_typing (client.py:477-497), and events.go's queueTypingStateChanged
+// (this file's sibling) delivers GC's own typing state back to Matrix --
+// both directions are wired (M4 Task 5).
 var gchatCapsFlat = &event.RoomFeatures{
-	Formatting:    gchatFormatting,
-	MaxTextLength: MaxTextLength,
-	Reply:         event.CapLevelFullySupported,
-	Edit:          event.CapLevelFullySupported,
+	Formatting:          gchatFormatting,
+	MaxTextLength:       MaxTextLength,
+	Reply:               event.CapLevelFullySupported,
+	Edit:                event.CapLevelFullySupported,
+	Delete:              event.CapLevelFullySupported,
+	Reaction:            event.CapLevelFullySupported,
+	ReadReceipts:        true,
+	TypingNotifications: true,
 }
 
 // gchatCapsThreaded is advertised for any portal with PortalMetadata.
