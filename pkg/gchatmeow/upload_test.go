@@ -109,7 +109,9 @@ func TestUploadFileRoundTrip(t *testing.T) {
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
+	const wantXSRFToken = "test-xsrf-token"
 	c := newTestUploadClient(t, srv, map[string]string{"sid": "s", "ssid": "s", "osid": "s", "hsid": "s", "compass": "s"})
+	c.SetXSRFToken(wantXSRFToken)
 
 	got, err := c.UploadFile(context.Background(), groupID, data, filename, mimeType)
 	if err != nil {
@@ -150,6 +152,9 @@ func TestUploadFileRoundTrip(t *testing.T) {
 	if got := startHeaders.Get("Cookie"); got == "" {
 		t.Errorf("start request has no Cookie header, want cookies attached (chat.google.com is an authenticated endpoint)")
 	}
+	if got := startHeaders.Get("x-framework-xsrf-token"); got != wantXSRFToken {
+		t.Errorf("start x-framework-xsrf-token = %q, want %q (matches purple-googlechat's googlechat_set_auth_headers, called on every upload request)", got, wantXSRFToken)
+	}
 
 	// -- finalize request --
 	if finalizeMethod != http.MethodPut {
@@ -180,6 +185,9 @@ func TestUploadFileRoundTrip(t *testing.T) {
 	if got := finalizeHeaders.Get("Cookie"); got == "" {
 		t.Errorf("finalize request has no Cookie header, want cookies attached")
 	}
+	if got := finalizeHeaders.Get("x-framework-xsrf-token"); got != wantXSRFToken {
+		t.Errorf("finalize x-framework-xsrf-token = %q, want %q (matches purple-googlechat's googlechat_set_auth_headers, called on every upload request)", got, wantXSRFToken)
+	}
 
 	// -- decoded response --
 	if got.GetAttachmentToken() != wantMeta.GetAttachmentToken() {
@@ -191,6 +199,50 @@ func TestUploadFileRoundTrip(t *testing.T) {
 	if got.GetContentType() != mimeType {
 		t.Errorf("ContentType = %q, want %q", got.GetContentType(), mimeType)
 	}
+}
+
+// TestUploadFileNoXSRFTokenOmitsHeader verifies that before any XSRF token
+// has been set (Client's zero value -- e.g. before the very first
+// FetchXSRFToken/mole-world round trip), UploadFile simply omits the
+// x-framework-xsrf-token header instead of sending an empty one, mirroring
+// api.go's doRequestOnce (`if token := c.XSRFToken(); token != ""`).
+func TestUploadFileNoXSRFTokenOmitsHeader(t *testing.T) {
+	var startHeaders, finalizeHeaders http.Header
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		startHeaders = r.Header.Clone()
+		w.Header().Set("x-goog-upload-url", srv.URL+"/uploads/continue")
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/uploads/continue", func(w http.ResponseWriter, r *http.Request) {
+		finalizeHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, base64.StdEncoding.EncodeToString(mustMarshalUploadMetadata(t)))
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := newTestUploadClient(t, srv, nil)
+	if _, err := c.UploadFile(context.Background(), "group1", []byte("data"), "f.jpg", "image/jpeg"); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+
+	if _, present := startHeaders["X-Framework-Xsrf-Token"]; present {
+		t.Errorf("start request has x-framework-xsrf-token header, want absent when no token has been set")
+	}
+	if _, present := finalizeHeaders["X-Framework-Xsrf-Token"]; present {
+		t.Errorf("finalize request has x-framework-xsrf-token header, want absent when no token has been set")
+	}
+}
+
+func mustMarshalUploadMetadata(t *testing.T) []byte {
+	t.Helper()
+	b, err := proto.Marshal(&pb.UploadMetadata{})
+	if err != nil {
+		t.Fatalf("marshal empty UploadMetadata: %v", err)
+	}
+	return b
 }
 
 // TestUploadFileStartServerError verifies a 500 from the /uploads start

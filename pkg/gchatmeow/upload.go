@@ -15,32 +15,52 @@ package gchatmeow
 //     group_id query parameter (client.py:27's UPLOAD_URL + upload_file's
 //     params={"group_id": group_id}; googlechat_conversation.c:1839's
 //     literal "https://chat.google.com/uploads?group_id=%s").
-//   - Start headers: IDENTICAL. x-goog-upload-protocol: resumable,
-//     x-goog-upload-command: start, x-goog-upload-content-length,
-//     x-goog-upload-content-type, x-goog-upload-file-name (client.py:
-//     282-288; googlechat_conversation.c:1843-1847). Request body is empty
-//     in both (client.py's data=None; purple never calls
+//   - Start headers (upload-command headers): IDENTICAL.
+//     x-goog-upload-protocol: resumable, x-goog-upload-command: start,
+//     x-goog-upload-content-length, x-goog-upload-content-type,
+//     x-goog-upload-file-name (client.py:282-288;
+//     googlechat_conversation.c:1843-1847). Request body is empty in both
+//     (client.py's data=None; purple never calls
 //     purple_http_request_set_contents on the start request).
 //   - Response: IDENTICAL. Both read the next hop from the response's
 //     x-goog-upload-url header (client.py:298; conversation.c:1774).
-//   - Finalize (single-shot case): IDENTICAL. x-goog-upload-command:
-//     "upload, finalize", x-goog-upload-protocol: resumable,
-//     x-goog-upload-offset: 0, method PUT, body = the raw file bytes
-//     (client.py:303-309; conversation.c:1797-1805 -- purple's is_final_chunk
-//     branch, which is what fires when the whole file fits in one chunk,
-//     exactly this port's single-shot behavior). Purple ADDITIONALLY
-//     supports splitting into multiple non-final "upload" chunks before the
-//     final "upload, finalize" one (conversation.c:1784-1821,
-//     x-goog-upload-chunk-granularity-driven); this is NOT ported here --
-//     the brief's interface is single-shot, matching Python exactly, and
-//     matching purple's OWN behavior whenever a file is small enough to be
-//     one chunk (true for every attachment size Matrix media realistically
-//     sends through this bridge).
+//   - Finalize (single-shot case) upload-command headers: IDENTICAL.
+//     x-goog-upload-command: "upload, finalize", x-goog-upload-protocol:
+//     resumable, x-goog-upload-offset: 0, method PUT, body = the raw file
+//     bytes (client.py:303-309; conversation.c:1797-1805 -- purple's
+//     is_final_chunk branch, which is what fires when the whole file fits
+//     in one chunk, exactly this port's single-shot behavior; purple's own
+//     chunk_granularity is currently hard-coded to the full data size
+//     (conversation.c:~1780-1782, the size-based branch is commented out),
+//     so purple itself is single-shot 100% of the time today, not just for
+//     "realistically-sized" attachments). Purple's code path still supports
+//     splitting into multiple non-final "upload" chunks before the final
+//     "upload, finalize" one if that were ever re-enabled
+//     (conversation.c:1784-1821); that branch is NOT ported here -- the
+//     brief's interface is single-shot, matching both Python and purple's
+//     CURRENT actual behavior.
 //   - Response body: IDENTICAL. base64(binary UploadMetadata proto)
 //     (client.py:311-319's base64.b64decode + ParseFromString;
 //     conversation.c:1693-1694's g_base64_decode + protobuf_c_message_unpack).
 //
-//   - THE DIVERGENCE (the one candidate #114 signal this diff turned up):
+//   - DIVERGENCE 1 (auth header, caught on audit -- match purple): every
+//     purple_http_request purple-googlechat sends, upload calls included
+//     (conversation.c:1808 inside the finalize/chunk-PUT loop, :1851 for the
+//     start POST), is first run through googlechat_set_auth_headers
+//     (googlechat_connection.c:210-224), which -- whenever ha->access_token
+//     is unset, the ONLY mode this bridge's cookie-based auth model uses,
+//     matching this port having no OAuth Bearer-token concept anywhere --
+//     attaches "X-Framework-XSRF-Token: <ha->xsrf_token>". Python's
+//     upload_file calls Client._base_request directly (client.py:295,309),
+//     NOT _pb_request/_gc_request (client.py:591-598), which is the only
+//     place client.py sets "x-framework-xsrf-token" -- so Python's upload
+//     requests never carry this header at all. This port matches purple
+//     (the actively-maintained, current reference): both UploadFile requests
+//     below set x-framework-xsrf-token via c.XSRFToken(), the exact same
+//     accessor api.go's doRequestOnce (api.go:218-220) uses for every other
+//     RPC.
+//
+//   - DIVERGENCE 2 (the #114-relevant query-param signal):
 //     Python's upload_file routes through Client._base_request
 //     (client.py:617-675), which UNCONDITIONALLY appends "alt=<response_type>"
 //     and "key=<API_KEY>" query parameters onto EVERY request it sends --
@@ -100,12 +120,22 @@ const uploadURL = "https://chat.google.com/uploads"
 // / *NetworkError) -- Session.Fetch already retries a 5xx up to maxRetries
 // times before giving up, same policy as every other RPC in this package.
 func (c *Client) UploadFile(ctx context.Context, groupID string, data []byte, filename, mimeType string) (*pb.UploadMetadata, error) {
+	// x-framework-xsrf-token on both requests below matches purple-googlechat's
+	// googlechat_set_auth_headers, called unconditionally before every
+	// purple_http_request including both upload calls (see this file's
+	// package doc comment, Divergence 1) -- the same accessor api.go's
+	// doRequestOnce uses for every other RPC (api.go:218-220).
+	xsrfToken := c.XSRFToken()
+
 	startHeaders := http.Header{}
 	startHeaders.Set("x-goog-upload-protocol", "resumable")
 	startHeaders.Set("x-goog-upload-command", "start")
 	startHeaders.Set("x-goog-upload-content-length", strconv.Itoa(len(data)))
 	startHeaders.Set("x-goog-upload-content-type", mimeType)
 	startHeaders.Set("x-goog-upload-file-name", filename)
+	if xsrfToken != "" {
+		startHeaders.Set("x-framework-xsrf-token", xsrfToken)
+	}
 
 	base := c.uploadBaseURL
 	if base == "" {
@@ -132,6 +162,9 @@ func (c *Client) UploadFile(ctx context.Context, groupID string, data []byte, fi
 	finalizeHeaders.Set("x-goog-upload-command", "upload, finalize")
 	finalizeHeaders.Set("x-goog-upload-protocol", "resumable")
 	finalizeHeaders.Set("x-goog-upload-offset", "0")
+	if xsrfToken != "" {
+		finalizeHeaders.Set("x-framework-xsrf-token", xsrfToken)
+	}
 
 	finalizeResp, err := c.session.Fetch(ctx, http.MethodPut, nextURL, finalizeHeaders, data)
 	if err != nil {
