@@ -162,7 +162,11 @@ func TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow(t *testing.T) {
 	}
 
 	got := gchatmeow.MicrosToTime(gotReq.GetLastReadTime())
-	if got.Before(before) || got.After(after) {
+	// The stored value is time.Now() truncated to microseconds (TimeToMicros ->
+	// UnixMicro), so it can be up to 999ns earlier than `before` (which is at
+	// nanosecond precision). Truncate the lower bound to µs to avoid a flaky
+	// sub-microsecond boundary failure.
+	if got.Before(before.Truncate(time.Microsecond)) || got.After(after) {
 		t.Errorf("LastReadTime = %v, want between %v and %v (fallback to time.Now(), not a zero-time-derived negative value)", got, before, after)
 	}
 }
