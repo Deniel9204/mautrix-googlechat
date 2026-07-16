@@ -144,9 +144,14 @@ security warning about what these cookies grant access to.
 
 ## Migrating from the Python bridge
 
-If you're moving from the original Python `mautrix/googlechat` bridge, see
-`docs/migration.md` (added later in this project's roadmap) for the
-migration guide.
+If you're moving from the original Python `mautrix/googlechat` bridge, this
+bridge can migrate its database directly — portals, ghosts, messages
+(including multi-part/attachments), reactions, users, saved logins, and
+double-puppeting — via `--migrate-from-python`. See
+[`docs/migration.md`](docs/migration.md) for prerequisites (read these
+first — in particular, stop the Python bridge and back up both databases
+before running anything), the exact command, and the full list of known,
+documented caveats.
 
 ## License
 

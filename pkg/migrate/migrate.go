@@ -82,12 +82,21 @@ type EntityCount struct {
 }
 
 // Summary is the full result of one Run call.
+//
+// Users and Logins are DELIBERATELY separate buckets (M7 Task 8's
+// Summary-polish deliverable): migrateUsers writes one Go `user` row per
+// Python `user` row, unconditionally, while migrateUserLogins writes a Go
+// `user_login` row only for the subset that had both a gcid and cookies
+// (schema map §5) -- summing them into one count (the original M7 Task 7
+// shape) made it impossible for an operator reading the report to tell "how
+// many accounts" from "how many still-valid sessions".
 type Summary struct {
 	Portals     EntityCount
 	Ghosts      EntityCount
 	Messages    EntityCount
 	Reactions   EntityCount
 	Users       EntityCount
+	Logins      EntityCount
 	UserPortals EntityCount
 
 	// DryRun mirrors Options.DryRun, so a caller holding only the Summary
@@ -132,9 +141,10 @@ type entityStep struct {
 // deps.Target, refuses a non-empty target unless opts.Force, dispatches to
 // each per-entity migrator in turn (portals and ghosts first, since messages
 // and reactions reference them; then messages, then reactions, which
-// reference messages; users last), and either commits (opts.DryRun == false
-// and no error) or rolls back (opts.DryRun == true, or any migrator
-// returned an error).
+// reference messages; then users, then logins, since user_login references
+// user; user_portals last, since it references both portals and logins),
+// and either commits (opts.DryRun == false and no error) or rolls back
+// (opts.DryRun == true, or any migrator returned an error).
 //
 // The returned *Summary is always populated, even on error or dry-run,
 // so a caller can report partial progress; only the error return indicates
@@ -166,9 +176,12 @@ func Run(ctx context.Context, deps *Deps, opts Options) (*Summary, error) {
 		{"messages", migrateMessages, &summary.Messages},
 		{"reactions", migrateReactions, &summary.Reactions},
 		{"users", migrateUsers, &summary.Users},
-		// user_portals runs LAST: it depends on user_login rows (migrateUsers)
-		// and portal rows (migratePortals) both already existing in the
-		// target (see userportal.go's FK guards).
+		// logins runs AFTER users: user_login has an FK to user(bridge_id,
+		// mxid) (see user.go's migrateUserLogins doc comment).
+		{"logins", migrateUserLogins, &summary.Logins},
+		// user_portals runs LAST: it depends on user_login rows
+		// (migrateUserLogins) and portal rows (migratePortals) both already
+		// existing in the target (see userportal.go's FK guards).
 		{"user_portals", migrateUserPortals, &summary.UserPortals},
 	}
 
@@ -235,8 +248,10 @@ func targetHasExistingData(ctx context.Context, db *dbutil.Database) (bool, erro
 //
 // migratePortals and migrateGhosts are implemented in portal.go/ghost.go
 // (M7 Task 5); migrateMessages/migrateReactions in message.go/reaction.go
-// (M7 Task 6); migrateUsers in user.go and migrateUserPortals in
-// userportal.go (M7 Task 7, the last two engine steps).
+// (M7 Task 6); migrateUsers/migrateUserLogins in user.go and
+// migrateUserPortals in userportal.go (M7 Task 7, the last three engine
+// steps; migrateUsers/migrateUserLogins were split from one combined
+// migrator in M7 Task 8's Summary-polish deliverable).
 
 // --- Shared helpers required by the preflight findings ---------------------
 

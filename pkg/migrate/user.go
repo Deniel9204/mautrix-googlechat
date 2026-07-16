@@ -1,22 +1,29 @@
 package migrate
 
-// migrateUsers implements M7 Task 7's User + UserLogin migrator -- see
-// .superpowers/sdd/m7-migration-schema-map.md §5 for the full mapping this
-// replicates, and .superpowers/sdd/m7-migration-preflight.md items 1 (cookie
-// key casing) and 3 (double-puppet token -> user.access_token) for the two
-// corrections layered on top of the schema map. Same raw-INSERT-through-ctx
-// approach as portal.go/ghost.go/message.go -- see portal.go's package doc
-// comment.
+// migrateUsers/migrateUserLogins implement M7 Task 7's User + UserLogin
+// migrator -- see .superpowers/sdd/m7-migration-schema-map.md §5 for the
+// full mapping this replicates, and .superpowers/sdd/m7-migration-preflight.md
+// items 1 (cookie key casing) and 3 (double-puppet token ->
+// user.access_token) for the two corrections layered on top of the schema
+// map. Same raw-INSERT-through-ctx approach as portal.go/ghost.go/message.go
+// -- see portal.go's package doc comment.
 //
-// Every Python `user` row always gets a Go `user` row (management_room is a
-// nullable identity copy of notice_room; access_token is populated ONLY from
-// a matching double-puppet, never from anything else -- see
-// buildDoublePuppetTokens). A Go `user_login` row is added ONLY when the
-// Python row has both a non-NULL gcid AND non-NULL cookies (schema map §5:
-// "skip rows where Python's gcid is NULL" / "Skip rows with NULL cookies").
-// user_login has an FK to user(bridge_id, mxid), so the user row for a given
-// mxid is always inserted first, in the same loop iteration, before its
-// (optional) user_login.
+// Every Python `user` row always gets a Go `user` row (migrateUsers;
+// management_room is a nullable identity copy of notice_room; access_token
+// is populated ONLY from a matching double-puppet, never from anything else
+// -- see buildDoublePuppetTokens). A Go `user_login` row is added ONLY when
+// the Python row has both a non-NULL gcid AND non-NULL cookies (schema map
+// §5: "skip rows where Python's gcid is NULL" / "Skip rows with NULL
+// cookies") -- migrateUserLogins, a SEPARATE Run step (migrate.go) that runs
+// AFTER migrateUsers, since user_login has an FK to user(bridge_id, mxid)
+// and every user row must already exist in the target before any of its
+// logins can be inserted.
+//
+// These were originally one combined migrator (M7 Task 7) returning a single
+// count that summed user+user_login rows; M7 Task 8's Summary-polish
+// deliverable split it into two functions/Summary buckets (Users, Logins) so
+// an operator reading the migration report can tell how many accounts vs.
+// how many live sessions were migrated.
 
 import (
 	"context"
@@ -71,15 +78,10 @@ func buildDoublePuppetTokens(puppets []*PythonPuppet) map[string]string {
 
 // migrateUsers reads every row of the source Python `user` table (plus the
 // `puppet` table, for double-puppet tokens only -- ghost migration itself is
-// Task 5's concern) and writes the corresponding Go `user` (+ optional
-// `user_login`) row(s), per schema map §5 and preflight items 1 and 3.
-//
-// The returned count is the TOTAL number of Go rows written across BOTH
-// tables this migrator owns (there is no dedicated Summary bucket per
-// table): +1 for every migrated user row (always), +1 again for every
-// migrated user_login row (only when cookies were present) -- e.g. 2 Python
-// users, one with cookies and one without, migrate to count=3 (2 user rows +
-// 1 user_login row).
+// Task 5's concern) and writes the corresponding Go `user` row, per schema
+// map §5 and preflight item 3. UserLogin rows are migrateUserLogins's job
+// (see that function below) -- this keeps the Summary.Users bucket counting
+// ONLY `user` rows.
 func migrateUsers(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
 	users, err := GetUsers(ctx, deps.Source)
 	if err != nil {
@@ -106,19 +108,57 @@ func migrateUsers(ctx context.Context, deps *Deps, opts Options) (int, []string,
 			return count, warnings, fmt.Errorf("migrate: inserting user (mxid=%q): %w", u.MXID, err)
 		}
 		count++
+	}
 
-		// Skip UserLogin: never-logged-in user (no gcid at all) -- schema
-		// map §5: "skip rows where Python's gcid is NULL". Not a warning --
-		// this is the documented, expected shape for a user who contacted
-		// the bridge bot but never completed login.
+	// A double-puppet token whose custom_mxid matched no migrated user is a
+	// warn-and-skip, not an error (preflight item 3: "If no user row matches
+	// the custom_mxid, skip + warn"). Sorted for deterministic output.
+	var unmatched []string
+	for mxid := range doublePuppetTokens {
+		if !matchedDoublePuppetMXIDs[mxid] {
+			unmatched = append(unmatched, mxid)
+		}
+	}
+	sort.Strings(unmatched)
+	for _, mxid := range unmatched {
+		warnings = append(warnings, fmt.Sprintf("puppet custom_mxid=%q has a double-puppet access token, but no migrated user has that mxid: skipping double-puppet token", mxid))
+	}
+
+	return count, warnings, nil
+}
+
+// migrateUserLogins reads every row of the source Python `user` table and
+// writes a Go `user_login` row for the ones that have BOTH a non-NULL gcid
+// AND non-NULL cookies (schema map §5). Must run as a Run step AFTER
+// migrateUsers: user_login has an FK to user(bridge_id, mxid), so every
+// user row this loop's login might reference must already exist in the
+// target (migrateUsers always writes one user row per Python user row,
+// unconditionally, so that FK is always satisfied by the time this runs --
+// no existence guard needed, unlike message.go/userportal.go's
+// portalExistsInTarget/ghostExistsInTarget/userLoginExistsInTarget, which
+// guard against rows their own upstream migrator may have skipped).
+func migrateUserLogins(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
+	users, err := GetUsers(ctx, deps.Source)
+	if err != nil {
+		return 0, nil, fmt.Errorf("migrate: reading source users: %w", err)
+	}
+
+	var warnings []string
+	count := 0
+
+	for _, u := range users {
+		// Skip: never-logged-in user (no gcid at all) -- schema map §5:
+		// "skip rows where Python's gcid is NULL". Not a warning -- this is
+		// the documented, expected shape for a user who contacted the
+		// bridge bot but never completed login.
 		if !u.GCID.Valid || u.GCID.String == "" {
 			continue
 		}
-		// Skip UserLogin: gcid present but cookies NULL -- schema map §5:
-		// "Skip rows with NULL cookies" (v08's one-time cookie wipe, or a
-		// user who has since logged out). Also not a warning, for the same
-		// reason -- those users simply need to re-login, which is already
-		// documented bridge-wide behavior, not a migration defect.
+		// Skip: gcid present but cookies NULL -- schema map §5: "Skip rows
+		// with NULL cookies" (v08's one-time cookie wipe, or a user who has
+		// since logged out). Also not a warning, for the same reason --
+		// those users simply need to re-login, which is already documented
+		// bridge-wide behavior, not a migration defect.
 		if !u.Cookies.Valid || u.Cookies.String == "" {
 			continue
 		}
@@ -155,20 +195,6 @@ func migrateUsers(ctx context.Context, deps *Deps, opts Options) (int, []string,
 			return count, warnings, fmt.Errorf("migrate: inserting user_login (mxid=%q, id=%q): %w", u.MXID, loginID, err)
 		}
 		count++
-	}
-
-	// A double-puppet token whose custom_mxid matched no migrated user is a
-	// warn-and-skip, not an error (preflight item 3: "If no user row matches
-	// the custom_mxid, skip + warn"). Sorted for deterministic output.
-	var unmatched []string
-	for mxid := range doublePuppetTokens {
-		if !matchedDoublePuppetMXIDs[mxid] {
-			unmatched = append(unmatched, mxid)
-		}
-	}
-	sort.Strings(unmatched)
-	for _, mxid := range unmatched {
-		warnings = append(warnings, fmt.Sprintf("puppet custom_mxid=%q has a double-puppet access token, but no migrated user has that mxid: skipping double-puppet token", mxid))
 	}
 
 	return count, warnings, nil

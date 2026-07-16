@@ -24,7 +24,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -98,9 +97,10 @@ func TestMigrateUsers_CookiesAndNoCookies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrateUsers: %v", err)
 	}
-	// 2 user rows (@user1, @user2) + 1 user_login row (@user1 only) = 3.
-	if count != 3 {
-		t.Fatalf("expected count=3 (2 user rows + 1 user_login row), got %d", count)
+	// 2 user rows (@user1, @user2); user_login rows are migrateUserLogins's
+	// own count now (M7 Task 8's Summary split).
+	if count != 2 {
+		t.Fatalf("expected count=2 (2 user rows), got %d", count)
 	}
 	// The fixture's one puppet (custom_mxid=@alice:example.com) matches no
 	// migrated user -- exactly 1 warning, about that mismatch.
@@ -109,6 +109,18 @@ func TestMigrateUsers_CookiesAndNoCookies(t *testing.T) {
 	}
 	if !strings.Contains(warnings[0], "@alice:example.com") {
 		t.Errorf("warning = %q, want it to mention @alice:example.com", warnings[0])
+	}
+
+	loginCount, loginWarnings, err := migrateUserLogins(ctx, deps, Options{})
+	if err != nil {
+		t.Fatalf("migrateUserLogins: %v", err)
+	}
+	// 1 user_login row (@user1 only -- @user2 has no gcid/cookies).
+	if loginCount != 1 {
+		t.Fatalf("expected loginCount=1, got %d", loginCount)
+	}
+	if len(loginWarnings) != 0 {
+		t.Errorf("expected no login warnings, got %v", loginWarnings)
 	}
 
 	t.Run("user1 (cookies present) gets a user row and a user_login row", func(t *testing.T) {
@@ -250,16 +262,27 @@ func TestMigrateUsers_EdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrateUsers: %v", err)
 	}
-	// 2 user rows + 1 user_login row (@incomplete only -- @real has no
-	// cookies at all) = 3.
-	if count != 3 {
-		t.Fatalf("expected count=3 (2 user rows + 1 user_login row), got %d", count)
+	// 2 user rows (@real, @incomplete).
+	if count != 2 {
+		t.Fatalf("expected count=2 (2 user rows), got %d", count)
 	}
-	// Exactly 2 warnings expected: the incomplete-cookie-map warning, and
-	// the unmatched-double-puppet warning for @nomatch:example.com.
-	sort.Strings(warnings)
-	if len(warnings) != 2 {
-		t.Fatalf("expected exactly 2 warnings, got %d: %v", len(warnings), warnings)
+	// Exactly 1 warning from migrateUsers: the unmatched-double-puppet
+	// warning for @nomatch:example.com (the incomplete-cookie-map warning is
+	// migrateUserLogins's now).
+	if len(warnings) != 1 {
+		t.Fatalf("expected exactly 1 warning, got %d: %v", len(warnings), warnings)
+	}
+
+	loginCount, loginWarnings, err := migrateUserLogins(ctx, deps, Options{})
+	if err != nil {
+		t.Fatalf("migrateUserLogins: %v", err)
+	}
+	// 1 user_login row (@incomplete only -- @real has no cookies at all).
+	if loginCount != 1 {
+		t.Fatalf("expected loginCount=1, got %d", loginCount)
+	}
+	if len(loginWarnings) != 1 {
+		t.Fatalf("expected exactly 1 login warning (incomplete cookie map), got %d: %v", len(loginWarnings), loginWarnings)
 	}
 
 	t.Run("gcid present but cookies NULL: user row only, no login", func(t *testing.T) {
@@ -290,13 +313,13 @@ func TestMigrateUsers_EdgeCases(t *testing.T) {
 		}
 
 		found := false
-		for _, w := range warnings {
+		for _, w := range loginWarnings {
 			if strings.Contains(w, "@incomplete:example.com") && strings.Contains(w, "re-login") {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("expected a warning about @incomplete:example.com's incomplete cookie map, got %v", warnings)
+			t.Errorf("expected a warning about @incomplete:example.com's incomplete cookie map, got %v", loginWarnings)
 		}
 	})
 

@@ -58,10 +58,10 @@ func countUserPortals(t *testing.T, target *dbutil.Database) int {
 }
 
 // runFullChainUpToUserPortals runs every migrator migrateUserPortals depends
-// on (portals, then users -- ghosts/messages/reactions are irrelevant to
-// user_portal's FK guards) against the same Deps, failing the test
-// immediately on any unexpected error, then returns migrateUserPortals's own
-// result for the caller to assert on.
+// on (portals, then users, then logins -- ghosts/messages/reactions are
+// irrelevant to user_portal's FK guards) against the same Deps, failing the
+// test immediately on any unexpected error, then returns migrateUserPortals's
+// own result for the caller to assert on.
 func runFullChainUpToUserPortals(t *testing.T, ctx context.Context, deps *Deps) (int, []string) {
 	t.Helper()
 	if _, _, err := migratePortals(ctx, deps, Options{}); err != nil {
@@ -69,6 +69,9 @@ func runFullChainUpToUserPortals(t *testing.T, ctx context.Context, deps *Deps) 
 	}
 	if _, _, err := migrateUsers(ctx, deps, Options{}); err != nil {
 		t.Fatalf("migrateUsers: %v", err)
+	}
+	if _, _, err := migrateUserLogins(ctx, deps, Options{}); err != nil {
+		t.Fatalf("migrateUserLogins: %v", err)
 	}
 	count, warnings, err := migrateUserPortals(ctx, deps, Options{})
 	if err != nil {
