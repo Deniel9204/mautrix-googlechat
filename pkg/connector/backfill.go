@@ -463,8 +463,38 @@ func groupRevision(evt *pb.Event) int64 {
 // defaultFetchMessagesCount is used only when bridgev2 supplies a
 // non-positive params.Count (defensive; the framework's own doc comment
 // says it should always be a positive "preferred number of messages",
-// but nothing in the interface contract guarantees that). Task 3 wires
-// the real config-driven initial-history limit; this is not that limit.
+// but nothing in the interface contract guarantees that).
+//
+// M6 Task 3 verified (not assumed) where the REAL limit comes from instead:
+// there is no connector-specific config for this -- and there must not be
+// one, since the framework already drives params.Count end to end and a
+// second, connector-owned knob would just shadow or conflict with it. The
+// standard top-level `backfill:` section (bridgeconfig.BackfillConfig,
+// generated into every mxmain bridge's config, including this one) supplies
+// it, but via TWO DIFFERENT keys depending on which call this file receives:
+//   - fetchTopicHeadMessages (the Forward==false branch FetchMessages
+//     dispatches to): its params.Count is set by
+//     Portal.doBackwardsBackfill (portalbackfill.go:123) from
+//     `backfill.queue.batch_size` -- NOT `backfill.max_initial_messages` as
+//     an earlier draft of this comment assumed. `max_initial_messages` only
+//     feeds the SEPARATE Forward==true bootstrap call
+//     (Portal.doForwardBackfill, portalbackfill.go:46/57), which this file's
+//     FetchMessages stubs out to an empty response for every Forward
+//     request (see this region's doc comment above) -- so that key never
+//     reaches this connector at all today.
+//   - fetchThreadMessages: its params.Count IS `backfill.threads.max_initial_messages`
+//     (Portal.fetchThreadBackfill, portalbackfill.go:203) -- this one matches
+//     what the augment/brief expected.
+//
+// Operationally: doBackwardsBackfill only ever runs from the bridge's
+// backward backfill QUEUE, which (backfillqueue.go's RunBackfillQueue) only
+// starts when BOTH `backfill.queue.enabled` is true AND the connected
+// homeserver reports the Beeper-only batch-sending capability
+// (mautrix.BeeperFeatureBatchSending) -- a standard self-hosted Synapse/
+// Dendrite homeserver never reports that capability, so on a non-Beeper
+// deployment this queue (and therefore fetchTopicHeadMessages) never runs
+// at all; see this milestone's Task 3 report for the resulting gap flagged
+// against the Forward==true/AnchorMessage==nil bootstrap path.
 const defaultFetchMessagesCount = 20
 
 var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
@@ -638,6 +668,43 @@ func (c *GChatClient) fetchTopicHeadMessages(ctx context.Context, params bridgev
 			log.Err(err).Str("gc_message_id", gcMessageID).Msg("googlechat: failed to convert backfill message, skipping")
 			continue
 		}
+		// Reactions is deliberately left nil/unset here (M6 Task 3 --
+		// verified against the proto and Python, not guessed). msg.Reactions
+		// (the GC Message's own `repeated Reaction reactions = 21` field,
+		// pkg/gchatmeow/proto/googlechat.pb.go's `type Reaction struct`) only
+		// carries Emoji, Count, CurrentUserParticipated, and
+		// CreateTimestamp -- there is NO reactor user id anywhere on it, only
+		// a per-emoji tally. bridgev2's BackfillReaction (networkinterface.go)
+		// REQUIRES a Sender EventSender per reaction, which cannot be
+		// synthesized from a count: even the narrowest possible partial
+		// fix -- emitting ONE reaction attributed to the current user when
+		// CurrentUserParticipated is true, silently dropping the rest of the
+		// count -- would still be an incomplete, sender-created-looking
+		// reaction the current user never actually left on this exact
+		// message in isolation (only "participated in the aggregate"), and
+		// there is no way to reconstruct any of the OTHER reactors' identities
+		// from this summary at all. Python has the exact same limitation and
+		// makes the exact same choice: portal.py's _initial_backfill (portal.py:406-448)
+		// calls handle_googlechat_message per topic/reply and never once
+		// reads message.reactions -- reactions are bridged EXCLUSIVELY from
+		// live MessageReactionEvents (portal.py:1166's
+		// handle_googlechat_reaction), which DO carry a real reactor identity
+		// on the wire. So this is parity with upstream, not a regression:
+		// historical (pre-bridge) reaction counts are silently dropped by
+		// both bridges, on purpose. Nothing recoverable is lost either --
+		// any reaction that happens while this bridge is connected arrives
+		// live (M4's reaction handling, events.go) with its real sender, and
+		// a reaction added during a reconnect gap is replayed with identity
+		// intact by M2's catchUp (catch_up_user, this file's top region).
+		// Only reactions left on a message BEFORE this bridge ever connected
+		// are unattributable, and they are unattributable in Python too.
+		// TestFetchMessagesFlatOmitsReactionsEvenWhenGCMessageHasThem
+		// (backfill_test.go) pins this: a GC Message carrying
+		// Count>0/CurrentUserParticipated=true reactions must still produce
+		// a BackfillMessage with Reactions==nil, so a future change can't
+		// silently start synthesizing misattributed reactions from the
+		// count-only summary without tripping that test and reading this
+		// comment first.
 		bm := &bridgev2.BackfillMessage{
 			ConvertedMessage: cm,
 			Sender:           sender,
@@ -853,6 +920,10 @@ func (c *GChatClient) fetchThreadMessages(ctx context.Context, params bridgev2.F
 			log.Err(err).Str("gc_message_id", gcMessageID).Msg("googlechat: failed to convert backfill thread message, skipping")
 			continue
 		}
+		// Reactions intentionally left nil here too -- see
+		// fetchTopicHeadMessages' identical construction above for the full
+		// rationale (GC's Reaction proto has no reactor id; Python parity;
+		// live/catchUp already cover recoverable reactions).
 		messages = append(messages, &bridgev2.BackfillMessage{
 			ConvertedMessage: cm,
 			Sender:           sender,

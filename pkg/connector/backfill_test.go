@@ -1051,6 +1051,53 @@ func TestFetchMessagesFlatSenderIsFromMe(t *testing.T) {
 	}
 }
 
+// --- M6 Task 3: reaction backfill is an intentional, tested omission ------
+
+// TestFetchMessagesFlatOmitsReactionsEvenWhenGCMessageHasThem pins the M6
+// Task 3 finding that reaction backfill is factually impossible, not just
+// unimplemented: GC's Reaction proto (pkg/gchatmeow/proto/googlechat.pb.go's
+// `type Reaction struct`, attached to Message.Reactions field 21) carries
+// ONLY Emoji/Count/CurrentUserParticipated/CreateTimestamp -- no reactor user
+// id -- so there is no identity to build a bridgev2.BackfillReaction.Sender
+// from. Python makes the identical choice: portal.py's _initial_backfill
+// (portal.py:406-448) never reads message.reactions at all; reactions are
+// bridged exclusively from live MessageReactionEvents, which do carry a real
+// reactor id. This test builds a GC Message whose Reactions field IS
+// populated (Count>0, CurrentUserParticipated=true -- the only case a naive
+// future change might be tempted to attribute to the current user) and
+// asserts the resulting BackfillMessage.Reactions is nil/empty regardless.
+// See fetchTopicHeadMessages' inline doc comment (backfill.go) for the full
+// rationale this test enforces.
+func TestFetchMessagesFlatOmitsReactionsEvenWhenGCMessageHasThem(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	topic := flatTopic("t1", "m1", "u1", "hello", 1_000_000)
+	topic.Replies[0].Reactions = []*pb.Reaction{
+		{
+			Emoji:                   &pb.Emoji{Content: &pb.Emoji_Unicode{Unicode: "\U0001F44D"}},
+			Count:                   proto.Int32(3),
+			CurrentUserParticipated: proto.Bool(true),
+			CreateTimestamp:         proto.Int64(1_000_500),
+		},
+	}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{Topics: []*pb.Topic{topic}, ContainsFirstTopic: proto.Bool(true)}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  1,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(resp.Messages))
+	}
+	if got := resp.Messages[0].Reactions; len(got) != 0 {
+		t.Errorf("Messages[0].Reactions = %+v, want nil/empty (GC's Reaction proto has no reactor id -- see fetchTopicHeadMessages' doc comment on why this must stay unset)", got)
+	}
+}
+
 // --- SortTime ties: deterministic topic-id tiebreaker --------------------
 
 // TestFetchMessagesFlatSortTimeTieBreaksByTopicID pins the m6-task-1-review.md

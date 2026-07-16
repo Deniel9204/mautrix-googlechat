@@ -10,3 +10,8 @@ initial_chat_sync: 20
 # media is failing against your account and you'd rather get an immediate,
 # clear rejection than a failed send attempt every time.
 disable_outbound_media: false
+# History (message) backfill has no settings here: it is controlled entirely
+# by this bridge's standard top-level `backfill:` section (not part of this
+# network-specific config fragment) -- see that section's own comments, and
+# pkg/connector/backfill.go's defaultFetchMessagesCount doc comment for which
+# of its keys actually reaches this connector.
