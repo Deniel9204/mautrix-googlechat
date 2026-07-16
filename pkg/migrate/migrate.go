@@ -222,20 +222,13 @@ func targetHasExistingData(ctx context.Context, db *dbutil.Database) (bool, erro
 	return false, nil
 }
 
-// --- Per-entity migrator stubs (Tasks 5-7 replace these) -------------------
+// --- Per-entity migrators ---------------------------------------------
 //
-// This task (M7 Task 4) only wires the engine skeleton: every stub below
-// does no reads or writes and reports zero rows migrated, so Run's dry-run
-// path and non-empty-target guard are fully testable before any per-entity
-// logic exists.
-
-func migratePortals(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
-	return 0, nil, nil
-}
-
-func migrateGhosts(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
-	return 0, nil, nil
-}
+// migratePortals and migrateGhosts are implemented in portal.go/ghost.go
+// (M7 Task 5). migrateMessages/migrateReactions/migrateUsers remain stubs
+// (Tasks 6-7 replace these) -- every stub below does no reads or writes and
+// reports zero rows migrated, so Run's dry-run path and non-empty-target
+// guard are fully testable before that per-entity logic exists.
 
 func migrateMessages(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
 	return 0, nil, nil
