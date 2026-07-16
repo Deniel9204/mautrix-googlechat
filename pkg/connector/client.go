@@ -304,11 +304,12 @@ type GChatClient struct {
 	// other *Fn seam on this type.
 	savePortalRevisionFn func(ctx context.Context, portalKey networkid.PortalKey, revision int64)
 
-	// listTopicsFn issues the list_topics RPC that backfill.go's FetchMessages
-	// needs to page through a flat portal's message history (M6 Task 1).
+	// listTopicsFn issues the single list_topics RPC that backfill.go's
+	// FetchMessages uses to fetch a flat portal's message history (M6 Task 1;
+	// single-shot, matching portal.py's _initial_backfill -- see backfill.go).
 	// Defaults to conn.ListTopics; overridden in tests so FetchMessages'
-	// request construction (group id, cumulative page size) and pagination
-	// logic can be exercised without a live gchatmeow.Client connection --
+	// request construction (group id, page size) and single-shot response
+	// handling can be exercised without a live gchatmeow.Client connection --
 	// mirrors catchUpUserFn/paginatedWorldFn above.
 	listTopicsFn func(ctx context.Context, req *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error)
 
