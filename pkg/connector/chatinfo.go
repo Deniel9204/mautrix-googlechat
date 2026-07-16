@@ -39,6 +39,7 @@ import (
 	"context"
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -80,6 +81,14 @@ func (c *GChatClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) 
 			pb.GetGroupRequest_MEMBERS,
 			pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME,
 		},
+		// purple-googlechat (the actively-maintained 2026 client) sets this
+		// unconditionally on get_group (googlechat_conversation.c:776-777);
+		// neither our original request nor Python's own get_group() call set
+		// it. Live testing showed get_group returning HTTP 404 for a DM under
+		// the default (invite-excluded) view -- exactly the symptom of the
+		// server not resolving the DM by id without this. See
+		// docs/research / .superpowers/sdd/protocol-drift-2026.md.
+		IncludeInviteDms: proto.Bool(true),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("googlechat: get_group failed: %w", err)
