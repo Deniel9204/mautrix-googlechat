@@ -431,21 +431,20 @@ func groupRevision(evt *pb.Event) int64 {
 //
 // SCOPE (documented, not silent, gaps -- left for later M6 tasks):
 //   - A topic with a real Google Chat thread even inside an otherwise-flat
-//     room (topic_read_state.thread_created_usec > 0) is bridged as ONLY its
-//     head reply here; Python would also fetch and bridge its other replies
-//     via ListMessagesRequest (portal.py:432-441). Task 2 owns the
-//     ThreadRoot-scoped FetchMessages dispatch (ShouldBackfillThread +
-//     LastThreadMessage) that this naturally extends into.
+//     room (topic_read_state.thread_created_usec > 0) now ALSO gets
+//     ShouldBackfillThread=true on its head BackfillMessage (M6 Task 2,
+//     closing this file's own documented gap): the framework's own
+//     fetchThreadBackfill/doThreadBackfill (portalbackfill.go) then drives a
+//     ThreadRoot-scoped FetchMessages call for that topic's other replies --
+//     see the "M6 Task 2" region below for that dispatch and the
+//     ThreadsOnly-portal top-level case (both share this same per-topic
+//     ShouldBackfillThread computation).
 //   - A topic whose head reply is a SYSTEM_MESSAGE (membership/room-info
 //     change) is converted through the ordinary text path
 //     (convertMessageToMatrix) here, not systemmessage.go's trySystemMessage
 //     (which only runs on the live MESSAGE_POSTED event-dispatch path,
 //     events.go's handleMessagePosted) -- flagged for a follow-up milestone
 //     task's whole-branch review rather than silently gapped.
-//   - ThreadsOnly portals (whole "threaded spaces") and any ThreadRoot-scoped
-//     call are Task 2's strategy; FetchMessages below returns an empty,
-//     HasMore=false response for both rather than guessing at behavior this
-//     task does not own.
 //   - Forward=true (bridgev2's forward-backfill direction) returns an empty,
 //     HasMore=false response: GC's list_topics only exposes "the N most
 //     recent", which is inherently a BACKWARD-from-now query with no way to
@@ -471,33 +470,66 @@ const defaultFetchMessagesCount = 20
 var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 
 // FetchMessages implements bridgev2.BackfillingNetworkAPI for history
-// backfill (M6 Task 1). Dispatches to fetchFlatMessages for a non-threaded
-// top-level request; every other combination (Forward, a ThreadRoot-scoped
-// call, or a ThreadsOnly portal) is not this task's scope -- see the SCOPE
-// note in this file's region comment above -- and returns an empty,
-// HasMore=false response rather than an error, so the framework's backfill
-// queue treats it as "nothing more to do here" instead of a failure.
+// backfill (M6 Task 1 flat rooms; M6 Task 2 threaded spaces). Dispatches:
+//   - params.ThreadRoot != "": fetchThreadMessages (Task 2), regardless of
+//     params.Forward -- checked FIRST, before the Forward branch below,
+//     because the framework's own thread-backfill callers
+//     (fetchThreadBackfill/doThreadBackfill, portalbackfill.go) ALWAYS set
+//     Forward=true on a ThreadRoot-scoped call (a thread grows forward in
+//     time from its head, so cutoffMessages' forward-trim semantics are what
+//     apply to it) even though this is conceptually still part of the
+//     backward/initial backfill this milestone targets. Checking Forward
+//     before ThreadRoot here would misroute every real thread-backfill call
+//     into the Forward stub below and silently never fetch any thread
+//     replies -- verified by reading portalbackfill.go, not assumed.
+//   - params.Forward (with ThreadRoot == ""): the top-level forward-backfill
+//     direction bridgev2 uses for "new messages since the last known one".
+//     Returns an empty, HasMore=false response -- documented GC limitation
+//     (see the Forward bullet in this file's region doc comment above);
+//     M6 focuses on backward/initial history.
+//   - otherwise: fetchTopicHeadMessages, for both a flat portal and a
+//     ThreadsOnly portal's top-level (ThreadRoot=="") call alike -- the two
+//     cases share the exact same list_topics + per-topic-head strategy, and
+//     ONLY differ in whether ShouldBackfillThread is forced true for every
+//     topic (ThreadsOnly) or computed per-topic from ThreadCreatedUsec
+//     (flat); see fetchTopicHeadMessages' own doc comment.
 func (c *GChatClient) FetchMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
+	if params.ThreadRoot != "" {
+		return c.fetchThreadMessages(ctx, params)
+	}
 	if params.Forward {
 		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
 	}
-	if params.ThreadRoot != "" {
-		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
-	}
-	if meta, ok := params.Portal.Metadata.(*PortalMetadata); ok && meta != nil && meta.ThreadsOnly {
-		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
-	}
-	return c.fetchFlatMessages(ctx, params)
+	return c.fetchTopicHeadMessages(ctx, params)
 }
 
-// fetchFlatMessages fetches a flat portal's ENTIRE backfilled message history
-// in a single list_topics call, taking each topic's head reply
-// (topic.replies[0]) as the flat message -- see this file's region doc
-// comment above for the full RPC-choice, single-shot, and scope rationale.
-func (c *GChatClient) fetchFlatMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
+// fetchTopicHeadMessages fetches a portal's ENTIRE backfilled top-level
+// message history in a single list_topics call, taking each topic's head
+// reply (topic.replies[0]) as the top-level message -- see this file's region
+// doc comment above for the full RPC-choice, single-shot, and scope
+// rationale. Serves BOTH a flat portal and a ThreadsOnly portal's top-level
+// (ThreadRoot=="") call: the request/response handling is identical either
+// way (M6 Task 1 vs Task 2 never needed two separate list_topics strategies),
+// they differ only in isThread below, which decides whether each topic's head
+// gets ShouldBackfillThread=true so the framework's own
+// fetchThreadBackfill/doThreadBackfill later drives a ThreadRoot-scoped
+// FetchMessages call (fetchThreadMessages) for that topic's other replies.
+// A topic counts as a real thread (isThread) iff the PORTAL is ThreadsOnly
+// (every topic in a threaded space is a thread by construction) OR the topic
+// itself has topic_read_state.thread_created_usec > 0 (a real thread even
+// inside an otherwise-flat room) -- porting portal.py:432's
+// `self.threads_only or topic.topic_read_state.thread_created_usec > 0`
+// exactly, and closing this file's own previously-documented flat-with-
+// real-thread gap (see the SCOPE bullet above).
+func (c *GChatClient) fetchTopicHeadMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	group, err := gcid.ParsePortalID(params.Portal.ID)
 	if err != nil {
 		return nil, fmt.Errorf("googlechat: invalid portal id %q: %w", params.Portal.ID, err)
+	}
+
+	threadsOnly := false
+	if meta, ok := params.Portal.Metadata.(*PortalMetadata); ok && meta != nil {
+		threadsOnly = meta.ThreadsOnly
 	}
 
 	count := params.Count
@@ -604,6 +636,221 @@ func (c *GChatClient) fetchFlatMessages(ctx context.Context, params bridgev2.Fet
 		cm, err := convert(ctx, params.Portal, intent, msg)
 		if err != nil {
 			log.Err(err).Str("gc_message_id", gcMessageID).Msg("googlechat: failed to convert backfill message, skipping")
+			continue
+		}
+		bm := &bridgev2.BackfillMessage{
+			ConvertedMessage: cm,
+			Sender:           sender,
+			ID:               msgID,
+			Timestamp:        gchatmeow.MicrosToTime(msg.GetCreateTime()),
+			StreamOrder:      msg.GetCreateTime(),
+		}
+		// isThread: see this function's doc comment above for the
+		// threadsOnly-OR-thread_created_usec>0 rule. When true, the
+		// framework (portalbackfill.go's sendBackfill/compileBatchMessage,
+		// gated on msg.ShouldBackfillThread) later drives a
+		// ThreadRoot-scoped FetchMessages call for this topic via
+		// fetchThreadMessages below. LastThreadMessage is set to the LAST
+		// entry in topic.Replies (a preview list that, per this file's
+		// proto-fields note, may itself be a subset -- but when it has more
+		// than the head, its last entry is the most recent reply known from
+		// this same response) or, when Replies has only the head (the
+		// common case for a topic that has not been paged before), the
+		// head's own id -- exactly what
+		// DB.Message.GetLastThreadMessage(portal, threadID=head.ID) will
+		// find once the head itself is inserted (its own ThreadRoot
+		// self-references its id in a ThreadsOnly portal; see
+		// msgconv/from-gchat.go). NOTE (verified by reading
+		// portalbackfill.go, not guessed): this field is currently never
+		// READ anywhere in the vendored bridgev2 framework -- only
+		// GetLastThreadMessage's own DB query drives the real anchor lookup
+		// -- so setting it here is forward-compatible bookkeeping, not a
+		// behavior this milestone's tests can observe through the
+		// framework itself.
+		if isThread := threadsOnly || topic.GetTopicReadState().GetThreadCreatedUsec() > 0; isThread {
+			bm.ShouldBackfillThread = true
+			bm.LastThreadMessage = msgID
+			if last := replies[len(replies)-1]; last != msg {
+				if lastID := last.GetId().GetMessageId(); lastID != "" {
+					bm.LastThreadMessage = gcid.MakeMessageID(lastID)
+				}
+			}
+		}
+		messages = append(messages, bm)
+	}
+
+	return &bridgev2.FetchMessagesResponse{
+		Messages: messages,
+		HasMore:  false,
+		Cursor:   "",
+	}, nil
+}
+
+// endregion
+
+// region M6 Task 2: threaded-space backfill (per-topic ListMessages)
+//
+// This region implements the OTHER half of bridgev2's threaded backfill flow
+// that Task 1 above deliberately deferred: FetchMessages calls where
+// params.ThreadRoot is set. The framework drives this itself once Task 1/2's
+// fetchTopicHeadMessages returns a head BackfillMessage with
+// ShouldBackfillThread=true (portalbackfill.go's sendBackfill ->
+// doThreadBackfill / compileBatchMessage -> fetchThreadInsideBatch), by
+// looking up DB.Message.GetLastThreadMessage(portal, threadID=<head's own
+// message id>) as the anchor and calling FetchMessages again with
+// ThreadRoot=anchor.ID, AnchorMessage=anchor, Forward=true (see FetchMessages'
+// own doc comment above for why Forward is checked AFTER ThreadRoot).
+//
+// MESSAGE -> TOPIC MAPPING -- the key design point verified against the
+// proto and the framework's own message metadata (task-2-augment.md): a
+// Google Chat message id string does NOT itself encode which topic it
+// belongs to, so the topic id cannot be derived from params.ThreadRoot alone.
+// ListMessagesRequest needs a MessageParentId{TopicId{TopicId, GroupId}} to
+// scope the fetch to one topic. The reliable source is
+// params.AnchorMessage.Metadata.(*MessageMetadata).TopicID -- stamped on
+// EVERY bridged message part by the same convertMessageToMatrix path this
+// file already reuses (msgconv_adapter.go:91-94), so the anchor row (the
+// topic's head, or -- once GetLastThreadMessage's DB query starts returning
+// later replies -- any other message already bridged into this thread)
+// always carries the topic id it was bridged into. If AnchorMessage is nil,
+// or its Metadata isn't a *MessageMetadata, or TopicID is empty, this never
+// guesses: it logs and returns an empty, HasMore=false response.
+//
+// PYTHON PARITY -- portal.py:432-441's thread branch issues exactly ONE
+// ListMessagesRequest{parent_id: MessageParentId(topic_id=topic.id),
+// page_size: initial_thread_reply_limit} per topic and iterates
+// resp.messages directly, with NO reordering (unlike list_topics, which
+// portal.py explicitly reverses+re-sorts -- portal.py never does that for
+// list_messages). This file additionally sorts the response ascending by
+// CreateTime (a real per-message timestamp, unlike Topic.SortTime's
+// "most-recently-active" ambiguity) purely as a safety net for
+// FetchMessagesResponse's own documented contract ("Messages should always be
+// sorted in chronological order") -- CreateTime-ascending IS chronological
+// order regardless of whatever order the server actually delivers in, so
+// this never diverges from Python's assumption when Python's assumption
+// (already-chronological) happens to hold, and only helps when it doesn't.
+//
+// HEAD DEDUP -- Python's handle_googlechat_message relies on its own
+// DBMessage.get_by_gcid existence check to silently drop the head reply if
+// list_messages happens to include it again (portal.py:1348-1350); this
+// bridge has no equivalent per-call DB read available here (fetchThreadMessages
+// is a pure connector function with no DB access -- pkg/connector must stay
+// framework-agnostic about persistence), so it applies the SAME anchor filter
+// fetchTopicHeadMessages already uses for the flat/backward case, mirrored for
+// the forward direction: exclude the anchor message itself (by id) and
+// anything STRICTLY OLDER than it (never a distinct sibling at the exact same
+// microsecond, matching cutoffMessages' own forward-trim criterion,
+// portalbackfill.go's cutoffMessages "forward" branch: `msg.ID ==
+// lastMessage.ID || msg.Timestamp.Before(lastMessage.Timestamp)`). Since the
+// anchor is (initially) the topic's head reply -- always the OLDEST message
+// in its own topic -- this both removes the head if the server re-sent it and
+// never wrongly drops a genuine reply (every real reply's CreateTime is >=
+// the head's).
+//
+// SINGLE-SHOT -- exactly like fetchTopicHeadMessages: one ListMessagesRequest
+// with PageSize = params.Count, HasMore=false, Cursor="" always. No cursor
+// exists to build (ListMessagesRequest/Response carry no page token, same
+// grep-verified absence as ListTopicsRequest/Response -- see Task 1's region
+// doc comment above), and single-shot is what the M6 plan and Python both
+// call for.
+func (c *GChatClient) fetchThreadMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
+	log := zerolog.Ctx(ctx)
+
+	if params.AnchorMessage == nil {
+		log.Warn().Msg("googlechat: thread backfill requested with no anchor message, cannot resolve topic id")
+		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
+	}
+	meta, ok := params.AnchorMessage.Metadata.(*MessageMetadata)
+	if !ok || meta == nil || meta.TopicID == "" {
+		log.Warn().Msg("googlechat: thread backfill anchor message has no topic id in its metadata, cannot resolve topic")
+		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
+	}
+	topicID := meta.TopicID
+
+	group, err := gcid.ParsePortalID(params.Portal.ID)
+	if err != nil {
+		return nil, fmt.Errorf("googlechat: invalid portal id %q: %w", params.Portal.ID, err)
+	}
+
+	count := params.Count
+	if count <= 0 {
+		count = defaultFetchMessagesCount
+	}
+
+	list := c.listMessagesFn
+	if list == nil {
+		conn := c.getConn()
+		if conn == nil {
+			return nil, fmt.Errorf("googlechat: not connected")
+		}
+		list = conn.ListMessages
+	}
+	resp, err := list(ctx, &pb.ListMessagesRequest{
+		ParentId: &pb.MessageParentId{
+			Parent: &pb.MessageParentId_TopicId{
+				TopicId: &pb.TopicId{
+					TopicId: proto.String(topicID),
+					GroupId: gchatmeow.PartsToGroupID(group.ID, group.IsDM),
+				},
+			},
+		},
+		PageSize: proto.Int32(int32(count)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("googlechat: list_messages failed: %w", err)
+	}
+
+	// Defensive chronological sort -- see this region's doc comment above for
+	// why this is safe regardless of the server's actual delivery order.
+	// Ties broken by message id for deterministic output, mirroring
+	// fetchTopicHeadMessages' own topic-id tiebreaker.
+	msgs := slices.Clone(resp.GetMessages())
+	slices.SortStableFunc(msgs, func(a, b *pb.Message) int {
+		if byTime := cmp.Compare(a.GetCreateTime(), b.GetCreateTime()); byTime != 0 {
+			return byTime
+		}
+		return cmp.Compare(a.GetId().GetMessageId(), b.GetId().GetMessageId())
+	})
+
+	getIntent := c.getIntentForFn
+	if getIntent == nil {
+		getIntent = func(ctx context.Context, portal *bridgev2.Portal, sender bridgev2.EventSender, evtType bridgev2.RemoteEventType) (bridgev2.MatrixAPI, bool) {
+			return portal.GetIntentFor(ctx, sender, c.UserLogin, evtType)
+		}
+	}
+	convert := convertMessageToMatrix(c.msgConverter(), c)
+
+	anchorID := params.AnchorMessage.ID
+	anchorMicros := gchatmeow.TimeToMicros(params.AnchorMessage.Timestamp)
+
+	messages := make([]*bridgev2.BackfillMessage, 0, len(msgs))
+	for _, msg := range msgs {
+		gcMessageID := msg.GetId().GetMessageId()
+		if gcMessageID == "" {
+			log.Warn().Msg("googlechat: backfill thread message has no message id, skipping")
+			continue
+		}
+		msgID := gcid.MakeMessageID(gcMessageID)
+		// Anchor filter (forward direction -- see this region's doc comment's
+		// "HEAD DEDUP" note above): exclude the anchor itself (by id) and
+		// anything strictly OLDER than it; a distinct sibling AT the anchor's
+		// exact microsecond survives, mirroring cutoffMessages' own forward
+		// cutoff criterion.
+		if msgID == anchorID || msg.GetCreateTime() < anchorMicros {
+			continue
+		}
+		senderID := gcid.MakeUserID(msg.GetCreator().GetUserId().GetId())
+		sender := bridgev2.EventSender{
+			Sender:   senderID,
+			IsFromMe: c.IsThisUser(ctx, senderID),
+		}
+		intent, ok := getIntent(ctx, params.Portal, sender, bridgev2.RemoteEventBackfill)
+		if !ok {
+			continue
+		}
+		cm, err := convert(ctx, params.Portal, intent, msg)
+		if err != nil {
+			log.Err(err).Str("gc_message_id", gcMessageID).Msg("googlechat: failed to convert backfill thread message, skipping")
 			continue
 		}
 		messages = append(messages, &bridgev2.BackfillMessage{

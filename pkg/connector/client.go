@@ -313,6 +313,16 @@ type GChatClient struct {
 	// mirrors catchUpUserFn/paginatedWorldFn above.
 	listTopicsFn func(ctx context.Context, req *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error)
 
+	// listMessagesFn issues the single list_messages RPC that backfill.go's
+	// fetchThreadMessages uses to fetch one topic's thread replies for a
+	// ThreadRoot-scoped FetchMessages call (M6 Task 2; single-shot, matching
+	// portal.py's _initial_backfill thread branch -- see backfill.go).
+	// Defaults to conn.ListMessages; overridden in tests so the request
+	// construction (parent topic id + group, page size) and response
+	// handling can be exercised without a live gchatmeow.Client connection --
+	// mirrors listTopicsFn above.
+	listMessagesFn func(ctx context.Context, req *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error)
+
 	// getIntentForFn resolves the Matrix intent to bridge a backfilled
 	// message as (backfill.go's FetchMessages, M6 Task 1). Defaults to
 	// params.Portal.GetIntentFor(ctx, sender, c.UserLogin,

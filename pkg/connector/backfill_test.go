@@ -1280,7 +1280,72 @@ func TestFetchMessagesFlatAnchorKeepsDistinctSiblingAtSameMicrosecond(t *testing
 	}
 }
 
-// --- Forward / ThreadRoot / ThreadsOnly: out of Task 1's scope -----------
+// --- M6 Task 2: flat-with-real-thread gap closure -------------------------
+//
+// Task 1's region doc comment documented a gap: a topic with a real Google
+// Chat thread even inside an otherwise-flat room
+// (topic_read_state.thread_created_usec > 0) was bridged as ONLY its head
+// reply, never setting ShouldBackfillThread, so the framework would never
+// drive a ThreadRoot-scoped fetch for its other replies -- unlike Python's
+// `self.threads_only or topic.topic_read_state.thread_created_usec > 0`
+// (portal.py:432). These two tests pin the closed gap: a flat topic that DOES
+// carry a real thread now gets ShouldBackfillThread=true; a plain flat topic
+// (no real thread) still does not.
+
+func TestFetchMessagesFlatTopicWithRealThreadSetsShouldBackfillThread(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	topic := flatTopic("t1", "m1", "u1", "hi", 1000)
+	topic.TopicReadState = &pb.TopicReadState{ThreadCreatedUsec: proto.Int64(500)}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{Topics: []*pb.Topic{topic}, ContainsFirstTopic: proto.Bool(true)}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  1,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(resp.Messages))
+	}
+	if !resp.Messages[0].ShouldBackfillThread {
+		t.Error("ShouldBackfillThread = false, want true (topic has ThreadCreatedUsec>0, a real thread even in a flat room -- Task 1's documented gap)")
+	}
+	if resp.Messages[0].LastThreadMessage != gcid.MakeMessageID("m1") {
+		t.Errorf("LastThreadMessage = %q, want %q (single-reply topic: the head is also the last known thread message)", resp.Messages[0].LastThreadMessage, "m1")
+	}
+}
+
+func TestFetchMessagesFlatTopicWithoutRealThreadShouldBackfillThreadFalse(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{
+			Topics:             []*pb.Topic{flatTopic("t1", "m1", "u1", "hi", 1000)},
+			ContainsFirstTopic: proto.Bool(true),
+		}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  1,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(resp.Messages))
+	}
+	if resp.Messages[0].ShouldBackfillThread {
+		t.Error("ShouldBackfillThread = true, want false (plain flat topic, no real thread)")
+	}
+	if resp.Messages[0].LastThreadMessage != "" {
+		t.Errorf("LastThreadMessage = %q, want empty (no thread to backfill)", resp.Messages[0].LastThreadMessage)
+	}
+}
+
+// --- Forward: out of scope (documented GC limitation) ---------------------
 
 func TestFetchMessagesForwardReturnsEmptyResponse(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
@@ -1306,48 +1371,304 @@ func TestFetchMessagesForwardReturnsEmptyResponse(t *testing.T) {
 	}
 }
 
-func TestFetchMessagesThreadRootReturnsEmptyResponse(t *testing.T) {
+// --- M6 Task 2: ThreadsOnly top-level (list_topics, every head threaded) --
+
+// TestFetchMessagesThreadsOnlyTopLevelHeadsHaveShouldBackfillThread pins the
+// brief's core ThreadsOnly ask: a ThreadsOnly portal's top-level
+// (ThreadRoot=="") FetchMessages call uses the exact same list_topics +
+// chronological-head strategy as a flat portal (TestFetchMessagesFlat...
+// above), but EVERY topic's head gets ShouldBackfillThread=true
+// unconditionally (not gated on ThreadCreatedUsec, since every topic in a
+// threaded space is itself a thread), with LastThreadMessage defaulting to
+// the head's own id (single-reply topic).
+func TestFetchMessagesThreadsOnlyTopLevelHeadsHaveShouldBackfillThread(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
-	var called bool
+	serverOrder := []*pb.Topic{
+		flatTopic("t2", "m2", "u2", "two", 2_000_000),
+		flatTopic("t1", "m1", "u1", "one", 1_000_000),
+	}
 	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
-		called = true
-		return &pb.ListTopicsResponse{}, nil
+		return &pb.ListTopicsResponse{Topics: serverOrder, ContainsFirstTopic: proto.Bool(true)}, nil
 	})
+	portal := flatBackfillPortal(group)
+	portal.Metadata = &PortalMetadata{ThreadsOnly: true}
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{Portal: portal, Count: 2})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("len(Messages) = %d, want 2", len(resp.Messages))
+	}
+	if resp.HasMore {
+		t.Error("HasMore = true, want false (single-shot)")
+	}
+	if resp.Cursor != "" {
+		t.Errorf("Cursor = %q, want empty (single-shot)", resp.Cursor)
+	}
+	wantIDs := []networkid.MessageID{gcid.MakeMessageID("m1"), gcid.MakeMessageID("m2")}
+	for i, want := range wantIDs {
+		if resp.Messages[i].ID != want {
+			t.Errorf("Messages[%d].ID = %q, want %q (chronological oldest-first)", i, resp.Messages[i].ID, want)
+		}
+		if !resp.Messages[i].ShouldBackfillThread {
+			t.Errorf("Messages[%d].ShouldBackfillThread = false, want true (every topic head in a ThreadsOnly portal)", i)
+		}
+		if resp.Messages[i].LastThreadMessage != want {
+			t.Errorf("Messages[%d].LastThreadMessage = %q, want %q (single-reply topic: the head is also the last known thread message)", i, resp.Messages[i].LastThreadMessage, want)
+		}
+	}
+}
+
+// --- M6 Task 2: ThreadRoot-scoped (list_messages for one topic) ----------
+//
+// threadRootAnchor builds the *database.Message a ThreadRoot-scoped
+// FetchMessages call receives as params.AnchorMessage: its Metadata carries
+// the *MessageMetadata whose TopicID field fetchThreadMessages reads to
+// resolve which topic to list_messages against (see backfill.go's "M6 Task
+// 2" region doc comment's "MESSAGE -> TOPIC MAPPING" note).
+func threadRootAnchor(msgID, topicID string, createMicros int64) *database.Message {
+	return &database.Message{
+		ID:        gcid.MakeMessageID(msgID),
+		Timestamp: gchatmeow.MicrosToTime(createMicros),
+		Metadata:  &MessageMetadata{TopicID: topicID},
+	}
+}
+
+// threadReply builds a *pb.Message shaped like a plain thread reply (no
+// parent_id needed here -- fetchThreadMessages never reads it, only the
+// anchor's stored metadata), mirroring flatTopic's inner message literal.
+func threadReply(msgID, creatorGaia, text string, createTime int64) *pb.Message {
+	return &pb.Message{
+		Id:         &pb.MessageId{MessageId: proto.String(msgID)},
+		Creator:    &pb.User{UserId: &pb.UserId{Id: proto.String(creatorGaia)}},
+		CreateTime: proto.Int64(createTime),
+		TextBody:   proto.String(text),
+	}
+}
+
+// newThreadBackfillTestClient mirrors newBackfillTestClient, but wires
+// listMessagesFn (the Task 2 seam) instead of listTopicsFn.
+func newThreadBackfillTestClient(ownGaia string, list func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error)) *GChatClient {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	login.ID = gcid.MakeUserLoginID(ownGaia)
+	return &GChatClient{
+		UserLogin:      login,
+		listMessagesFn: list,
+		getIntentForFn: func(context.Context, *bridgev2.Portal, bridgev2.EventSender, bridgev2.RemoteEventType) (bridgev2.MatrixAPI, bool) {
+			return nil, true
+		},
+	}
+}
+
+// TestFetchMessagesThreadRootCallsListMessagesWithTopicFromAnchorMetadata
+// pins the request-shape half of the brief: the topic id in the
+// list_messages request comes from AnchorMessage.Metadata.TopicID, NOT from
+// params.ThreadRoot (which is just a message id with no topic encoded in
+// it -- task-2-augment.md's key design point). Also pins that
+// params.Forward is TRUE on a real ThreadRoot-scoped call (verified against
+// portalbackfill.go's fetchThreadBackfill/doThreadBackfill, which always set
+// Forward:true even for this still-conceptually-backward/initial fetch) --
+// under the naive "check Forward before ThreadRoot" dispatch order this
+// would misroute into the Forward-unsupported stub and listMessagesFn would
+// never be called at all.
+func TestFetchMessagesThreadRootCallsListMessagesWithTopicFromAnchorMetadata(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	var gotReq *pb.ListMessagesRequest
+	var calls int
+	gc := newThreadBackfillTestClient("owner", func(_ context.Context, req *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
+		calls++
+		gotReq = req
+		return &pb.ListMessagesResponse{}, nil
+	})
+	anchor := threadRootAnchor("head-1", "topic-1", 1000)
 
 	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
-		Portal:     flatBackfillPortal(group),
-		ThreadRoot: gcid.MakeMessageID("topic-1"),
-		Count:      3,
+		Portal:        flatBackfillPortal(group),
+		ThreadRoot:    anchor.ID,
+		Forward:       true,
+		AnchorMessage: anchor,
+		Count:         5,
 	})
 	if err != nil {
 		t.Fatalf("FetchMessages returned error: %v", err)
 	}
-	if called {
-		t.Error("listTopicsFn was called for a ThreadRoot request, want not called (Task 2's scope)")
+	if calls != 1 {
+		t.Fatalf("listMessagesFn called %d times, want 1 (single-shot, no page loop)", calls)
+	}
+	gotTopic := gotReq.GetParentId().GetTopicId()
+	if gotTopic.GetTopicId() != "topic-1" {
+		t.Errorf("ParentId.TopicId.TopicId = %q, want %q (read from AnchorMessage.Metadata.TopicID, not derived from ThreadRoot)", gotTopic.GetTopicId(), "topic-1")
+	}
+	id, isDM, ok := gchatmeow.GroupIDToParts(gotTopic.GetGroupId())
+	if !ok || id != "space-1" || isDM {
+		t.Errorf("ParentId.TopicId.GroupId = (%q, isDM=%v, ok=%v), want (%q, false, true)", id, isDM, ok, "space-1")
+	}
+	if got := gotReq.GetPageSize(); got != 5 {
+		t.Errorf("PageSize = %d, want 5 (params.Count)", got)
+	}
+	if resp.HasMore {
+		t.Error("HasMore = true, want false (single-shot)")
+	}
+	if resp.Cursor != "" {
+		t.Errorf("Cursor = %q, want empty (no pagination)", resp.Cursor)
+	}
+}
+
+// TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically pins the
+// brief's "head message not duplicated" ask plus chronological ordering:
+// list_messages may re-include the topic's head reply (Python's own
+// handle_googlechat_message defends against exactly this via its DB
+// existence check, portal.py:1348-1350) -- this must filter it out via the
+// same anchor criterion fetchTopicHeadMessages uses (mirrored for the
+// forward direction), and the two genuine replies must come back oldest
+// first regardless of the server's delivery order.
+func TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	head := threadReply("head-1", "u1", "head text", 1_000_000)
+	reply2 := threadReply("reply-2", "u2", "second", 3_000_000)
+	reply1 := threadReply("reply-1", "u3", "first", 2_000_000)
+	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
+		// Deliberately out of order and including the head, exactly the
+		// defensive scenario this test exists to cover.
+		return &pb.ListMessagesResponse{Messages: []*pb.Message{reply2, head, reply1}}, nil
+	})
+	anchor := threadRootAnchor("head-1", "topic-1", 1_000_000)
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:        flatBackfillPortal(group),
+		ThreadRoot:    anchor.ID,
+		Forward:       true,
+		AnchorMessage: anchor,
+		Count:         10,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("len(Messages) = %d, want 2 (head excluded, only the two real replies)", len(resp.Messages))
+	}
+	for _, m := range resp.Messages {
+		if m.ID == gcid.MakeMessageID("head-1") {
+			t.Error("head-1 was re-delivered by the ThreadRoot-scoped fetch, want excluded (already bridged as the topic's top-level message)")
+		}
+	}
+	wantIDs := []networkid.MessageID{gcid.MakeMessageID("reply-1"), gcid.MakeMessageID("reply-2")}
+	for i, want := range wantIDs {
+		if resp.Messages[i].ID != want {
+			t.Errorf("Messages[%d].ID = %q, want %q (chronological oldest-first)", i, resp.Messages[i].ID, want)
+		}
+	}
+}
+
+// TestFetchMessagesThreadRootNilAnchorReturnsEmptyResponse covers the
+// defensive case the augment file calls out explicitly: with no anchor
+// message there is no topic id to resolve, so this must return an empty
+// response without ever calling listMessagesFn or panicking (rather than
+// guessing at a topic).
+func TestFetchMessagesThreadRootNilAnchorReturnsEmptyResponse(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	var calls int
+	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
+		calls++
+		return &pb.ListMessagesResponse{}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:     flatBackfillPortal(group),
+		ThreadRoot: gcid.MakeMessageID("head-1"),
+		Forward:    true,
+		Count:      3,
+		// AnchorMessage deliberately left nil.
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if calls != 0 {
+		t.Error("listMessagesFn was called with a nil AnchorMessage, want not called (no topic id to resolve)")
 	}
 	if resp.HasMore || len(resp.Messages) != 0 {
 		t.Errorf("resp = %+v, want empty/HasMore=false", resp)
 	}
 }
 
-func TestFetchMessagesThreadsOnlyPortalReturnsEmptyResponse(t *testing.T) {
+// TestFetchMessagesThreadRootAnchorMissingTopicIDReturnsEmptyResponse covers
+// an anchor message that exists but carries no usable topic id (nil
+// Metadata, e.g. a migrated/legacy row) -- must not guess, must not panic.
+func TestFetchMessagesThreadRootAnchorMissingTopicIDReturnsEmptyResponse(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
-	var called bool
-	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
-		called = true
-		return &pb.ListTopicsResponse{}, nil
+	var calls int
+	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
+		calls++
+		return &pb.ListMessagesResponse{}, nil
 	})
-	portal := flatBackfillPortal(group)
-	portal.Metadata = &PortalMetadata{ThreadsOnly: true}
+	anchor := &database.Message{ID: gcid.MakeMessageID("head-1"), Timestamp: gchatmeow.MicrosToTime(1000)} // no Metadata at all
 
-	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{Portal: portal, Count: 3})
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:        flatBackfillPortal(group),
+		ThreadRoot:    anchor.ID,
+		Forward:       true,
+		AnchorMessage: anchor,
+		Count:         3,
+	})
 	if err != nil {
 		t.Fatalf("FetchMessages returned error: %v", err)
 	}
-	if called {
-		t.Error("listTopicsFn was called for a ThreadsOnly portal's top-level request, want not called (Task 2's scope)")
+	if calls != 0 {
+		t.Error("listMessagesFn was called despite the anchor carrying no topic id, want not called")
 	}
 	if resp.HasMore || len(resp.Messages) != 0 {
 		t.Errorf("resp = %+v, want empty/HasMore=false", resp)
+	}
+}
+
+// TestFetchMessagesThreadRootConvertReusesLiveConversionPath mirrors
+// TestFetchMessagesFlatConvertMessageReusesLiveConversionPath for the
+// ThreadRoot-scoped path: a formatted thread reply must produce identical
+// rendered HTML through fetchThreadMessages as calling convertMessageToMatrix
+// directly -- no parallel conversion path for the threaded case either.
+func TestFetchMessagesThreadRootConvertReusesLiveConversionPath(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	reply := &pb.Message{
+		Id:          &pb.MessageId{MessageId: proto.String("reply-1")},
+		Creator:     &pb.User{UserId: &pb.UserId{Id: proto.String("u1")}},
+		CreateTime:  proto.Int64(2000),
+		TextBody:    proto.String("bold text"),
+		Annotations: []*pb.Annotation{gchatfmt.MakeFormatAnnotation(0, 4, pb.FormatMetadata_BOLD)},
+	}
+	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
+		return &pb.ListMessagesResponse{Messages: []*pb.Message{reply}}, nil
+	})
+	portal := flatBackfillPortal(group)
+	anchor := threadRootAnchor("head-1", "topic-1", 1000)
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:        portal,
+		ThreadRoot:    anchor.ID,
+		Forward:       true,
+		AnchorMessage: anchor,
+		Count:         5,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(resp.Messages))
+	}
+	backfillCM := resp.Messages[0].ConvertedMessage
+	if backfillCM == nil || len(backfillCM.Parts) != 1 {
+		t.Fatalf("backfill ConvertedMessage = %+v, want 1 part", backfillCM)
+	}
+
+	convert := convertMessageToMatrix(gc.msgConverter(), gc)
+	liveCM, err := convert(context.Background(), portal, nil, reply)
+	if err != nil {
+		t.Fatalf("live convertMessageToMatrix returned error: %v", err)
+	}
+	if backfillCM.Parts[0].Content.FormattedBody != liveCM.Parts[0].Content.FormattedBody {
+		t.Errorf("backfill formatted body = %q, live formatted body = %q, want identical", backfillCM.Parts[0].Content.FormattedBody, liveCM.Parts[0].Content.FormattedBody)
+	}
+	if backfillCM.Parts[0].Content.FormattedBody == "" {
+		t.Error("formatted body is empty, want BOLD annotation to have rendered HTML")
 	}
 }
