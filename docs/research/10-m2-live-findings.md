@@ -89,3 +89,44 @@ Perform the live send/receive validation on the **actual deployment account**
 which is the real bridge target and unlikely to hit new-account throttling —
 rather than blocking the M2 merge on a disposable test account that Google
 appears to be rate-limiting at the realtime-channel layer.
+
+## M7 addendum (2026-07-16): root-caused — source-level webchannel block, NOT account throttling or a code bug
+
+Re-ran the live harness (`TestLiveProtocol`) against **two** accounts on the
+same day: the owner's personal account AND the fresh Varga Abigel test account
+(the one that PASSED the M1 spike). Both gave the **identical** result:
+
+- PASS FetchXSRFToken (session valid), PASS GetSelfUserStatus (RPC+proto),
+  PASS PaginatedWorld (0 items — expected; these accounts are empty, as in M1).
+- FAIL BrowserChannel: the GET `/webchannel/register` hangs with **zero** state
+  transitions until the 60s window elapses (no response headers).
+
+Isolation performed:
+1. **Environment is fine**: an unauthenticated `curl` to
+   `chat.google.com/u/0/webchannel/register` returns **HTTP 401 in 0.13s** —
+   the endpoint is reachable and fast from this sandbox.
+2. **Not a code regression**: `git diff <M1-spike-commit> -- channel.go
+   session.go` == **0 lines**. The entire channel-connect + Session/HTTP path
+   is byte-identical to the commit that received 18 live events in the M1
+   spike. The only post-spike change to these files (M2 catch-up) touched
+   `client.go` reconnect logic only, not `register()`/`Listen()`/`FetchRaw`.
+3. **Not account-specific**: a fresh disposable account that passed in M1 now
+   fails identically to the personal account.
+
+**Conclusion**: Google's anti-abuse is black-holing the *authenticated*
+webchannel (realtime long-poll) register for programmatic access from this
+sandbox's source (datacenter IP + no browser fingerprint + repeated
+programmatic connects). It responds to unauthenticated probes but drops
+authenticated bot-like sessions at the realtime layer — the endpoint Google
+guards most aggressively. This CORRECTS the earlier "account throttling"
+framing above: it is SOURCE-level, not account-level.
+
+**What is proven**: auth, XSRF, binary-proto RPCs, and world sync all work
+live against real Google Chat with fresh cookies (both accounts). Only the
+realtime channel is unverifiable *from this sandbox*.
+
+**Definitive validation path**: run the actual bridge from the owner's
+continuwuity server (a normal/residential-ish IP holding ONE long-lived
+channel, not repeated harness connects) — the pattern under which the M1 spike
+connected. Do NOT keep re-running the harness against either account; repeated
+connects only reinforce the source-level block.
