@@ -33,6 +33,10 @@ jobs:
         id: ts
         run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # binfmt emulation for the final-stage `RUN apk add` under linux/arm64;
+      # the Go build itself is cross-compiled natively via tonistiigi/xx.
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -46,11 +50,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ (startsWith(github.ref, 'refs/tags/') && steps.meta.outputs.version) || 'unknown' }}
             COMMIT=${{ github.sha }}
             BUILD_TIME=${{ steps.ts.outputs.value }}
           cache-from: type=gha
