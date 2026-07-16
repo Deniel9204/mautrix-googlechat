@@ -445,13 +445,16 @@ func groupRevision(evt *pb.Event) int64 {
 //     (which only runs on the live MESSAGE_POSTED event-dispatch path,
 //     events.go's handleMessagePosted) -- flagged for a follow-up milestone
 //     task's whole-branch review rather than silently gapped.
-//   - Forward=true (bridgev2's forward-backfill direction) returns an empty,
-//     HasMore=false response: GC's list_topics only exposes "the N most
-//     recent", which is inherently a BACKWARD-from-now query with no way to
-//     ask "the N oldest of what's newer than X" -- matching the brief's own
-//     "return the newer messages or empty; for M6 focus on backward/initial"
-//     guidance and mautrix-meta's own early-return for an unsupported forward
-//     case (_reference/meta/pkg/connector/backfill.go's FetchMessages).
+//   - Forward=true SPLITS on AnchorMessage (M6 Task 3.5, after this milestone's
+//     Task 3 verification surfaced that the blanket Forward==true stub left
+//     M6 entirely inert on non-Beeper homeservers -- see FetchMessages' own
+//     doc comment below for the full reasoning): AnchorMessage==nil is the
+//     NEW-ROOM bootstrap seed and is served by this same list_topics
+//     strategy; AnchorMessage!=nil is forward CATCH-UP on an existing room
+//     and stays an empty, HasMore=false response, since GC's list_topics only
+//     exposes "the N most recent" (inherently BACKWARD-from-now, with no way
+//     to ask "the N oldest of what's newer than X") and M2's catch_up_user
+//     already owns reconnect-gap recovery for rooms that are already bridged.
 //
 // CONVERSION REUSE: every backfilled message is converted via the EXACT SAME
 // convertMessageToMatrix(c.msgConverter(), c) function events.go's live
@@ -472,16 +475,17 @@ func groupRevision(evt *pb.Event) int64 {
 // standard top-level `backfill:` section (bridgeconfig.BackfillConfig,
 // generated into every mxmain bridge's config, including this one) supplies
 // it, but via TWO DIFFERENT keys depending on which call this file receives:
-//   - fetchTopicHeadMessages (the Forward==false branch FetchMessages
-//     dispatches to): its params.Count is set by
+//   - fetchTopicHeadMessages, reached via the Forward==false branch (the
+//     backward backfill QUEUE): its params.Count is set by
 //     Portal.doBackwardsBackfill (portalbackfill.go:123) from
 //     `backfill.queue.batch_size` -- NOT `backfill.max_initial_messages` as
-//     an earlier draft of this comment assumed. `max_initial_messages` only
-//     feeds the SEPARATE Forward==true bootstrap call
-//     (Portal.doForwardBackfill, portalbackfill.go:46/57), which this file's
-//     FetchMessages stubs out to an empty response for every Forward
-//     request (see this region's doc comment above) -- so that key never
-//     reaches this connector at all today.
+//     an earlier draft of this comment assumed.
+//   - fetchTopicHeadMessages, reached via the Forward==true/AnchorMessage==nil
+//     branch (the NEW-ROOM bootstrap seed, M6 Task 3.5): its params.Count is
+//     `backfill.max_initial_messages` (Portal.doForwardBackfill,
+//     portalbackfill.go:46) -- this is the key Task 3's draft of this comment
+//     said never reached the connector; Task 3.5 fixed the dispatcher so it
+//     now does.
 //   - fetchThreadMessages: its params.Count IS `backfill.threads.max_initial_messages`
 //     (Portal.fetchThreadBackfill, portalbackfill.go:203) -- this one matches
 //     what the augment/brief expected.
@@ -492,9 +496,18 @@ func groupRevision(evt *pb.Event) int64 {
 // homeserver reports the Beeper-only batch-sending capability
 // (mautrix.BeeperFeatureBatchSending) -- a standard self-hosted Synapse/
 // Dendrite homeserver never reports that capability, so on a non-Beeper
-// deployment this queue (and therefore fetchTopicHeadMessages) never runs
-// at all; see this milestone's Task 3 report for the resulting gap flagged
-// against the Forward==true/AnchorMessage==nil bootstrap path.
+// deployment this queue (and therefore the Forward==false path through
+// fetchTopicHeadMessages) never runs at all. That is NOT the milestone-inert
+// gap it once looked like, though: M6 Task 3.5 confirmed the framework fires
+// a SECOND, independent trigger on room creation regardless of batch-sending
+// support -- Portal.doForwardBackfill(ctx, source, nil, bundle)
+// (portal.go:5404), which calls FetchMessages with Forward==true and
+// AnchorMessage==nil and sends the result via sendBackfill's non-batch
+// branch (sendLegacyBackfill, portalbackfill.go:340) when the homeserver
+// lacks BatchSending. That call now also reaches fetchTopicHeadMessages (see
+// the Forward split above and FetchMessages' own doc comment below), so a
+// non-Beeper deployment like continuwuity still gets its initial backfill
+// through this second path even though the queue itself stays dormant.
 const defaultFetchMessagesCount = 20
 
 var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
@@ -512,24 +525,95 @@ var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 //     before ThreadRoot here would misroute every real thread-backfill call
 //     into the Forward stub below and silently never fetch any thread
 //     replies -- verified by reading portalbackfill.go, not assumed.
-//   - params.Forward (with ThreadRoot == ""): the top-level forward-backfill
-//     direction bridgev2 uses for "new messages since the last known one".
-//     Returns an empty, HasMore=false response -- documented GC limitation
-//     (see the Forward bullet in this file's region doc comment above);
-//     M6 focuses on backward/initial history.
-//   - otherwise: fetchTopicHeadMessages, for both a flat portal and a
-//     ThreadsOnly portal's top-level (ThreadRoot=="") call alike -- the two
-//     cases share the exact same list_topics + per-topic-head strategy, and
-//     ONLY differ in whether ShouldBackfillThread is forced true for every
-//     topic (ThreadsOnly) or computed per-topic from ThreadCreatedUsec
-//     (flat); see fetchTopicHeadMessages' own doc comment.
+//   - params.Forward && params.AnchorMessage != nil (with ThreadRoot == ""):
+//     forward CATCH-UP on an EXISTING room ("new messages since the last
+//     known one"). Two framework callers can reach this shape:
+//     doForwardBackfill's room-creation seed once it is called again with a
+//     non-nil lastMessage (portal.go:3882's handleRemoteChatResync path --
+//     dormant for this bridge today, since pkg/connector emits no
+//     RemoteChatResync event and implements no RemoteChatResyncBackfill/
+//     CheckNeedsBackfill, verified by grep), and fetchThreadBackfill's
+//     ThreadRoot-scoped call (portalbackfill.go:196-204) -- but that one is
+//     already routed to fetchThreadMessages by the ThreadRoot check above,
+//     never reaching here. Returns an empty, HasMore=false response --
+//     documented GC limitation (see the Forward bullet in this file's region
+//     doc comment above); M2's catch_up_user already owns this case for
+//     existing rooms.
+//   - otherwise (Forward==false, OR Forward==true && AnchorMessage==nil):
+//     fetchTopicHeadMessages, for a flat portal's backward/queue path, a
+//     ThreadsOnly portal's backward/queue path, AND -- as of M6 Task 3.5 --
+//     the Forward==true NEW-ROOM bootstrap seed on EITHER portal shape
+//     (doForwardBackfill(ctx, source, nil, bundle) on room creation,
+//     portal.go:5404). Task 3's verification found that stubbing every
+//     Forward==true call to empty left M6 entirely inert on non-Beeper
+//     homeservers like continuwuity: doBackwardsBackfill's queue
+//     (backfillqueue.go's RunBackfillQueue) never starts there
+//     (BatchSending gate), so the bootstrap seed above was the ONLY
+//     room-creation trigger that actually runs on such a deployment, and it
+//     was fetching nothing. Routing it here instead fixes that: it reuses
+//     the exact same list_topics + per-topic-head strategy as the backward
+//     path (fetchTopicHeadMessages already handles AnchorMessage==nil with
+//     no filtering, needing no change), the three call shapes differ only in
+//     whether ShouldBackfillThread is forced true for every topic
+//     (ThreadsOnly) or computed per-topic from ThreadCreatedUsec (flat) --
+//     see fetchTopicHeadMessages' own doc comment. A batch-send/Beeper
+//     homeserver where BOTH the queue and the room-creation seed could fire
+//     for the same room is not this milestone's actual target: continuwuity
+//     has no BatchSending, so the queue never runs there at all and the seed
+//     is the ONLY trigger (see the region doc comment's "Operationally"
+//     paragraph above). Where both CAN fire, overlap is bounded by TIMING,
+//     not by any framework per-message dedup -- verified by reading, not
+//     assumed, correcting an earlier draft of this comment that wrongly
+//     credited id-based dedup here: this connector never sets
+//     FetchMessagesResponse.AggressiveDeduplication, so cutoffMessages' id-
+//     based GetFirstPartByID pass (portalbackfill.go:286-313) never runs for
+//     these responses, and the seed's own call passes AnchorMessage==nil, so
+//     cutoffMessages applies NO filtering to it either (its lastMessage==nil
+//     early return, portalbackfill.go:248-250). The actual guard is
+//     portal.go:5362-5371, which upserts the queue's BackfillTask with
+//     NextDispatchMinTS = now + BackfillMinBackoffAfterRoomCreate (1 minute,
+//     backfillqueue.go:21) BEFORE the seed call at line 5404 runs
+//     synchronously, so the seed's rows are already persisted by the time the
+//     queue's first dispatch reads a real anchor (GetFirstPortalMessage) and
+//     calls back into this same function with THAT anchor -- whose
+//     hasAnchor filter (fetchTopicHeadMessages below) then excludes anything
+//     at or newer than it. A topic sharing the anchor's exact microsecond is
+//     the one documented, deliberate exception to that filter (see
+//     fetchTopicHeadMessages' anchor-filter comment) and could in theory
+//     still double-post on such a homeserver; that is a pre-existing
+//     tradeoff of the anchor filter itself, not something this task's
+//     dispatcher change introduces.
 func (c *GChatClient) FetchMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	if params.ThreadRoot != "" {
 		return c.fetchThreadMessages(ctx, params)
 	}
-	if params.Forward {
+	if params.Forward && params.AnchorMessage != nil {
+		// forward CATCH-UP on an EXISTING room ("new messages since the last
+		// known one"). GC list_topics exposes only the most-recent-N
+		// (backward-from-now); there is no "strictly newer than X" query, and
+		// M2 catch_up_user already owns reconnect-gap recovery for existing
+		// rooms. Empty.
 		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
 	}
+	// Everything else = "the most-recent-N topics as this portal's initial
+	// history," served by the same single-shot list_topics strategy:
+	//   - Forward==false: the backward backfill QUEUE (doBackwardsBackfill) --
+	//     runs only on batch-send/Beeper homeservers (RunBackfillQueue gates on
+	//     BatchSending, backfillqueue.go:77).
+	//   - Forward==true && AnchorMessage==nil: the NEW-ROOM bootstrap seed
+	//     (doForwardBackfill on room creation, portal.go:5404) -- the ONLY
+	//     initial-backfill path that runs on a NON-batch-send homeserver like
+	//     continuwuity, where sendBackfill's non-batch branch
+	//     (sendLegacyBackfill, portalbackfill.go:340) inserts the results as
+	//     normal timeline events.
+	// Both want the same data, so both route here. On continuwuity (no
+	// BatchSending) the queue above never runs at all, so this seed is the
+	// ONLY trigger and there is nothing to double-post against. On a
+	// homeserver that DOES support batch-sending, both COULD fire for the
+	// same room; see this function's own doc comment above for why that
+	// overlap is bounded by timing (BackfillMinBackoffAfterRoomCreate) plus
+	// fetchTopicHeadMessages' own anchor filter below, NOT by the
+	// framework's AggressiveDeduplication (which this connector never sets).
 	return c.fetchTopicHeadMessages(ctx, params)
 }
 

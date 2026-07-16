@@ -1392,9 +1392,73 @@ func TestFetchMessagesFlatTopicWithoutRealThreadShouldBackfillThreadFalse(t *tes
 	}
 }
 
-// --- Forward: out of scope (documented GC limitation) ---------------------
+// --- Task 3.5: Forward split on AnchorMessage (new-room seed vs catch-up) --
+//
+// bridgev2 uses Forward==true for TWO different callers that this dispatcher
+// must tell apart (task-3_5-brief.md's diagnosis, re-confirmed against
+// portalbackfill.go for this task):
+//   - doForwardBackfill(ctx, source, nil, bundle) on room creation
+//     (portal.go:5404, gated on info.CanBackfill/Backfill.Enabled/not a space/
+//     not background) -- AnchorMessage is nil (lastMessage==nil in
+//     portalbackfill.go:27-51) and this is the ONLY initial-backfill trigger
+//     that runs on a non-batch-send homeserver like continuwuity, since
+//     doBackwardsBackfill's queue (RunBackfillQueue, backfillqueue.go:73-77)
+//     hard-returns unless Matrix.GetCapabilities().BatchSending is true.
+//   - the same doForwardBackfill called again later with a real lastMessage
+//     (portal.go:3882, forward CATCH-UP "new messages since the last known
+//     one") -- AnchorMessage is non-nil.
+// Only the first shape must reach fetchTopicHeadMessages; the second stays an
+// empty stub (GC's list_topics has no "strictly newer than X" query, and M2's
+// catch_up_user already owns reconnect-gap recovery for existing rooms).
 
-func TestFetchMessagesForwardReturnsEmptyResponse(t *testing.T) {
+// TestFetchMessagesForwardNilAnchorSeedsInitialBackfill pins Task 3.5's fix.
+// Before it, the dispatcher stubbed EVERY Forward=true call to empty
+// regardless of AnchorMessage, so the new-room bootstrap seed
+// (doForwardBackfill(ctx, source, nil, bundle) on room creation) -- the only
+// initial-backfill path that runs on continuwuity -- fetched nothing, making
+// the whole M6 milestone inert outside Beeper. This test FAILS under the old
+// `if params.Forward { return empty }` (listTopicsFn never called, resp
+// empty) and PASSES once the dispatcher also requires AnchorMessage != nil.
+func TestFetchMessagesForwardNilAnchorSeedsInitialBackfill(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	var calls int
+	gc := newBackfillTestClient("owner", func(_ context.Context, req *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		calls++
+		return &pb.ListTopicsResponse{
+			Topics:             []*pb.Topic{flatTopic("t1", "m1", "u1", "hi", 1_000_000)},
+			ContainsFirstTopic: proto.Bool(true),
+		}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:  flatBackfillPortal(group),
+		Forward: true,
+		// AnchorMessage deliberately left nil: the new-room bootstrap seed
+		// shape (doForwardBackfill's lastMessage==nil case).
+		Count: 3,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("listTopicsFn called %d times, want 1 (forward seed must reach fetchTopicHeadMessages)", calls)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1 (topic head)", len(resp.Messages))
+	}
+	if resp.Messages[0].ID != gcid.MakeMessageID("m1") {
+		t.Errorf("Messages[0].ID = %q, want %q", resp.Messages[0].ID, gcid.MakeMessageID("m1"))
+	}
+	if resp.HasMore {
+		t.Error("HasMore = true, want false (single-shot)")
+	}
+}
+
+// TestFetchMessagesForwardWithAnchorReturnsEmptyResponse pins the OTHER half
+// of the Forward split: Forward=true WITH a non-nil AnchorMessage is forward
+// CATCH-UP on an existing room. listTopicsFn must NOT be called and the
+// response must stay empty -- unchanged by Task 3.5's fix.
+func TestFetchMessagesForwardWithAnchorReturnsEmptyResponse(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var called bool
 	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
@@ -1406,15 +1470,45 @@ func TestFetchMessagesForwardReturnsEmptyResponse(t *testing.T) {
 		Portal:  flatBackfillPortal(group),
 		Forward: true,
 		Count:   3,
+		AnchorMessage: &database.Message{
+			ID:        gcid.MakeMessageID("m-last"),
+			Timestamp: gchatmeow.MicrosToTime(1_000_000),
+		},
 	})
 	if err != nil {
 		t.Fatalf("FetchMessages returned error: %v", err)
 	}
 	if called {
-		t.Error("listTopicsFn was called for a Forward request, want not called (M6 focuses on backward/initial)")
+		t.Error("listTopicsFn was called for a forward catch-up (Forward=true, AnchorMessage!=nil) request, want not called (M2's catch_up_user owns reconnect-gap recovery for existing rooms)")
 	}
 	if resp.HasMore || len(resp.Messages) != 0 {
 		t.Errorf("resp = %+v, want empty/HasMore=false", resp)
+	}
+}
+
+// TestFetchMessagesBackwardUnchanged pins that Task 3.5's dispatcher change
+// (only touching the Forward==true branch) leaves the backward direction
+// (Forward==false, the doBackwardsBackfill queue path) exactly as Task 1 left
+// it: topic heads returned via fetchTopicHeadMessages.
+func TestFetchMessagesBackwardUnchanged(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{
+			Topics:             []*pb.Topic{flatTopic("t1", "m1", "u1", "hi", 1_000_000)},
+			ContainsFirstTopic: proto.Bool(true),
+		}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:  flatBackfillPortal(group),
+		Forward: false,
+		Count:   3,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1 (backward path unaffected by the Forward-branch fix)", len(resp.Messages))
 	}
 }
 
@@ -1464,6 +1558,45 @@ func TestFetchMessagesThreadsOnlyTopLevelHeadsHaveShouldBackfillThread(t *testin
 		if resp.Messages[i].LastThreadMessage != want {
 			t.Errorf("Messages[%d].LastThreadMessage = %q, want %q (single-reply topic: the head is also the last known thread message)", i, resp.Messages[i].LastThreadMessage, want)
 		}
+	}
+}
+
+// TestFetchMessagesThreadsOnlyForwardNilAnchorSeedsWithShouldBackfillThread
+// pins that Task 3.5's forward-seed fix also works for a ThreadsOnly portal:
+// the threaded new-room bootstrap on a non-batch-send homeserver must still
+// get ShouldBackfillThread=true on every topic head, so the framework's
+// non-batch-send sendBackfill path (portalbackfill.go:349-358, which drives
+// doThreadBackfill per ShouldBackfillThread message even outside the
+// batch-send branch -- re-confirmed against source for this task) can follow
+// up with the per-thread ListMessages fetch on continuwuity too.
+func TestFetchMessagesThreadsOnlyForwardNilAnchorSeedsWithShouldBackfillThread(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{
+			Topics:             []*pb.Topic{flatTopic("t1", "m1", "u1", "hi", 1_000_000)},
+			ContainsFirstTopic: proto.Bool(true),
+		}, nil
+	})
+	portal := flatBackfillPortal(group)
+	portal.Metadata = &PortalMetadata{ThreadsOnly: true}
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:  portal,
+		Forward: true,
+		Count:   3,
+		// AnchorMessage deliberately left nil: the new-room bootstrap seed.
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(resp.Messages))
+	}
+	if !resp.Messages[0].ShouldBackfillThread {
+		t.Error("ShouldBackfillThread = false, want true (ThreadsOnly portal, forward seed)")
+	}
+	if resp.Messages[0].LastThreadMessage != gcid.MakeMessageID("m1") {
+		t.Errorf("LastThreadMessage = %q, want %q", resp.Messages[0].LastThreadMessage, "m1")
 	}
 }
 
