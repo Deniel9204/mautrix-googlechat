@@ -72,6 +72,7 @@ package connector
 // for GC->Matrix; handlematrix.go, M3 Task 4, for Matrix->GC).
 import (
 	"context"
+	"errors"
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
@@ -277,14 +278,17 @@ func matrixMentionResolver(
 		}
 		login, err := findPreferredLogin(ctx, user)
 		if err != nil {
-			// Same rationale as the getExistingUser error above -- e.g. a
-			// DB error fetching the user's logins (bridgev2.ErrNotLoggedIn
-			// itself is an expected, unremarkable outcome bundled into this
-			// same err return, but logging it too is harmless: it's exactly
-			// the same "no login, render plain text" outcome either way,
-			// just now visible instead of silent).
-			zerolog.Ctx(ctx).Warn().Err(err).Str("mxid", string(mxid)).
-				Msg("googlechat: matrixMentionResolver: FindPreferredLogin failed, rendering mention as plain text")
+			// bridgev2.ErrNotLoggedIn is an EXPECTED, common outcome -- any
+			// message that pills a real Matrix user who simply has no Google
+			// Chat login hits this every time -- so it is NOT worth a Warn
+			// (it would flood the log on ordinary traffic). Only a genuine
+			// failure (a DB error fetching the user's logins, etc.) is
+			// log-worthy; the "render plain text" fallback is identical
+			// either way. Same rationale as the getExistingUser error above.
+			if !errors.Is(err, bridgev2.ErrNotLoggedIn) {
+				zerolog.Ctx(ctx).Warn().Err(err).Str("mxid", string(mxid)).
+					Msg("googlechat: matrixMentionResolver: FindPreferredLogin failed, rendering mention as plain text")
+			}
 			return "", false
 		}
 		if login == nil || login.ID == "" {

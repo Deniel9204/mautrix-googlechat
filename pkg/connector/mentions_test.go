@@ -428,8 +428,35 @@ func TestMatrixMentionResolver_FindPreferredLoginError(t *testing.T) {
 }
 
 // TestMatrixMentionResolver_FindPreferredLoginError_LogsError is the item-3
-// regression test for the second DB-error path in matrixMentionResolver.
+// regression test for the second DB-error path in matrixMentionResolver: a
+// GENUINE failure (not the expected "not logged in") must be logged, not
+// silently swallowed.
 func TestMatrixMentionResolver_FindPreferredLoginError_LogsError(t *testing.T) {
+	var buf bytes.Buffer
+	dbErr := errors.New("login lookup: connection reset")
+	resolve := matrixMentionResolver(
+		loggedCtx(&buf),
+		func(id.UserID) (networkid.UserID, bool) { return "", false },
+		func(context.Context, id.UserID) (*bridgev2.User, error) {
+			return &bridgev2.User{User: &database.User{}}, nil
+		},
+		func(context.Context, *bridgev2.User) (*bridgev2.UserLogin, error) {
+			return nil, dbErr
+		},
+	)
+	if _, ok := resolve("@x:example.com"); ok {
+		t.Error("resolve should be ok=false when findPreferredLogin errors")
+	}
+	if !strings.Contains(buf.String(), dbErr.Error()) {
+		t.Errorf("log output = %q, want the genuine login-lookup error to be logged, not silently swallowed", buf.String())
+	}
+}
+
+// TestMatrixMentionResolver_NotLoggedIn_NotLogged pins that the EXPECTED
+// bridgev2.ErrNotLoggedIn outcome (a mentioned Matrix user who simply has no
+// Google Chat login -- a common case on ordinary traffic) is NOT logged at
+// Warn, so it can't flood the log; the fallback is still ok=false.
+func TestMatrixMentionResolver_NotLoggedIn_NotLogged(t *testing.T) {
 	var buf bytes.Buffer
 	resolve := matrixMentionResolver(
 		loggedCtx(&buf),
@@ -442,10 +469,10 @@ func TestMatrixMentionResolver_FindPreferredLoginError_LogsError(t *testing.T) {
 		},
 	)
 	if _, ok := resolve("@x:example.com"); ok {
-		t.Error("resolve should be ok=false when findPreferredLogin errors")
+		t.Error("resolve should be ok=false when the user is not logged in")
 	}
-	if !strings.Contains(buf.String(), bridgev2.ErrNotLoggedIn.Error()) {
-		t.Errorf("log output = %q, want the DB/login error to be logged, not silently swallowed", buf.String())
+	if buf.String() != "" {
+		t.Errorf("log output = %q, want empty (ErrNotLoggedIn is expected, must not be logged)", buf.String())
 	}
 }
 
