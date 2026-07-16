@@ -145,16 +145,23 @@ mautrix-googlechat --migrate-from-python /path/to/python-bridge.db -c config.yam
 ```
 
 > [!NOTE]
-> **A dry run against an already-populated target still needs
-> `--migrate-force`.** The empty-target guard (Prerequisite 4) runs *before*
-> the dry-run preview logic, not after — `--migrate-dry-run` only controls
-> whether the transaction commits at the very end, it does not skip the
-> guard at the start. If you've already committed a real migration once and
-> want to re-run a dry-run preview against that same (now non-empty) target
-> for inspection, you need `--migrate-force` together with
-> `--migrate-dry-run`. (This does not make the dry run write anything —
-> `--migrate-dry-run` always rolls back regardless of `--migrate-force`; the
-> flag combination only gets you past the initial guard.)
+> **The empty-target guard runs before the dry-run preview, so a dry run
+> against a non-empty target needs `--migrate-force` too.** The guard
+> (Prerequisite 4) runs *before* any migration work; `--migrate-dry-run`
+> only controls whether the transaction commits at the very end, it does not
+> skip the guard at the start. `--migrate-force` is for a target that holds
+> some *other*, non-overlapping data — e.g. a bare `user` row created because
+> a Matrix user messaged the bridge bot before you migrated. Adding
+> `--migrate-force --migrate-dry-run` lets you preview a migration into such
+> a target without writing anything (dry-run always rolls back, regardless of
+> `--migrate-force`).
+>
+> This does **not** let you re-preview a migration you have already committed:
+> the migration *inserts* rows (it does not upsert), so running it again over
+> a target that already contains this migration's rows aborts on the first
+> duplicate primary key. That abort is safe — the whole transaction rolls
+> back and nothing is written — but it is an error exit, not a preview. To
+> inspect a completed migration, query the Go bridge database directly.
 
 ## Documented caveats
 
