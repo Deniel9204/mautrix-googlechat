@@ -83,18 +83,19 @@ type EntityCount struct {
 
 // Summary is the full result of one Run call.
 type Summary struct {
-	Portals   EntityCount
-	Ghosts    EntityCount
-	Messages  EntityCount
-	Reactions EntityCount
-	Users     EntityCount
+	Portals     EntityCount
+	Ghosts      EntityCount
+	Messages    EntityCount
+	Reactions   EntityCount
+	Users       EntityCount
+	UserPortals EntityCount
 
 	// DryRun mirrors Options.DryRun, so a caller holding only the Summary
 	// can tell whether these counts were actually committed.
 	DryRun bool
 	// Warnings are migration-wide notices that aren't specific to one
 	// entity (e.g. "source has no version table, assuming microsecond
-	// timestamps").
+	// timestamps", or Task 7's backfillTaskSeedingNote).
 	Warnings []string
 }
 
@@ -154,6 +155,10 @@ func Run(ctx context.Context, deps *Deps, opts Options) (*Summary, error) {
 
 	log := deps.logger()
 	summary := &Summary{DryRun: opts.DryRun}
+	// M7 Task 7's backfill_task decision (schema map Risk #11) applies to
+	// every run, success or dry-run alike -- see userportal.go's
+	// backfillTaskSeedingNote doc comment for the full rationale.
+	summary.Warnings = append(summary.Warnings, backfillTaskSeedingNote)
 
 	steps := []entityStep{
 		{"portals", migratePortals, &summary.Portals},
@@ -161,6 +166,10 @@ func Run(ctx context.Context, deps *Deps, opts Options) (*Summary, error) {
 		{"messages", migrateMessages, &summary.Messages},
 		{"reactions", migrateReactions, &summary.Reactions},
 		{"users", migrateUsers, &summary.Users},
+		// user_portals runs LAST: it depends on user_login rows (migrateUsers)
+		// and portal rows (migratePortals) both already existing in the
+		// target (see userportal.go's FK guards).
+		{"user_portals", migrateUserPortals, &summary.UserPortals},
 	}
 
 	txErr := deps.Target.DoTxn(ctx, nil, func(ctx context.Context) error {
@@ -226,13 +235,8 @@ func targetHasExistingData(ctx context.Context, db *dbutil.Database) (bool, erro
 //
 // migratePortals and migrateGhosts are implemented in portal.go/ghost.go
 // (M7 Task 5); migrateMessages/migrateReactions in message.go/reaction.go
-// (M7 Task 6). migrateUsers remains a stub (Task 7 replaces it) -- it does
-// no reads or writes and reports zero rows migrated, so Run's dry-run path
-// and non-empty-target guard are fully testable before that logic exists.
-
-func migrateUsers(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
-	return 0, nil, nil
-}
+// (M7 Task 6); migrateUsers in user.go and migrateUserPortals in
+// userportal.go (M7 Task 7, the last two engine steps).
 
 // --- Shared helpers required by the preflight findings ---------------------
 

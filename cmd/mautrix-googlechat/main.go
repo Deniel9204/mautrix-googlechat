@@ -131,12 +131,13 @@ func printMigrationSummary(s *migrate.Summary) {
 	fmt.Printf("  messages:  %d\n", s.Messages.Migrated)
 	fmt.Printf("  reactions: %d\n", s.Reactions.Migrated)
 	fmt.Printf("  users:     %d\n", s.Users.Migrated)
+	fmt.Printf("  user_portals: %d\n", s.UserPortals.Migrated)
 	for _, entity := range []struct {
 		name string
 		ec   migrate.EntityCount
 	}{
 		{"portals", s.Portals}, {"ghosts", s.Ghosts}, {"messages", s.Messages},
-		{"reactions", s.Reactions}, {"users", s.Users},
+		{"reactions", s.Reactions}, {"users", s.Users}, {"user_portals", s.UserPortals},
 	} {
 		for _, w := range entity.ec.Warnings {
 			fmt.Printf("  warning[%s]: %s\n", entity.name, w)
