@@ -1,9 +1,12 @@
 package connector
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
@@ -129,11 +132,58 @@ func TestDisplaynameParamsThroughFormatDisplayname(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := cfg.FormatDisplayname(displaynameParams(tc.user))
+			got := cfg.FormatDisplayname(context.Background(), displaynameParams(tc.user))
 			if got != tc.want {
 				t.Errorf("FormatDisplayname = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestFormatDisplayname_TemplateExecutionErrorIsLogged is the M7 Task 3 item
+// 8 regression test: a displayname_template that PARSES fine (PostProcess
+// succeeds) but fails at EXECUTE time -- e.g. it references a field that
+// doesn't exist on DisplaynameParams, which text/template only catches when
+// actually rendering a value, not at Parse time -- must be logged, not
+// silently discarded. FormatDisplayname still returns whatever (partial)
+// text Execute produced before failing; only the "nothing was logged at
+// all" behavior is being fixed here.
+func TestFormatDisplayname_TemplateExecutionErrorIsLogged(t *testing.T) {
+	cfg := &Config{DisplaynameTemplate: `{{ .NoSuchField }}`}
+	if err := cfg.PostProcess(); err != nil {
+		t.Fatalf("PostProcess: %v (template should parse fine -- the bad reference is a runtime execution error)", err)
+	}
+
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	ctx := logger.WithContext(context.Background())
+
+	_ = cfg.FormatDisplayname(ctx, DisplaynameParams{Name: "Ada"})
+
+	if buf.Len() == 0 {
+		t.Fatal("no log output produced for a template execution error, want it logged instead of silently discarded")
+	}
+	if !strings.Contains(buf.String(), "NoSuchField") {
+		t.Errorf("log output = %q, want it to mention the template execution error", buf.String())
+	}
+}
+
+// TestFormatDisplayname_WorkingTemplateLogsNothing is a control case
+// proving the fix doesn't spuriously log on every call -- only an actual
+// Execute error should produce a log line.
+func TestFormatDisplayname_WorkingTemplateLogsNothing(t *testing.T) {
+	cfg := newTestConfig(t)
+
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	ctx := logger.WithContext(context.Background())
+
+	got := cfg.FormatDisplayname(ctx, DisplaynameParams{Name: "Ada"})
+	if got != "Ada (Google Chat)" {
+		t.Errorf("FormatDisplayname = %q, want %q", got, "Ada (Google Chat)")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("log output = %q, want none for a successfully executed template", buf.String())
 	}
 }
 
@@ -175,11 +225,11 @@ func TestUserInfoFromUserIsBot(t *testing.T) {
 		Email:  proto.String("bot@example.com"),
 	}
 
-	humanInfo := gc.userInfoFromUser(human)
+	humanInfo := gc.userInfoFromUser(context.Background(), human)
 	if humanInfo.IsBot == nil || *humanInfo.IsBot {
 		t.Errorf("human IsBot = %v, want false", humanInfo.IsBot)
 	}
-	botInfo := gc.userInfoFromUser(bot)
+	botInfo := gc.userInfoFromUser(context.Background(), bot)
 	if botInfo.IsBot == nil || !*botInfo.IsBot {
 		t.Errorf("bot IsBot = %v, want true", botInfo.IsBot)
 	}
@@ -193,7 +243,7 @@ func TestUserInfoFromUserIdentifiersAndName(t *testing.T) {
 		Email:  proto.String("ada@example.com"),
 	}
 
-	info := gc.userInfoFromUser(user)
+	info := gc.userInfoFromUser(context.Background(), user)
 
 	if len(info.Identifiers) != 1 || info.Identifiers[0] != "mailto:ada@example.com" {
 		t.Errorf("Identifiers = %v, want [\"mailto:ada@example.com\"]", info.Identifiers)
@@ -207,7 +257,7 @@ func TestUserInfoFromUserExtraUpdatesStoresEmail(t *testing.T) {
 	gc := &GChatClient{Main: &GChatConnector{Config: *newTestConfig(t)}}
 	user := &pb.User{UserId: &pb.UserId{Id: proto.String("200")}, Email: proto.String("ada@example.com")}
 
-	info := gc.userInfoFromUser(user)
+	info := gc.userInfoFromUser(context.Background(), user)
 	if info.ExtraUpdates == nil {
 		t.Fatal("ExtraUpdates = nil")
 	}

@@ -73,6 +73,7 @@ package connector
 import (
 	"context"
 
+	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
@@ -256,11 +257,37 @@ func matrixMentionResolver(
 			return "", false
 		}
 		user, err := getExistingUser(ctx, mxid)
-		if err != nil || user == nil {
+		if err != nil {
+			// A genuine DB-lookup error (not just "no such user"), e.g. a
+			// closed/broken connection -- previously discarded outright,
+			// silently degrading to "render this pill as plain text" with
+			// no trace left anywhere. Logged (not returned): this resolver
+			// runs deep inside msgconv's Parse tree walk, whose
+			// MentionResolver signature has no error return (see this
+			// file's own package doc comment on the plain-function seam
+			// design) -- ok=false is still the correct fallback, but an
+			// operator debugging "why didn't my mention pill work" now has
+			// a log line instead of silence.
+			zerolog.Ctx(ctx).Warn().Err(err).Str("mxid", string(mxid)).
+				Msg("googlechat: matrixMentionResolver: GetExistingUserByMXID failed, rendering mention as plain text")
+			return "", false
+		}
+		if user == nil {
 			return "", false
 		}
 		login, err := findPreferredLogin(ctx, user)
-		if err != nil || login == nil || login.ID == "" {
+		if err != nil {
+			// Same rationale as the getExistingUser error above -- e.g. a
+			// DB error fetching the user's logins (bridgev2.ErrNotLoggedIn
+			// itself is an expected, unremarkable outcome bundled into this
+			// same err return, but logging it too is harmless: it's exactly
+			// the same "no login, render plain text" outcome either way,
+			// just now visible instead of silent).
+			zerolog.Ctx(ctx).Warn().Err(err).Str("mxid", string(mxid)).
+				Msg("googlechat: matrixMentionResolver: FindPreferredLogin failed, rendering mention as plain text")
+			return "", false
+		}
+		if login == nil || login.ID == "" {
 			return "", false
 		}
 		return string(login.ID), true

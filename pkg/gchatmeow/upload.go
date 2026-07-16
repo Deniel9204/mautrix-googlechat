@@ -88,7 +88,6 @@ package gchatmeow
 //     Task 13 (test account throttled per the task brief); this file
 //     implements the shape purple-googlechat currently uses.
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -106,6 +105,43 @@ import (
 // -- identical in both references. Overridable via Client.uploadBaseURL
 // (api.go) for tests.
 const uploadURL = "https://chat.google.com/uploads"
+
+// stripWhitespace removes every whitespace byte from data, wherever it
+// occurs -- not just leading/trailing (bytes.TrimSpace's coverage). Mirrors
+// Python's base64.b64decode(s) default (validate=False) behavior: "If
+// validate is false ... characters that are neither in the normal base-64
+// alphabet nor the alternative alphabet are discarded prior to the padding
+// check" -- client.py:311-319 relies on exactly this leniency, so a
+// finalize response wrapped with embedded newlines (fixed-width base64 line
+// wrapping) or mangled by an intermediary (stray CRLF) still decodes in
+// Python. Go's encoding/base64.StdEncoding.DecodeString has no such
+// tolerance -- it errors on ANY embedded whitespace -- so this port needs
+// its own equivalent stripping step to match. Deliberately narrower than
+// Python's "discard any non-alphabet character": that would also silently
+// swallow genuine corruption (a stray non-whitespace byte that shouldn't be
+// there); this only strips whitespace, the specific class of "harmless
+// formatting" the task's brief calls out.
+func stripWhitespace(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	for _, b := range data {
+		// Strip exactly the ASCII whitespace set (space, tab, newline,
+		// carriage return, vertical tab, form feed). Deliberately a byte-wise
+		// check against those specific bytes rather than
+		// unicode.IsSpace(rune(b)) -- the latter would also treat a lone byte
+		// 0x85 (NEL) or 0xA0 (NBSP) as whitespace, which is meaningless here:
+		// the finalize response is a base64 string, i.e. pure ASCII, so any
+		// such high byte is data corruption, not formatting whitespace, and
+		// should fall through to the base64 decoder as the error it is rather
+		// than being silently removed.
+		switch b {
+		case ' ', '\t', '\n', '\r', '\v', '\f':
+			continue
+		default:
+			out = append(out, b)
+		}
+	}
+	return out
+}
 
 // UploadFile performs a resumable upload of data to Google Chat's /uploads
 // endpoint and returns the parsed UploadMetadata, ready to attach as an
@@ -171,7 +207,7 @@ func (c *Client) UploadFile(ctx context.Context, groupID string, data []byte, fi
 		return nil, fmt.Errorf("gchatmeow: upload finalize request failed: %w", err)
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(string(bytes.TrimSpace(finalizeResp.Body)))
+	decoded, err := base64.StdEncoding.DecodeString(string(stripWhitespace(finalizeResp.Body)))
 	if err != nil {
 		// Mirrors client.py:314-315's `except binascii.Error`.
 		return nil, fmt.Errorf("gchatmeow: failed to decode base64 upload response: %w", err)

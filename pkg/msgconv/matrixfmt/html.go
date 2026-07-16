@@ -823,16 +823,33 @@ func collapseWhitespace(s string) string {
 // single space, matching mautrix.util.formatter's base text_to_fstring
 // (parser.py:252-257) -- the strip_leading_whitespace parameter it also
 // takes is not ported, see the package doc comment.
-func textToEntityString(text string, preserveWhitespace bool) *EntityString {
-	if !preserveWhitespace {
+//
+// Beyond Python (real Python's text_to_fstring has no allow-list concept at
+// all -- confirmed by reading mautrix.util.formatter's base class in full):
+// the "@room" -> MENTION_ALL substitution is gated on ctx.AllowedMentions,
+// exactly like linkToString's individual-mention gate just above
+// (`ctx.AllowedMentions == nil || ctx.AllowedMentions.Has(mxid)`). nil means
+// "no restriction" (no m.mentions block on the event at all -- an older/
+// non-compliant Matrix client); when AllowedMentions IS present but its
+// Room flag is false, the sender's own client did not intend this "@room"
+// text as a real room-wide ping (e.g. it was quoting/escaping the literal
+// string), so converting it to MENTION_ALL would broadcast a ping the
+// composing client never asked for. Not allowed -> the SAME "fall through
+// to plain text, nothing dropped" contract linkToString already documents:
+// the literal "@room" text survives (whitespace-collapsed like any other
+// plain text), just with no MentionAll annotation attached.
+func textToEntityString(text string, ctx Context) *EntityString {
+	if !ctx.PreserveWhitespace {
 		if idx := strings.Index(text, mxRoomMention); idx >= 0 {
-			prefix := text[:idx]
-			suffix := text[idx+len(mxRoomMention):]
-			return JoinEntityString("",
-				textToEntityString(prefix, preserveWhitespace),
-				NewEntityString(gcRoomMention).Format(MentionAll{}),
-				textToEntityString(suffix, preserveWhitespace),
-			)
+			if ctx.AllowedMentions == nil || ctx.AllowedMentions.Room {
+				prefix := text[:idx]
+				suffix := text[idx+len(mxRoomMention):]
+				return JoinEntityString("",
+					textToEntityString(prefix, ctx),
+					NewEntityString(gcRoomMention).Format(MentionAll{}),
+					textToEntityString(suffix, ctx),
+				)
+			}
 		}
 		text = collapseWhitespace(text)
 	}
@@ -842,7 +859,7 @@ func textToEntityString(text string, preserveWhitespace bool) *EntityString {
 func (parser *HTMLParser) singleNodeToString(node *html.Node, ctx Context) TaggedString {
 	switch node.Type {
 	case html.TextNode:
-		return TaggedString{textToEntityString(node.Data, ctx.PreserveWhitespace), "text"}
+		return TaggedString{textToEntityString(node.Data, ctx), "text"}
 	case html.ElementNode:
 		return TaggedString{parser.tagToString(node, ctx), node.Data}
 	case html.DocumentNode:

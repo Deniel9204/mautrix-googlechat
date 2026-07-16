@@ -468,8 +468,7 @@ func renderOne(out *strings.Builder, mention MentionResolver, annotation *pb.Ann
 	case annotation.GetFormatMetadata() != nil:
 		return renderFormat(out, annotation.GetFormatMetadata(), entityText)
 	case annotation.GetUrlMetadata() != nil:
-		renderURL(out, annotation.GetUrlMetadata(), entityText)
-		return false
+		return renderURL(out, annotation.GetUrlMetadata(), entityText)
 	case annotation.GetUserMentionMetadata() != nil:
 		renderMention(out, mention, annotation.GetUserMentionMetadata(), entityText)
 		return false
@@ -515,14 +514,87 @@ func renderFormat(out *strings.Builder, fm *pb.FormatMetadata, entityText string
 	return false
 }
 
+// dangerousURLSchemes are link schemes that, unlike a normal navigation
+// target (http/https/mailto/...), execute script or embed arbitrary
+// script-capable content when a client follows them -- most notoriously
+// "javascript:" (arbitrary JS execution in the clicking client's own page/
+// webview context) and "data:" (an inline document, e.g.
+// "data:text/html,<script>...</script>", that many web-based Matrix clients
+// will render as if it were a normal page). urlMeta.Url is an arbitrary,
+// externally-supplied string straight off the Google Chat wire -- the same
+// untrusted field B1 (escapeAttr, below) already treats as attacker-
+// controlled -- so a malicious/compromised sender could plant either scheme
+// here. Escaping (B1) only stops the value from breaking OUT of the href
+// attribute; it does nothing to stop a syntactically well-formed
+// javascript:/data: URL from becoming a live, clickable link. This is that
+// scheme-side sibling fix (M7 Task 3 item 1).
+var dangerousURLSchemes = []string{"javascript:", "data:"}
+
+// isDangerousURLScheme reports whether href's scheme matches one of
+// dangerousURLSchemes, applying the SAME normalization a browser's WHATWG
+// URL parser applies before it recognizes a scheme -- so a link that a
+// browser would execute as javascript:/data: is caught here even when the
+// raw href string doesn't literally start with that scheme:
+//
+//   - Every ASCII tab (U+0009), LF (U+000A), and CR (U+000D) is removed from
+//     ANYWHERE in the string first. This mirrors the WHATWG URL Standard's
+//     "basic URL parser" preprocessing ("remove all ASCII tab or newline
+//     from input"), which runs BEFORE scheme parsing -- so the textbook
+//     filter bypass "java&#9;script:alert(1)" (an embedded tab, or CR/LF)
+//     still parses as, and executes as, javascript: in Chromium/Firefox/
+//     WebKit. A leading-only trim (an earlier version of this function, and
+//     the specific gap the M7 Task 3 port audit caught) misses exactly this.
+//   - Then any leading C0-control-or-space is stripped (the parser's
+//     scheme-start-state leading-trim), catching "  javascript:..." /
+//     "\njavascript:...".
+//   - Then the comparison is case-insensitive ("JavaScript:" == "javascript:").
+//
+// A literal ASCII space embedded IN the scheme (e.g. "java script:") is
+// deliberately NOT stripped -- it isn't tab/CR/LF, and the URL parser treats
+// it as an invalid scheme character that aborts scheme parsing entirely
+// (the string is then a relative URL, not a javascript: one), so it is not a
+// bypass and needs no handling here.
+func isDangerousURLScheme(href string) bool {
+	cleaned := strings.Map(func(r rune) rune {
+		switch r {
+		case '\t', '\n', '\r':
+			return -1 // drop
+		default:
+			return r
+		}
+	}, href)
+	cleaned = strings.TrimLeftFunc(cleaned, func(r rune) bool {
+		return r <= ' '
+	})
+	lower := strings.ToLower(cleaned)
+	for _, scheme := range dangerousURLSchemes {
+		if strings.HasPrefix(lower, scheme) {
+			return true
+		}
+	}
+	return false
+}
+
 // renderURL renders a hyperlink annotation. Fix for B1: href is
 // HTML-attribute-escaped before being written, so a malicious/malformed
 // Google-Chat-controlled URL (e.g. `https://x.com/"><script>alert(1)</script>`)
 // cannot break out of the href attribute and inject markup into the
 // rendered Matrix event.
-func renderURL(out *strings.Builder, urlMeta *pb.UrlMetadata, entityText string) {
+//
+// A dangerous scheme (isDangerousURLScheme -- javascript:/data:) is
+// neutralized instead of linkified: renderURL reports skipEntity=true
+// (mirroring renderFormat's identical contract for FormatMetadata_HIDDEN/
+// unrecognized types) so the caller leaves this span's ORIGINAL text
+// unconsumed, to be emitted later as plain, HTML-escaped text by
+// renderAnnotations' own gap-fill/tail logic -- never as any kind of <a>
+// tag, and never dropped.
+func renderURL(out *strings.Builder, urlMeta *pb.UrlMetadata, entityText string) (skipEntity bool) {
 	href := urlMeta.GetUrl().GetUrl()
+	if isDangerousURLScheme(href) {
+		return true
+	}
 	fmt.Fprintf(out, `<a href="%s">%s</a>`, escapeAttr(href), entityText)
+	return false
 }
 
 // renderMention renders a user_mention_metadata annotation. MENTION_ALL

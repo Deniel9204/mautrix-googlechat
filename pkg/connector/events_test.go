@@ -132,6 +132,32 @@ func TestHandleGChatEventMessagePostedSpaceQueuesRemoteMessage(t *testing.T) {
 	}
 }
 
+// TestHandleGChatEventMessagePostedSetsStreamOrder is the item-5 regression
+// test (M7 Task 3): a live MESSAGE_POSTED event must set StreamOrder to the
+// message's create-time microseconds, matching backfill.go's identical
+// `StreamOrder: msg.GetCreateTime()` (backfill_test.go's
+// TestFetchMessagesFlatThread's own StreamOrder assertion) -- previously
+// this was left at its zero value on the live path, an M6-review-flagged
+// inconsistency (harmless per bridgev2 treating 0 as "absent", but
+// inconsistent with backfill for the same underlying fact).
+func TestHandleGChatEventMessagePostedSetsStreamOrder(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-so", "98765", "hi", 1_000_000)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	streamOrdered, ok := (*queued)[0].(bridgev2.RemoteEventWithStreamOrder)
+	if !ok {
+		t.Fatalf("queued event does not implement bridgev2.RemoteEventWithStreamOrder: %T", (*queued)[0])
+	}
+	if got := streamOrdered.GetStreamOrder(); got != 1_000_000 {
+		t.Errorf("GetStreamOrder() = %d, want 1000000 (create_time in µs)", got)
+	}
+}
+
 // --- MESSAGE_POSTED: DM room -- portal key is receiver-scoped --------------
 
 func TestHandleGChatEventMessagePostedDMPortalKeyHasReceiver(t *testing.T) {
@@ -278,6 +304,29 @@ func TestHandleGChatEventMessageUpdatedQueuesRemoteEdit(t *testing.T) {
 	}
 	if got := existing[0].Metadata.(*MessageMetadata).LastEditTime; got != 5000 {
 		t.Errorf("LastEditTime = %d, want 5000 (updated by ConvertEdit)", got)
+	}
+}
+
+// TestHandleGChatEventMessageUpdatedSetsStreamOrder is the item-5 regression
+// test for the edit path: StreamOrder must track the SAME editTS value
+// queueMessageEdit already uses for EventMeta.Timestamp (last_edit_time,
+// falling back to last_update_time), for internal consistency between the
+// two fields on the same event.
+func TestHandleGChatEventMessageUpdatedSetsStreamOrder(t *testing.T) {
+	gc, queued := newEventTestClient("112233")
+	evt := messageUpdatedEvent(spaceGroupID("space-1"), "msg-so-edit", "98765", "edited", 5000)
+
+	gc.handleGChatEvent(context.Background(), evt)
+
+	if len(*queued) != 1 {
+		t.Fatalf("len(queued) = %d, want 1", len(*queued))
+	}
+	streamOrdered, ok := (*queued)[0].(bridgev2.RemoteEventWithStreamOrder)
+	if !ok {
+		t.Fatalf("queued event does not implement bridgev2.RemoteEventWithStreamOrder: %T", (*queued)[0])
+	}
+	if got := streamOrdered.GetStreamOrder(); got != 5000 {
+		t.Errorf("GetStreamOrder() = %d, want 5000 (last_edit_time in µs)", got)
 	}
 }
 

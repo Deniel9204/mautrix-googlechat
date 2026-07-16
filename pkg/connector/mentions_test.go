@@ -1,10 +1,13 @@
 package connector
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -16,6 +19,14 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/matrixfmt"
 )
+
+// loggedCtx returns a context carrying a zerolog.Logger that writes to buf,
+// so a test can assert a DB-error path actually logged something instead of
+// silently swallowing it (M7 Task 3 item 3).
+func loggedCtx(buf *bytes.Buffer) context.Context {
+	logger := zerolog.New(buf)
+	return logger.WithContext(context.Background())
+}
 
 // --- gchatMentionResolver (GC gaia id -> Matrix mention target) -----------
 
@@ -377,6 +388,29 @@ func TestMatrixMentionResolver_GetExistingUserError(t *testing.T) {
 	}
 }
 
+// TestMatrixMentionResolver_GetExistingUserError_LogsError is the item-3
+// regression test: a genuine GetExistingUserByMXID DB error must be logged
+// (not silently discarded) even though the resolver still correctly
+// degrades to ok=false.
+func TestMatrixMentionResolver_GetExistingUserError_LogsError(t *testing.T) {
+	var buf bytes.Buffer
+	resolve := matrixMentionResolver(
+		loggedCtx(&buf),
+		func(id.UserID) (networkid.UserID, bool) { return "", false },
+		func(context.Context, id.UserID) (*bridgev2.User, error) { return nil, errors.New("db error") },
+		func(context.Context, *bridgev2.User) (*bridgev2.UserLogin, error) {
+			t.Fatal("findPreferredLogin should not run after a GetExistingUser error")
+			return nil, nil
+		},
+	)
+	if _, ok := resolve("@x:example.com"); ok {
+		t.Error("resolve should be ok=false when getExistingUser errors")
+	}
+	if !strings.Contains(buf.String(), "db error") {
+		t.Errorf("log output = %q, want the DB error to be logged, not silently swallowed", buf.String())
+	}
+}
+
 func TestMatrixMentionResolver_FindPreferredLoginError(t *testing.T) {
 	resolve := matrixMentionResolver(
 		context.Background(),
@@ -390,6 +424,28 @@ func TestMatrixMentionResolver_FindPreferredLoginError(t *testing.T) {
 	)
 	if _, ok := resolve("@x:example.com"); ok {
 		t.Error("resolve should be ok=false when findPreferredLogin errors (e.g. not logged in)")
+	}
+}
+
+// TestMatrixMentionResolver_FindPreferredLoginError_LogsError is the item-3
+// regression test for the second DB-error path in matrixMentionResolver.
+func TestMatrixMentionResolver_FindPreferredLoginError_LogsError(t *testing.T) {
+	var buf bytes.Buffer
+	resolve := matrixMentionResolver(
+		loggedCtx(&buf),
+		func(id.UserID) (networkid.UserID, bool) { return "", false },
+		func(context.Context, id.UserID) (*bridgev2.User, error) {
+			return &bridgev2.User{User: &database.User{}}, nil
+		},
+		func(context.Context, *bridgev2.User) (*bridgev2.UserLogin, error) {
+			return nil, bridgev2.ErrNotLoggedIn
+		},
+	)
+	if _, ok := resolve("@x:example.com"); ok {
+		t.Error("resolve should be ok=false when findPreferredLogin errors")
+	}
+	if !strings.Contains(buf.String(), bridgev2.ErrNotLoggedIn.Error()) {
+		t.Errorf("log output = %q, want the DB/login error to be logged, not silently swallowed", buf.String())
 	}
 }
 

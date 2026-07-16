@@ -414,6 +414,113 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// --- AllowedMentions (content.Mentions / m.mentions) coverage -------------
+// M7 Task 3 item 2: every TestParse case above leaves content.Mentions nil,
+// so ctx.AllowedMentions is always nil ("no restriction") in every existing
+// test -- both the individual-mention gate (linkToString's
+// `ctx.AllowedMentions == nil || ctx.AllowedMentions.Has(mxid)`) and the
+// @room gate (textToEntityString's newly-added identical-shaped check) were
+// completely unexercised with a real *event.Mentions value. These tests
+// close that gap and pin the @room behavioral fix: "@room" must respect
+// AllowedMentions.Room instead of unconditionally becoming MENTION_ALL.
+
+// TestParse_RoomMention_AllowedByMentions: an explicit Mentions.Room=true
+// (the sender's client intentionally included the room-wide ping in
+// m.mentions) still converts "@room" to MENTION_ALL, same as the nil
+// (unrestricted) case.
+func TestParse_RoomMention_AllowedByMentions(t *testing.T) {
+	content := htmlContent("hey @room check this out")
+	content.Mentions = &event.Mentions{Room: true}
+
+	text, annotations := matrixfmt.Parse(context.Background(), content, nil)
+	if text != "hey @all check this out" {
+		t.Errorf("text = %q, want %q", text, "hey @all check this out")
+	}
+	assertAnnotations(t, annotations, []*pb.Annotation{
+		gchatfmt.MakeMentionAllAnnotation(4, 4),
+	})
+}
+
+// TestParse_RoomMention_NotAllowedByMentions is the headline regression test
+// for the fix: an explicit Mentions block that does NOT set Room must NOT
+// let a literal "@room" in the body broadcast a room-wide ping -- the text
+// stays literal, with no MENTION_ALL annotation at all.
+func TestParse_RoomMention_NotAllowedByMentions(t *testing.T) {
+	content := htmlContent("hey @room check this out")
+	content.Mentions = &event.Mentions{Room: false}
+
+	text, annotations := matrixfmt.Parse(context.Background(), content, nil)
+	if text != "hey @room check this out" {
+		t.Errorf("text = %q, want the literal, unconverted @room text %q", text, "hey @room check this out")
+	}
+	if len(annotations) != 0 {
+		t.Errorf("annotations = %s, want none -- @room must not bypass AllowedMentions.Room", formatAnnotations(annotations))
+	}
+}
+
+// TestParse_RoomMention_NotAllowedByMentions_PlainBody is the same
+// not-allowed case through the plain-body @room escape hatch (Parse's own
+// "synthesize an HTML body just so @room can fire" branch) -- proving the
+// gate applies uniformly however the message reaches textToEntityString.
+func TestParse_RoomMention_NotAllowedByMentions_PlainBody(t *testing.T) {
+	content := &event.MessageEventContent{
+		MsgType:  event.MsgText,
+		Body:     "hey @room check this out",
+		Mentions: &event.Mentions{Room: false},
+	}
+
+	text, annotations := matrixfmt.Parse(context.Background(), content, nil)
+	if text != "hey @room check this out" {
+		t.Errorf("text = %q, want the literal, unconverted @room text %q", text, "hey @room check this out")
+	}
+	if len(annotations) != 0 {
+		t.Errorf("annotations = %s, want none -- @room must not bypass AllowedMentions.Room", formatAnnotations(annotations))
+	}
+}
+
+// TestParse_MentionPill_AllowedByMentions covers the individual-mention
+// AllowedMentions branch with a real, non-nil *event.Mentions that DOES
+// include the pill's MXID -- the pill must still resolve normally.
+func TestParse_MentionPill_AllowedByMentions(t *testing.T) {
+	content := htmlContent(`Hi <a href="https://matrix.to/#/@alice:example.com">Alice</a>!`)
+	content.Mentions = &event.Mentions{UserIDs: []id.UserID{"@alice:example.com"}}
+	resolve := func(mxid id.UserID) (string, bool) {
+		if mxid == "@alice:example.com" {
+			return "123", true
+		}
+		return "", false
+	}
+
+	text, annotations := matrixfmt.Parse(context.Background(), content, resolve)
+	if text != "Hi @Alice!" {
+		t.Errorf("text = %q, want %q", text, "Hi @Alice!")
+	}
+	assertAnnotations(t, annotations, []*pb.Annotation{
+		gchatfmt.MakeMentionAnnotation(3, 6, "123"),
+	})
+}
+
+// TestParse_MentionPill_NotAllowedByMentions covers the individual-mention
+// AllowedMentions branch's negative case: a non-nil *event.Mentions that
+// does NOT list the pill's MXID must fall back to plain text, exactly like
+// an unresolvable gaia id -- no MENTION annotation, nothing dropped.
+func TestParse_MentionPill_NotAllowedByMentions(t *testing.T) {
+	content := htmlContent(`Hi <a href="https://matrix.to/#/@alice:example.com">Alice</a>!`)
+	content.Mentions = &event.Mentions{} // present but empty -- alice is not in it
+	resolve := func(mxid id.UserID) (string, bool) {
+		t.Fatal("MentionResolver should not be consulted once AllowedMentions rejects the pill")
+		return "", false
+	}
+
+	text, annotations := matrixfmt.Parse(context.Background(), content, resolve)
+	if text != "Hi Alice!" {
+		t.Errorf("text = %q, want %q (plain text, no pill)", text, "Hi Alice!")
+	}
+	if len(annotations) != 0 {
+		t.Errorf("annotations = %s, want none for a pill AllowedMentions rejects", formatAnnotations(annotations))
+	}
+}
+
 // TestParse_PlainBodyReturnsNilAnnotationsSlice pins the exact M2-compatible
 // contract: a plain message (no formatting) must get a literal nil
 // annotations slice, not an empty-but-non-nil one, matching the task

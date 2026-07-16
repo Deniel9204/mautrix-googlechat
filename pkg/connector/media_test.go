@@ -223,6 +223,50 @@ func TestConvertAttachmentsToMatrix_VideoAndAudioMsgTypes(t *testing.T) {
 	}
 }
 
+// TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType is the
+// missing regression test the M7 Task 3 brief (item 7) calls out: when the
+// UPLOAD_METADATA annotation's own declared content_type disagrees with the
+// mime type the actual download reports (a stale/wrong annotation, or a
+// server that recompresses/transcodes), the resulting Matrix event's
+// MsgType and Info.MimeType must come from the DOWNLOADED mime -- never the
+// annotation's -- matching convertOneAttachment's own documented contract
+// (media.go: "msgType below is derived afresh from the DOWNLOADED
+// response's actual Content-Type instead ... NOT the annotation's declared
+// content_type"). The annotation here declares "image/png" (which would
+// pick m.image if wrongly consulted); the download reports
+// "application/pdf" (m.file) -- proving the downloaded type wins.
+func TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType(t *testing.T) {
+	msg := &pb.Message{
+		Annotations: []*pb.Annotation{makeUploadAnnotation("TOK1", "image/png", "mystery")},
+	}
+	pdfBytes := []byte("%PDF-1.4 fake, but really downloaded as a pdf")
+	media := &fakeMediaFetcher{
+		downloadAttachmentFn: func(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
+			// The download's own Content-Type ("application/pdf") disagrees
+			// with the annotation's declared content_type ("image/png").
+			return pdfBytes, "application/pdf", "mystery.pdf", nil
+		},
+	}
+
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), fakeUploadIntent{}, msg, media)
+	if len(parts) != 1 {
+		t.Fatalf("len(parts) = %d, want 1", len(parts))
+	}
+	part := parts[0]
+	if part.Content.MsgType != event.MsgFile {
+		t.Errorf("MsgType = %q, want m.file (from the DOWNLOADED mime, not the annotation's declared image/png)", part.Content.MsgType)
+	}
+	if part.Content.Info == nil || part.Content.Info.MimeType != "application/pdf" {
+		t.Errorf("Info.MimeType = %v, want application/pdf (the downloaded mime)", part.Content.Info)
+	}
+	// The image-decode branch (Width/Height) must not fire either -- it's
+	// gated on the same (correct) downloaded MsgType, not the annotation's
+	// declared image/png.
+	if part.Content.Info.Width != 0 || part.Content.Info.Height != 0 {
+		t.Errorf("Info = {Width:%d Height:%d}, want {0 0} -- must not treat a mismatched-mime PDF as an image", part.Content.Info.Width, part.Content.Info.Height)
+	}
+}
+
 func TestConvertAttachmentsToMatrix_TwoAttachments(t *testing.T) {
 	msg := &pb.Message{
 		Annotations: []*pb.Annotation{

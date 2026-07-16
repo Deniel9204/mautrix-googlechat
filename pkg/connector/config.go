@@ -1,10 +1,12 @@
 package connector
 
 import (
+	"context"
 	_ "embed"
 	"strings"
 	"text/template"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/util/configupgrade"
 )
 
@@ -47,9 +49,24 @@ func (c *Config) PostProcess() error {
 	return err
 }
 
-func (c *Config) FormatDisplayname(params DisplaynameParams) string {
+// FormatDisplayname renders params through the configured
+// displayname_template. A template execution error (e.g. an operator's
+// custom template referencing a field that doesn't exist on
+// DisplaynameParams -- text/template only catches that at Execute time, not
+// at Parse/PostProcess time) previously discarded the error outright,
+// leaving whatever partial output Execute had written to buf before failing
+// with no trace anywhere. Now logged via zerolog.Ctx(ctx): FormatDisplayname
+// still returns buf.String() (whatever was rendered before the failure,
+// same as before -- there is no sensible alternative displayname to fall
+// back to here, and ghost creation/update must not fail outright over a
+// cosmetic template bug), but an operator debugging "why does this ghost
+// have a broken/truncated name" now gets a warning log instead of silence.
+func (c *Config) FormatDisplayname(ctx context.Context, params DisplaynameParams) string {
 	var buf strings.Builder
-	_ = c.displaynameTemplate.Execute(&buf, params)
+	if err := c.displaynameTemplate.Execute(&buf, params); err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).
+			Msg("googlechat: displayname_template execution failed, name may be incomplete")
+	}
 	return buf.String()
 }
 

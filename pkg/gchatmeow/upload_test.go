@@ -334,6 +334,55 @@ func TestUploadFileBadBase64(t *testing.T) {
 	}
 }
 
+// TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace is the item-6
+// regression test (M7 Task 3): Python's client.py:311-319 decodes the
+// finalize response via base64.b64decode, which (validate=False, the
+// default) discards any whitespace/non-alphabet character wherever it
+// appears in the string, not just at the ends -- so a response body with an
+// embedded newline (e.g. base64 wrapped at a fixed line length, or CRLF
+// mangled by an intermediary) still decodes successfully in Python. Go's
+// encoding/base64 has no equivalent tolerance: StdEncoding.DecodeString
+// errors on ANY embedded whitespace. This pins the fix: UploadFile must
+// strip embedded whitespace (not just leading/trailing, which
+// bytes.TrimSpace already handled) before decoding.
+func TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace(t *testing.T) {
+	wantMeta := &pb.UploadMetadata{
+		Payload:     &pb.UploadMetadata_AttachmentToken{AttachmentToken: "TOK-whitespace"},
+		ContentName: strPtr("f.jpg"),
+	}
+	wantMetaBytes, err := proto.Marshal(wantMeta)
+	if err != nil {
+		t.Fatalf("marshal test UploadMetadata: %v", err)
+	}
+	b64 := base64.StdEncoding.EncodeToString(wantMetaBytes)
+	// Wrap the base64 payload with embedded newlines (MIME-style line
+	// wrapping) plus a stray embedded space -- all of which Python's
+	// b64decode would silently ignore, but Go's strict decoder rejects.
+	wrapped := b64[:len(b64)/2] + "\n" + b64[len(b64)/2:len(b64)-2] + " " + b64[len(b64)-2:] + "\n"
+
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-goog-upload-url", srv.URL+"/uploads/continue")
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/uploads/continue", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, wrapped)
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := newTestUploadClient(t, srv, nil)
+	got, err := c.UploadFile(context.Background(), "group1", []byte("data"), "f.jpg", "image/jpeg")
+	if err != nil {
+		t.Fatalf("UploadFile: %v, want the embedded whitespace tolerated like Python's b64decode", err)
+	}
+	if got.GetAttachmentToken() != "TOK-whitespace" {
+		t.Errorf("AttachmentToken = %q, want %q", got.GetAttachmentToken(), "TOK-whitespace")
+	}
+}
+
 // TestUploadFileBadProto verifies a base64-valid but non-protobuf payload
 // is a clear decode error, mirroring client.py:316-319's
 // proto.DecodeError -> NetworkError translation.

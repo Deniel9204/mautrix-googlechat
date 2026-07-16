@@ -39,7 +39,7 @@ func (c *GChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*
 	if len(resp.GetMembers()) == 0 {
 		return nil, fmt.Errorf("googlechat: get_members returned no members for %s", ghost.ID)
 	}
-	return c.userInfoFromUser(resp.GetMembers()[0].GetUser()), nil
+	return c.userInfoFromUser(ctx, resp.GetMembers()[0].GetUser()), nil
 }
 
 func strPtr(s string) *string { return &s }
@@ -51,8 +51,8 @@ func strPtr(s string) *string { return &s }
 // com.beeper.bridge.identifiers (puppet.py:167 -- unconditionally
 // "mailto:<email>", even when email is empty; matched here as-is for
 // fidelity), and is_bot from the user id's type.
-func (c *GChatClient) userInfoFromUser(user *pb.User) *bridgev2.UserInfo {
-	name := c.Main.Config.FormatDisplayname(displaynameParams(user))
+func (c *GChatClient) userInfoFromUser(ctx context.Context, user *pb.User) *bridgev2.UserInfo {
+	name := c.Main.Config.FormatDisplayname(ctx, displaynameParams(user))
 	isBot := user.GetUserId().GetType() == pb.UserType_BOT
 	email := user.GetEmail()
 	return &bridgev2.UserInfo{

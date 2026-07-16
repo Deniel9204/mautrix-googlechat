@@ -252,6 +252,15 @@ func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bri
 				IsFromMe: c.IsThisUser(ctx, senderUserID),
 			},
 			Timestamp: gchatmeow.MicrosToTime(msg.GetCreateTime()),
+			// StreamOrder: the create-time µs, matching backfill.go's
+			// identical `StreamOrder: msg.GetCreateTime()` on both of its
+			// own BackfillMessage constructions -- M6-review minor (M7 Task
+			// 3 item 5): the live path previously left this at its zero
+			// value while backfill always set it, an inconsistency for the
+			// same underlying fact (harmless on its own, since bridgev2
+			// treats StreamOrder==0 as "absent" rather than a real ordering
+			// value, but worth closing for consistency).
+			StreamOrder: msg.GetCreateTime(),
 		},
 		ID: gcid.MakeMessageID(gcMessageID),
 		// TransactionID is Task 6's own-echo dedup half: msg.GetLocalId()
@@ -337,6 +346,15 @@ func (c *GChatClient) queueMessageEdit(ctx context.Context, evt *pb.Event) bridg
 				IsFromMe: c.IsThisUser(ctx, senderUserID),
 			},
 			Timestamp: gchatmeow.MicrosToTime(editTS),
+			// StreamOrder: the SAME editTS driving this event's own
+			// Timestamp just above -- M7 Task 3 item 5 (see
+			// queueMessagePosted's identical field for the full rationale).
+			// Unlike backfill (which never handles edits at all -- it only
+			// ever fetches a message's current/final state), there is no
+			// existing edit-side StreamOrder convention to match; using
+			// editTS keeps this event's own two time-derived fields
+			// internally consistent with each other.
+			StreamOrder: editTS,
 		},
 		ID:              gcid.MakeMessageID(gcMessageID),
 		TargetMessage:   gcid.MakeMessageID(gcMessageID),

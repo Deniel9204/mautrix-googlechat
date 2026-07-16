@@ -229,6 +229,75 @@ func TestParse_HyperlinkPlain(t *testing.T) {
 	}
 }
 
+// TestParse_DangerousURLSchemeNeutralized is the security regression test
+// for the javascript:/data: link-scheme fix (M7 Task 3 item 1, mirroring the
+// B1 href-escape fix above): a url_metadata annotation whose href is a
+// javascript: URI must never become a clickable <a href="javascript:...">
+// pill -- escaping alone (B1) makes the attribute syntactically safe but
+// does nothing to stop a well-formed javascript:/data: URL from executing
+// when clicked. The annotation must be neutralized to plain, unwrapped text
+// instead (the same "skip_entity" fallback already used for HIDDEN/
+// unrecognized format types), never an <a> tag of any kind.
+func TestParse_DangerousURLSchemeNeutralized(t *testing.T) {
+	tests := []struct {
+		name string
+		href string
+	}{
+		{"javascript scheme", "javascript:alert(1)"},
+		{"javascript scheme, mixed case", "JavaScript:alert(1)"},
+		{"javascript scheme, leading whitespace/control chars", "\n\t javascript:alert(1)"},
+		{"data scheme", "data:text/html,<script>alert(1)</script>"},
+		{"data scheme, mixed case", "DATA:text/html,<script>alert(1)</script>"},
+		// The WHATWG URL parser strips ASCII tab/CR/LF from ANYWHERE in the
+		// URL (not just the ends) before it recognizes the scheme, so a
+		// browser still executes these as javascript: -- the classic
+		// embedded-tab/newline filter bypass. See isDangerousURLScheme.
+		{"javascript scheme, embedded tab", "java\tscript:alert(1)"},
+		{"javascript scheme, embedded CR", "java\rscript:alert(1)"},
+		{"javascript scheme, embedded LF", "java\nscript:alert(1)"},
+		{"javascript scheme, embedded tab + mixed case", "Java\tScript:alert(1)"},
+		{"data scheme, embedded newline", "da\nta:text/html,<script>alert(1)</script>"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			annotations := []*pb.Annotation{
+				gchatfmt.MakeURLAnnotation(0, 10, test.href, pb.Annotation_DO_NOT_RENDER),
+			}
+			_, html, _ := gchatfmt.Parse(context.Background(), "click here", annotations, nil)
+
+			if strings.Contains(html, "<a ") || strings.Contains(html, "href=") {
+				t.Fatalf("dangerous scheme %q was not neutralized, produced a link: %q", test.href, html)
+			}
+			if !strings.Contains(html, "click here") {
+				t.Errorf("neutralized text was dropped entirely, got: %q", html)
+			}
+		})
+	}
+}
+
+// TestParse_SafeURLSchemesStillRenderAsLinks is a control case proving the
+// dangerous-scheme filter (above) doesn't over-broadly reject ordinary safe
+// schemes (http/https/mailto and a scheme-less relative-looking string all
+// still become clickable pills).
+func TestParse_SafeURLSchemesStillRenderAsLinks(t *testing.T) {
+	tests := []string{
+		"https://example.com",
+		"http://example.com",
+		"mailto:bob@example.com",
+	}
+	for _, href := range tests {
+		t.Run(href, func(t *testing.T) {
+			annotations := []*pb.Annotation{
+				gchatfmt.MakeURLAnnotation(0, 10, href, pb.Annotation_DO_NOT_RENDER),
+			}
+			_, html, _ := gchatfmt.Parse(context.Background(), "click here", annotations, nil)
+			if !strings.Contains(html, `<a href="`) {
+				t.Errorf("safe scheme %q was neutralized, want a normal <a href> link, got: %q", href, html)
+			}
+		})
+	}
+}
+
 // TestParse_Mention_ResolvedPill covers the MentionResolver seam (fix for
 // B2): when the resolver knows the gaiaID, a real user pill is rendered
 // with the resolver's display name, not a DM-portal room pill and not
