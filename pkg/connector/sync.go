@@ -146,6 +146,12 @@ func (c *GChatClient) syncChats(ctx context.Context) {
 		return
 	}
 
+	// Set the login's own RemoteName (from get_members) BEFORE queuing the
+	// chat resyncs below: the first portal creation builds the per-login
+	// "personal filtering space", whose name is "Google Chat (<RemoteName>)"
+	// -- doing this first stops it coming out as "Google Chat ()".
+	c.updateOwnLoginProfile(ctx)
+
 	maxSync := 0
 	if c.Main != nil {
 		maxSync = c.Main.Config.InitialChatSync

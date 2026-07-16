@@ -132,6 +132,13 @@ type GChatClient struct {
 	// gchatmeow.Client connection -- mirrors paginatedWorldFn above.
 	catchUpUserFn func(ctx context.Context, req *pb.CatchUpUserRequest) (*pb.CatchUpResponse, error)
 
+	// getMembersFn issues the get_members RPC that userinfo.go's
+	// updateOwnLoginProfile (and GetUserInfo) use to resolve a user's display
+	// name. Defaults to conn.GetMembers; overridden in tests so the own-login
+	// RemoteName update can be exercised without a live gchatmeow.Client --
+	// mirrors catchUpUserFn/paginatedWorldFn above.
+	getMembersFn func(ctx context.Context, req *pb.GetMembersRequest) (*pb.GetMembersResponse, error)
+
 	// queueChatResyncFn queues one planned chat-list-sync entry (sync.go's
 	// syncChats). Defaults to c.UserLogin.QueueRemoteEvent; overridden in
 	// tests that construct a UserLogin without a full bridgev2.Bridge+DB

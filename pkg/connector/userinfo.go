@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
@@ -40,6 +41,67 @@ func (c *GChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*
 		return nil, fmt.Errorf("googlechat: get_members returned no members for %s", ghost.ID)
 	}
 	return c.userInfoFromUser(ctx, resp.GetMembers()[0].GetUser()), nil
+}
+
+// updateOwnLoginProfile fetches the logged-in account's OWN display name (via
+// the same get_members path GetUserInfo uses for ghosts) and stores it on the
+// UserLogin as RemoteName + RemoteProfile.Name. GetSelfUserStatus (login.go)
+// only yields the gaia id, so without this the UserLogin's RemoteName stays
+// empty and bridgev2's per-login "personal filtering space" is named
+// "Google Chat ()" with an empty identity. Called from syncChats BEFORE any
+// portal/space is created, so the space is named correctly the first time;
+// running on every fresh connect also backfills a login created before this
+// existed. Best-effort: a fetch/save failure is logged and skipped, never fatal
+// to the sync.
+func (c *GChatClient) updateOwnLoginProfile(ctx context.Context) {
+	log := zerolog.Ctx(ctx)
+	if c.UserLogin == nil {
+		return
+	}
+	getMembers := c.getMembersFn
+	if getMembers == nil {
+		conn := c.getConn()
+		if conn == nil {
+			return
+		}
+		getMembers = conn.GetMembers
+	}
+	gaia := string(c.UserLogin.ID)
+	resp, err := getMembers(ctx, &pb.GetMembersRequest{
+		MemberIds: []*pb.MemberId{
+			{Id: &pb.MemberId_UserId{UserId: &pb.UserId{Id: strPtr(gaia)}}},
+		},
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("googlechat: failed to fetch own user info for login profile")
+		return
+	}
+	if len(resp.GetMembers()) == 0 {
+		return
+	}
+	// The RAW name, not Config.FormatDisplayname: bridgev2 builds the space
+	// name as "<network> (<RemoteName>)" (space.go), so a formatted displayname
+	// like "Abigel Varga (Google Chat)" would double-wrap into
+	// "Google Chat (Abigel Varga (Google Chat))". displaynameParams resolves the
+	// full-name / first+last chain; fall back to email when it's blank.
+	user := resp.GetMembers()[0].GetUser()
+	name := displaynameParams(user).Name
+	if name == "" {
+		name = user.GetEmail()
+	}
+	if name == "" {
+		return
+	}
+	if c.UserLogin.RemoteName == name && c.UserLogin.RemoteProfile.Name == name {
+		return
+	}
+	c.UserLogin.RemoteName = name
+	c.UserLogin.RemoteProfile.Name = name
+	if err := c.save(ctx); err != nil {
+		log.Warn().Err(err).Msg("googlechat: failed to save own login profile")
+		return
+	}
+	log.Debug().Str("remote_name", name).Msg("googlechat: updated own login profile (RemoteName)")
 }
 
 func strPtr(s string) *string { return &s }

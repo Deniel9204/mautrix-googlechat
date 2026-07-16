@@ -289,3 +289,61 @@ func TestGetUserInfoNoConnIsError(t *testing.T) {
 		t.Fatal("GetUserInfo with no live conn = nil error, want non-nil")
 	}
 }
+
+// TestUpdateOwnLoginProfile_SetsRemoteName pins the fix for the empty
+// per-login "personal filtering space" name ("Google Chat ()"):
+// updateOwnLoginProfile must resolve the logged-in account's OWN name via
+// get_members on the login's own gaia, then write it (RAW, no template) to
+// UserLogin.RemoteName + RemoteProfile.Name and save.
+func TestUpdateOwnLoginProfile_SetsRemoteName(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{}) // ID "112233", RemoteName ""
+	var saved bool
+	var gotMemberID string
+	c := &GChatClient{
+		UserLogin: login,
+		getMembersFn: func(_ context.Context, req *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
+			gotMemberID = req.GetMemberIds()[0].GetUserId().GetId()
+			return &pb.GetMembersResponse{
+				Members: []*pb.Member{{Profile: &pb.Member_User{User: &pb.User{Name: proto.String("Ada Lovelace")}}}},
+			}, nil
+		},
+		saveFn: func(context.Context) error { saved = true; return nil },
+	}
+	c.updateOwnLoginProfile(context.Background())
+
+	if gotMemberID != "112233" {
+		t.Errorf("get_members targeted %q, want the login's own gaia 112233", gotMemberID)
+	}
+	// RAW name, NOT "Ada Lovelace (Google Chat)": bridgev2 wraps it as
+	// "Google Chat (<RemoteName>)", so a formatted name would double-wrap.
+	const want = "Ada Lovelace"
+	if login.RemoteName != want {
+		t.Errorf("RemoteName = %q, want %q", login.RemoteName, want)
+	}
+	if login.RemoteProfile.Name != want {
+		t.Errorf("RemoteProfile.Name = %q, want %q", login.RemoteProfile.Name, want)
+	}
+	if !saved {
+		t.Error("expected the updated login to be saved")
+	}
+}
+
+// TestUpdateOwnLoginProfile_NoChangeNoSave: when RemoteName already matches the
+// resolved name, no write/save happens (avoids a redundant Save every connect).
+func TestUpdateOwnLoginProfile_NoChangeNoSave(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	login.RemoteName = "Ada Lovelace"
+	login.RemoteProfile.Name = "Ada Lovelace"
+	saved := false
+	c := &GChatClient{
+		UserLogin: login,
+		getMembersFn: func(_ context.Context, _ *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
+			return &pb.GetMembersResponse{Members: []*pb.Member{{Profile: &pb.Member_User{User: &pb.User{Name: proto.String("Ada Lovelace")}}}}}, nil
+		},
+		saveFn: func(context.Context) error { saved = true; return nil },
+	}
+	c.updateOwnLoginProfile(context.Background())
+	if saved {
+		t.Error("expected no save when RemoteName is unchanged")
+	}
+}
