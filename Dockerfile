@@ -6,7 +6,7 @@ RUN go mod download
 COPY . .
 RUN go build -tags goolm -o /usr/bin/mautrix-googlechat ./cmd/mautrix-googlechat
 
-FROM alpine:3.22
+FROM alpine:3.24
 RUN apk add --no-cache ffmpeg ca-certificates jq curl bash
 COPY --from=builder /usr/bin/mautrix-googlechat /usr/bin/mautrix-googlechat
 COPY --from=builder /build/docker-run.sh /docker-run.sh
