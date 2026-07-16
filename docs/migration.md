@@ -234,9 +234,9 @@ After the real (non-dry-run) migration completes successfully:
    render correctly.
 3. **Confirm a migrated user's login still works without a re-login
    prompt** — have them send a message and confirm it's delivered via Google
-   Chat, or check the bridge bot reports them as logged in (e.g. via a
-   `whoami`/status-style command). If the bridge instead prompts them to log
-   in, check the dry run's warnings for caveats (d) or (e) above.
+   Chat, or run the `list-logins` command in the bridge bot's management room
+   to confirm the migrated login is present. If the bridge instead prompts
+   them to log in, check the dry run's warnings for caveats (d) or (e) above.
 4. If you use double-puppeting, confirm messages you send from your Matrix
    client show up as sent by your own Google Chat account, not the puppet
    ghost.
