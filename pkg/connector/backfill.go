@@ -527,18 +527,19 @@ var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 //     replies -- verified by reading portalbackfill.go, not assumed.
 //   - params.Forward && params.AnchorMessage != nil (with ThreadRoot == ""):
 //     forward CATCH-UP on an EXISTING room ("new messages since the last
-//     known one"). Two framework callers can reach this shape:
-//     doForwardBackfill's room-creation seed once it is called again with a
-//     non-nil lastMessage (portal.go:3882's handleRemoteChatResync path --
-//     dormant for this bridge today, since pkg/connector emits no
-//     RemoteChatResync event and implements no RemoteChatResyncBackfill/
-//     CheckNeedsBackfill, verified by grep), and fetchThreadBackfill's
-//     ThreadRoot-scoped call (portalbackfill.go:196-204) -- but that one is
-//     already routed to fetchThreadMessages by the ThreadRoot check above,
-//     never reaching here. Returns an empty, HasMore=false response --
-//     documented GC limitation (see the Forward bullet in this file's region
-//     doc comment above); M2's catch_up_user already owns this case for
-//     existing rooms.
+//     known one"). doForwardBackfill is invoked from TWO DISTINCT call sites:
+//     the room-creation seed ALWAYS passes lastMessage==nil (handled by the
+//     otherwise-branch below), while the SEPARATE resync call site
+//     (portal.go:3882's handleRemoteChatResync path) passes a non-nil
+//     lastMessage and lands here -- and that resync path is dormant for this
+//     bridge today, since pkg/connector emits no RemoteChatResync event and
+//     implements no RemoteChatResyncBackfill/CheckNeedsBackfill (verified by
+//     grep). (fetchThreadBackfill's ThreadRoot-scoped call also sets
+//     Forward=true, but is already routed to fetchThreadMessages by the
+//     ThreadRoot check above, never reaching here.) Returns an empty,
+//     HasMore=false response -- documented GC limitation (see the Forward
+//     bullet in this file's region doc comment above); M2's catch_up_user
+//     already owns this case for existing rooms.
 //   - otherwise (Forward==false, OR Forward==true && AnchorMessage==nil):
 //     fetchTopicHeadMessages, for a flat portal's backward/queue path, a
 //     ThreadsOnly portal's backward/queue path, AND -- as of M6 Task 3.5 --
@@ -579,10 +580,17 @@ var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 //     hasAnchor filter (fetchTopicHeadMessages below) then excludes anything
 //     at or newer than it. A topic sharing the anchor's exact microsecond is
 //     the one documented, deliberate exception to that filter (see
-//     fetchTopicHeadMessages' anchor-filter comment) and could in theory
-//     still double-post on such a homeserver; that is a pre-existing
-//     tradeoff of the anchor filter itself, not something this task's
-//     dispatcher change introduces.
+//     fetchTopicHeadMessages' anchor-filter comment) and could slip past it on
+//     such a homeserver -- but even then it cannot produce a user-visible
+//     duplicate: the queue re-posts via sendBatch -> compileBatchMessage,
+//     which derives each event id from GenerateDeterministicEventID(portal
+//     .MXID, PortalKey, msg.ID, part.ID) (portalbackfill.go:396) -- keyed on
+//     msg.ID, NOT timestamp -- so a re-posted already-seeded message resolves
+//     to the SAME event id and its duplicate DB insert is logged-and-skipped.
+//     This seed+queue overlap is newly REACHABLE via Task 3.5's change (pre-
+//     fix the seed posted nothing), but the deterministic-event-id backstop
+//     makes it idempotent regardless of the anchor filter's same-microsecond
+//     exception.
 func (c *GChatClient) FetchMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	if params.ThreadRoot != "" {
 		return c.fetchThreadMessages(ctx, params)
