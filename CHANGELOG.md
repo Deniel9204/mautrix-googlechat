@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.07.1] - 2026-07-16
+
+### Added
+
+- Multi-arch Docker images (`linux/amd64` + `linux/arm64`) published to
+  `ghcr.io/deniel9204/mautrix-googlechat` on every push and tag via GitHub
+  Actions, cross-compiled with `tonistiigi/xx`.
+
+### Fixed
+
+- Tagged builds now report a clean calendar version (e.g. `v26.07.1`) via
+  `SemCalVer`, and non-tagged (branch) Docker builds no longer panic on an
+  unparseable version string.
+
 ## [26.07] - 2026-07-16
 
 First tagged release: a complete Go rewrite of the `mautrix/googlechat`
