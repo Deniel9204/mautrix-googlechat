@@ -15,11 +15,14 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/id"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
+	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
 
 // --- catchUp: request shape carries the stored watermark -------------------
@@ -827,4 +830,498 @@ func TestHandleGChatEventRevisionNeverRegresses(t *testing.T) {
 	if saveCount != 0 {
 		t.Errorf("save called %d times, want 0", saveCount)
 	}
+}
+
+// --- M6 Task 1: FetchMessages (flat-room initial/history backfill) --------
+//
+// See backfill.go's "M6 Task 1" region doc comment for the full rationale
+// behind using list_topics (not list_messages) and the cumulative-request
+// cursor encoding these tests pin down.
+
+// flatBackfillPortal builds a *bridgev2.Portal for a flat (non-ThreadsOnly)
+// portal with a real, parseable PortalKey.ID (gcid.ParsePortalID must
+// succeed -- fetchFlatMessages' first step) and a Bridge whose Matrix
+// connector resolves ghost mentions deterministically, so a formatted
+// message's mention pill renders the same way it would for a live message
+// (TestFetchMessagesFlatConvertMessageReusesLiveConversionPath below).
+// Bridge is otherwise unused: GetIntentFor is never called for real in these
+// tests (see newBackfillTestClient's getIntentForFn override).
+func flatBackfillPortal(group gcid.GroupID) *bridgev2.Portal {
+	matrix := &fakeMatrixConnector{
+		ghostIntent: func(gaiaID networkid.UserID) id.UserID {
+			return id.UserID("@" + string(gaiaID) + "_ghost:example.com")
+		},
+	}
+	return &bridgev2.Portal{
+		Portal: &database.Portal{
+			PortalKey: gcid.MakePortalKey(group, ""),
+			Metadata:  &PortalMetadata{},
+		},
+		Bridge: &bridgev2.Bridge{Matrix: matrix},
+	}
+}
+
+// newBackfillTestClient builds a *GChatClient with listTopicsFn wired to
+// list and getIntentForFn stubbed to always succeed with a nil intent
+// (fine: none of these tests' messages carry attachments, so intent is
+// never dereferenced -- msgconv_adapter.go's own doc comment on the "media"
+// parameter makes the same "nil is safe when nothing needs it" point).
+func newBackfillTestClient(ownGaia string, list func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error)) *GChatClient {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	login.ID = gcid.MakeUserLoginID(ownGaia)
+	return &GChatClient{
+		UserLogin:    login,
+		listTopicsFn: list,
+		getIntentForFn: func(context.Context, *bridgev2.Portal, bridgev2.EventSender, bridgev2.RemoteEventType) (bridgev2.MatrixAPI, bool) {
+			return nil, true
+		},
+	}
+}
+
+// flatTopic builds a *pb.Topic shaped like a non-threaded topic: exactly one
+// reply (the flat message itself), matching portal.py's own
+// `topic.replies[0]` reading of a non-threaded topic.
+func flatTopic(topicID, msgID, creatorGaia, text string, sortTime int64) *pb.Topic {
+	return &pb.Topic{
+		Id:       &pb.TopicId{TopicId: proto.String(topicID)},
+		SortTime: proto.Int64(sortTime),
+		Replies: []*pb.Message{{
+			Id:         &pb.MessageId{MessageId: proto.String(msgID)},
+			Creator:    &pb.User{UserId: &pb.UserId{Id: proto.String(creatorGaia)}},
+			CreateTime: proto.Int64(sortTime),
+			TextBody:   proto.String(text),
+		}},
+	}
+}
+
+// --- first page: no cursor, request shape -----------------------------
+
+func TestFetchMessagesFlatFirstPageCallsListTopicsWithGroupAndCount(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	var gotReq *pb.ListTopicsRequest
+	gc := newBackfillTestClient("112233", func(_ context.Context, req *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		gotReq = req
+		return &pb.ListTopicsResponse{
+			Topics:             []*pb.Topic{flatTopic("t3", "m3", "u1", "three", 30)},
+			ContainsFirstTopic: proto.Bool(true),
+		}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  3,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if gotReq == nil {
+		t.Fatal("listTopicsFn was not called")
+	}
+	if got := gotReq.GetPageSizeForTopics(); got != 3 {
+		t.Errorf("PageSizeForTopics = %d, want 3 (Count, no prior delivery)", got)
+	}
+	id, isDM, ok := gchatmeow.GroupIDToParts(gotReq.GetGroupId())
+	if !ok || id != "space-1" || isDM {
+		t.Errorf("GroupId = (%q, isDM=%v, ok=%v), want (%q, false, true)", id, isDM, ok, "space-1")
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(resp.Messages))
+	}
+}
+
+// --- chronological ordering + field mapping ----------------------------
+
+// TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields pins the
+// brief's core ask: the server returns topics NEWEST-FIRST (matching
+// portal.py's own need to reverse them, portal.py:428); the response must
+// come back oldest-to-newest, and each BackfillMessage's ID/Sender/
+// Timestamp/StreamOrder must be derived from its topic's head reply.
+func TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	// Server order: newest (m3) first, oldest (m1) last -- exactly what a
+	// real "most recent N" list_topics response looks like.
+	serverOrder := []*pb.Topic{
+		flatTopic("t3", "m3", "u3", "three", 3_000_000),
+		flatTopic("t2", "m2", "u2", "two", 2_000_000),
+		flatTopic("t1", "m1", "u1", "one", 1_000_000),
+	}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{Topics: serverOrder, ContainsFirstTopic: proto.Bool(true)}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  3,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 3 {
+		t.Fatalf("len(Messages) = %d, want 3", len(resp.Messages))
+	}
+	wantIDs := []networkid.MessageID{gcid.MakeMessageID("m1"), gcid.MakeMessageID("m2"), gcid.MakeMessageID("m3")}
+	for i, want := range wantIDs {
+		if resp.Messages[i].ID != want {
+			t.Errorf("Messages[%d].ID = %q, want %q (chronological oldest-first)", i, resp.Messages[i].ID, want)
+		}
+	}
+
+	m1 := resp.Messages[0]
+	wantSender := bridgev2.EventSender{Sender: gcid.MakeUserID("u1"), IsFromMe: false}
+	if m1.Sender != wantSender {
+		t.Errorf("Messages[0].Sender = %+v, want %+v", m1.Sender, wantSender)
+	}
+	wantTS := gchatmeow.MicrosToTime(1_000_000)
+	if !m1.Timestamp.Equal(wantTS) {
+		t.Errorf("Messages[0].Timestamp = %v, want %v", m1.Timestamp, wantTS)
+	}
+	if m1.StreamOrder != 1_000_000 {
+		t.Errorf("Messages[0].StreamOrder = %d, want 1000000 (create_time in µs)", m1.StreamOrder)
+	}
+}
+
+// TestFetchMessagesFlatSenderIsFromMe pins EventSender.IsFromMe being
+// derived the same way the live MESSAGE_POSTED path derives it
+// (c.IsThisUser), not left false unconditionally.
+func TestFetchMessagesFlatSenderIsFromMe(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	gc := newBackfillTestClient("owner-gaia", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{
+			Topics:             []*pb.Topic{flatTopic("t1", "m1", "owner-gaia", "hi", 1000)},
+			ContainsFirstTopic: proto.Bool(true),
+		}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  1,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(resp.Messages))
+	}
+	if !resp.Messages[0].Sender.IsFromMe {
+		t.Error("Sender.IsFromMe = false, want true (message creator is this login's own gaia id)")
+	}
+}
+
+// --- subsequent page: cursor threading + no re-delivery -----------------
+
+// TestFetchMessagesFlatSubsequentPageGrowsRequestAndSkipsAlreadyDelivered
+// pins the cumulative-request cursor design (backfill.go's region doc
+// comment): page 2's request must ask for MORE topics than page 1 (delivered
+// + Count), and the messages it returns must be exactly the NEXT older
+// batch, not a repeat of page 1's.
+func TestFetchMessagesFlatSubsequentPageGrowsRequestAndSkipsAlreadyDelivered(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	// 6 topics total, SortTime 10..60 (60 = newest). A real server always
+	// returns "the N most recent" for a given page size.
+	all := []*pb.Topic{
+		flatTopic("t6", "m6", "u", "six", 60),
+		flatTopic("t5", "m5", "u", "five", 50),
+		flatTopic("t4", "m4", "u", "four", 40),
+		flatTopic("t3", "m3", "u", "three", 30),
+		flatTopic("t2", "m2", "u", "two", 20),
+		flatTopic("t1", "m1", "u", "one", 10),
+	}
+	var gotSizes []int32
+	gc := newBackfillTestClient("owner", func(_ context.Context, req *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		n := req.GetPageSizeForTopics()
+		gotSizes = append(gotSizes, n)
+		if int(n) > len(all) {
+			n = int32(len(all))
+		}
+		return &pb.ListTopicsResponse{
+			Topics:             all[:n], // newest-first prefix of length n
+			ContainsFirstTopic: proto.Bool(int(n) >= len(all)),
+		}, nil
+	})
+	portal := flatBackfillPortal(group)
+
+	page1, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{Portal: portal, Count: 3})
+	if err != nil {
+		t.Fatalf("page 1: FetchMessages returned error: %v", err)
+	}
+	if len(page1.Messages) != 3 {
+		t.Fatalf("page 1: len(Messages) = %d, want 3", len(page1.Messages))
+	}
+	page1IDs := []networkid.MessageID{page1.Messages[0].ID, page1.Messages[1].ID, page1.Messages[2].ID}
+	wantPage1 := []networkid.MessageID{gcid.MakeMessageID("m4"), gcid.MakeMessageID("m5"), gcid.MakeMessageID("m6")}
+	for i := range wantPage1 {
+		if page1IDs[i] != wantPage1[i] {
+			t.Errorf("page 1 Messages[%d] = %q, want %q", i, page1IDs[i], wantPage1[i])
+		}
+	}
+	if !page1.HasMore {
+		t.Error("page 1: HasMore = false, want true (3 of 6 topics delivered)")
+	}
+
+	page2, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: portal,
+		Count:  3,
+		Cursor: page1.Cursor,
+	})
+	if err != nil {
+		t.Fatalf("page 2: FetchMessages returned error: %v", err)
+	}
+	if len(gotSizes) != 2 || gotSizes[1] <= gotSizes[0] {
+		t.Fatalf("request sizes = %v, want page 2's PageSizeForTopics > page 1's (cumulative growth)", gotSizes)
+	}
+	if len(page2.Messages) != 3 {
+		t.Fatalf("page 2: len(Messages) = %d, want 3", len(page2.Messages))
+	}
+	wantPage2 := []networkid.MessageID{gcid.MakeMessageID("m1"), gcid.MakeMessageID("m2"), gcid.MakeMessageID("m3")}
+	for i, want := range wantPage2 {
+		if page2.Messages[i].ID != want {
+			t.Errorf("page 2 Messages[%d] = %q, want %q (next OLDER batch, not a repeat of page 1)", i, page2.Messages[i].ID, want)
+		}
+	}
+	if page2.HasMore {
+		t.Error("page 2: HasMore = true, want false (all 6 topics now delivered, ContainsFirstTopic)")
+	}
+}
+
+// --- last page: HasMore false ------------------------------------------
+
+func TestFetchMessagesFlatServerReturnsFewerThanRequestedSetsHasMoreFalse(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	// Only 2 topics exist; asked for 5 (Count=5, first page) -- the server
+	// can only return 2, which alone (regardless of ContainsFirstTopic) means
+	// there is nothing more to page into.
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{
+			Topics: []*pb.Topic{
+				flatTopic("t2", "m2", "u", "two", 20),
+				flatTopic("t1", "m1", "u", "one", 10),
+			},
+			// Deliberately NOT setting ContainsFirstTopic, to prove the
+			// "server returned fewer than requested" signal alone is
+			// sufficient.
+		}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  5,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if resp.HasMore {
+		t.Error("HasMore = true, want false (server returned fewer topics than requested)")
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("len(Messages) = %d, want 2", len(resp.Messages))
+	}
+}
+
+// --- ConvertMessage reuses the live conversion path ---------------------
+
+// TestFetchMessagesFlatConvertMessageReusesLiveConversionPath pins the
+// no-parallel-conversion-path requirement: a formatted backfilled message
+// (a BOLD annotation, same mechanism msgconv_adapter_test.go's own
+// formatting tests use) must produce EXACTLY the same *bridgev2.ConvertedMessage
+// convertMessageToMatrix would produce for the identical *pb.Message live --
+// proven by calling convertMessageToMatrix directly on the same message/
+// portal and comparing the rendered HTML body.
+func TestFetchMessagesFlatConvertMessageReusesLiveConversionPath(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	msg := &pb.Message{
+		Id:          &pb.MessageId{MessageId: proto.String("m1")},
+		Creator:     &pb.User{UserId: &pb.UserId{Id: proto.String("u1")}},
+		CreateTime:  proto.Int64(1000),
+		TextBody:    proto.String("bold text"),
+		Annotations: []*pb.Annotation{gchatfmt.MakeFormatAnnotation(0, 4, pb.FormatMetadata_BOLD)},
+	}
+	topic := &pb.Topic{Id: &pb.TopicId{TopicId: proto.String("t1")}, SortTime: proto.Int64(1000), Replies: []*pb.Message{msg}}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{Topics: []*pb.Topic{topic}, ContainsFirstTopic: proto.Bool(true)}, nil
+	})
+	portal := flatBackfillPortal(group)
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{Portal: portal, Count: 1})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(resp.Messages))
+	}
+	backfillCM := resp.Messages[0].ConvertedMessage
+	if backfillCM == nil || len(backfillCM.Parts) != 1 {
+		t.Fatalf("backfill ConvertedMessage = %+v, want 1 part", backfillCM)
+	}
+
+	convert := convertMessageToMatrix(gc.msgConverter(), gc)
+	liveCM, err := convert(context.Background(), portal, nil, msg)
+	if err != nil {
+		t.Fatalf("live convertMessageToMatrix returned error: %v", err)
+	}
+	if len(liveCM.Parts) != 1 {
+		t.Fatalf("live ConvertedMessage has %d parts, want 1", len(liveCM.Parts))
+	}
+
+	if backfillCM.Parts[0].Content.Body != liveCM.Parts[0].Content.Body {
+		t.Errorf("backfill body = %q, live body = %q, want identical", backfillCM.Parts[0].Content.Body, liveCM.Parts[0].Content.Body)
+	}
+	if backfillCM.Parts[0].Content.FormattedBody != liveCM.Parts[0].Content.FormattedBody {
+		t.Errorf("backfill formatted body = %q, live formatted body = %q, want identical (BOLD formatting must survive backfill conversion identically)", backfillCM.Parts[0].Content.FormattedBody, liveCM.Parts[0].Content.FormattedBody)
+	}
+	if backfillCM.Parts[0].Content.FormattedBody == "" {
+		t.Error("formatted body is empty, want BOLD annotation to have rendered HTML")
+	}
+}
+
+// --- anchor filtering: don't re-deliver already-bridged messages --------
+
+// TestFetchMessagesFlatAnchorExcludesAlreadyBridgedMessages mirrors meta's
+// own wrapBackfillEvents anchor filter (_reference/meta/pkg/connector/backfill.go):
+// a portal that already has SOME bridged history (AnchorMessage != nil) must
+// not re-deliver anything at or after the anchor's timestamp.
+func TestFetchMessagesFlatAnchorExcludesAlreadyBridgedMessages(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{
+			Topics: []*pb.Topic{
+				flatTopic("t3", "m3", "u", "three", 3_000_000), // at anchor: excluded
+				flatTopic("t2", "m2", "u", "two", 2_000_000),   // older: included
+				flatTopic("t1", "m1", "u", "one", 1_000_000),   // older: included
+			},
+			ContainsFirstTopic: proto.Bool(true),
+		}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  3,
+		AnchorMessage: &database.Message{
+			ID:        gcid.MakeMessageID("m3"),
+			Timestamp: gchatmeow.MicrosToTime(3_000_000),
+		},
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("len(Messages) = %d, want 2 (m3 excluded, at the anchor)", len(resp.Messages))
+	}
+	for _, m := range resp.Messages {
+		if m.ID == gcid.MakeMessageID("m3") {
+			t.Error("anchor message m3 was re-delivered, want excluded")
+		}
+	}
+}
+
+// --- Forward / ThreadRoot / ThreadsOnly: out of Task 1's scope -----------
+
+func TestFetchMessagesForwardReturnsEmptyResponse(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	var called bool
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		called = true
+		return &pb.ListTopicsResponse{}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:  flatBackfillPortal(group),
+		Forward: true,
+		Count:   3,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if called {
+		t.Error("listTopicsFn was called for a Forward request, want not called (M6 focuses on backward/initial)")
+	}
+	if resp.HasMore || len(resp.Messages) != 0 {
+		t.Errorf("resp = %+v, want empty/HasMore=false", resp)
+	}
+}
+
+func TestFetchMessagesThreadRootReturnsEmptyResponse(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	var called bool
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		called = true
+		return &pb.ListTopicsResponse{}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:     flatBackfillPortal(group),
+		ThreadRoot: gcid.MakeMessageID("topic-1"),
+		Count:      3,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if called {
+		t.Error("listTopicsFn was called for a ThreadRoot request, want not called (Task 2's scope)")
+	}
+	if resp.HasMore || len(resp.Messages) != 0 {
+		t.Errorf("resp = %+v, want empty/HasMore=false", resp)
+	}
+}
+
+func TestFetchMessagesThreadsOnlyPortalReturnsEmptyResponse(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	var called bool
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		called = true
+		return &pb.ListTopicsResponse{}, nil
+	})
+	portal := flatBackfillPortal(group)
+	portal.Metadata = &PortalMetadata{ThreadsOnly: true}
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{Portal: portal, Count: 3})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if called {
+		t.Error("listTopicsFn was called for a ThreadsOnly portal's top-level request, want not called (Task 2's scope)")
+	}
+	if resp.HasMore || len(resp.Messages) != 0 {
+		t.Errorf("resp = %+v, want empty/HasMore=false", resp)
+	}
+}
+
+// --- cursor codec ---------------------------------------------------------
+
+func TestBackfillCursorRoundTrips(t *testing.T) {
+	for _, delivered := range []int{0, 1, 42, 12345} {
+		cursor := encodeBackfillCursor(delivered)
+		got, err := decodeBackfillCursor(cursor)
+		if err != nil {
+			t.Fatalf("decodeBackfillCursor(%q) error: %v", cursor, err)
+		}
+		if got != delivered {
+			t.Errorf("round trip %d -> %q -> %d, want %d", delivered, cursor, got, delivered)
+		}
+	}
+}
+
+func TestDecodeBackfillCursorEmptyIsZero(t *testing.T) {
+	got, err := decodeBackfillCursor("")
+	if err != nil || got != 0 {
+		t.Errorf("decodeBackfillCursor(\"\") = (%d, %v), want (0, nil)", got, err)
+	}
+}
+
+func TestDecodeBackfillCursorRejectsGarbage(t *testing.T) {
+	for _, bad := range []networkid.PaginationCursor{"not-a-number", "-1"} {
+		if _, err := decodeBackfillCursor(bad); err == nil {
+			t.Errorf("decodeBackfillCursor(%q) = nil error, want error", bad)
+		}
+	}
+}
+
+// --- CanBackfill wiring compile-time proof --------------------------------
+
+// TestBackfillingNetworkAPIAssertion is a runtime pin of the compile-time
+// assertion already in backfill.go (var _ bridgev2.BackfillingNetworkAPI =
+// (*GChatClient)(nil)); kept here too so a future refactor that accidentally
+// breaks the interface satisfaction shows up as a normal test failure
+// message, not just a build error somewhere else in the package.
+func TestBackfillingNetworkAPIAssertion(t *testing.T) {
+	var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 }

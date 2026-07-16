@@ -30,9 +30,13 @@ package connector
 // name explicitly.
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strconv"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/proto"
+	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
@@ -357,3 +361,278 @@ func userRevision(evt *pb.Event) int64 {
 func groupRevision(evt *pb.Event) int64 {
 	return evt.GetGroupRevision().GetTimestamp()
 }
+
+// region M6 Task 1: initial/history backfill for FLAT rooms
+//
+// This is a DIFFERENT path from catchUp above: catchUp (M2 Task 7) replays a
+// reconnect GAP on an already-bridged portal via catch_up_user/group; this
+// implements bridgev2.BackfillingNetworkAPI.FetchMessages, which populates a
+// portal's Matrix room with HISTORY -- messages that predate the portal ever
+// being bridged at all -- porting portal.py's _initial_backfill (portal.py:406-448).
+//
+// RPC CHOICE -- deliberate divergence from the task brief's literal wording
+// ("ListMessages RPC with the group id + a page cursor"): the actual proto
+// (pkg/gchatmeow/proto/googlechat.pb.go) makes that impossible as stated.
+// ListMessagesRequest.ParentId is a *MessageParentId whose oneof has exactly
+// one arm, MessageParentId_TopicId (a concrete *TopicId, itself GroupId +
+// topic_id) -- there is no group-only/topic-less arm, so ListMessages can
+// only ever list the replies WITHIN one already-known topic, never a group's
+// flat message history. This repo's own api.go already documents the two
+// RPCs accordingly ("ListTopics pages through topics of a group (backfill)"
+// vs "ListMessages pages through messages of a topic (backfill)"), and
+// portal.py's _initial_backfill agrees: it drives a FLAT room's entire
+// initial fetch off ListTopicsRequest{group_id, page_size_for_topics}, taking
+// each topic's FIRST reply (topic.replies[0]) as the flat message, and only
+// ever issues ListMessagesRequest for the rare topic that ALSO has a real
+// thread (topic_read_state.thread_created_usec > 0, portal.py:432-441) --
+// see docs/research/02-wire-protocol.md:217-219,258 for the same conclusion
+// from an independent reading of the wire protocol. So: this file's flat
+// strategy pages ListTopics, exactly like Python; the per-topic
+// ListMessages-for-real-threads sub-case is deliberately NOT ported here (see
+// the ShouldBackfillThread scope note on fetchFlatMessages below) since it
+// belongs naturally with Task 2's ThreadRoot-scoped ListMessages dispatch.
+//
+// CURSOR ENCODING -- also a deliberate design choice forced by the same
+// proto: neither ListTopicsRequest nor ListTopicsResponse carries anything
+// resembling a continuation/page token (grepped the whole proto file: the
+// only page_token/next_page_token pair in existence belongs to the unrelated
+// ListMembersRequest/Response). ListTopicsRequest's user_not_older_than /
+// group_not_older_than (ReferenceRevision{Timestamp}) look tempting but are a
+// consistency FLOOR ("don't serve me anything staler than this revision"),
+// not a backward filter ("give me topics before this point") -- and
+// portal.py's own ListTopicsRequest construction never sets either field, so
+// there is no reference behavior to confirm that reading. Using them for
+// pagination would be untested behavior against a private, reverse-engineered
+// API; a silently-wrong guess here would corrupt backfilled history (skipped
+// or duplicated messages) with no test able to catch it against a real
+// server.
+//
+// Instead, pagination is built entirely on the ONE real, observed knob:
+// PageSizeForTopics deterministically returns "the N most recent topics".
+// Cursor = the number of (raw, pre-anchor-filter) topics already delivered
+// across all pages of this backfill run so far, encoded as a decimal string.
+// Each call requests PageSizeForTopics = delivered + Count (asking for
+// cumulatively more), reverses the response into oldest-first order, and the
+// NEW page is the front slice `topics[:len(topics)-delivered]` -- the portion
+// that fell outside every previous, smaller request. Concretely, with
+// Count=3 over a 10-topic history: page 1 requests 3 or gets topics
+// {8,9,10}; page 2 requests 6, gets {5..10}, and the new slice is
+// {5,6,7} == topics[:6-3]; page 3 requests 9, gets {2..10}, new slice
+// {2,3,4} == topics[:9-6]; page 4 requests 12, the server can only return all
+// 10 (len(topics)=10 < requested 12, the exhaustion signal), new slice is the
+// single remaining {1} == topics[:10-9]. This deliberately re-fetches
+// already-seen topics on every page (bounded re-fetch, not O(1) continuation)
+// -- acceptable ONLY because Task 3's config-driven initial-history limit
+// (mirroring Python's initial_nonthread_limit default of 100) keeps the total
+// page count, and therefore the cumulative re-fetch, small for a one-time
+// per-portal operation; it would not be an acceptable strategy for a hot,
+// frequently-repeated pagination path.
+//
+// HasMore is false once the server returns FEWER topics than requested (nothing
+// left to grow into) or GetContainsFirstTopic() is set (the response now
+// includes the group's very first topic) -- either one independently means
+// there is no more history beyond what has been delivered.
+//
+// SCOPE (documented, not silent, gaps -- left for later M6 tasks):
+//   - A topic with a real Google Chat thread even inside an otherwise-flat
+//     room (topic_read_state.thread_created_usec > 0) is bridged as ONLY its
+//     head reply here; Python would also fetch and bridge its other replies
+//     via ListMessagesRequest (portal.py:432-441). Task 2 owns the
+//     ThreadRoot-scoped FetchMessages dispatch (ShouldBackfillThread +
+//     LastThreadMessage) that this naturally extends into.
+//   - A topic whose head reply is a SYSTEM_MESSAGE (membership/room-info
+//     change) is converted through the ordinary text path
+//     (convertMessageToMatrix) here, not systemmessage.go's trySystemMessage
+//     (which only runs on the live MESSAGE_POSTED event-dispatch path,
+//     events.go's handleMessagePosted) -- flagged for a follow-up milestone
+//     task's whole-branch review rather than silently gapped.
+//   - ThreadsOnly portals (whole "threaded spaces") and any ThreadRoot-scoped
+//     call are Task 2's strategy; FetchMessages below returns an empty,
+//     HasMore=false response for both rather than guessing at behavior this
+//     task does not own.
+//   - Forward=true (bridgev2's forward-backfill direction) returns an empty,
+//     HasMore=false response: GC's list_topics only exposes "the N most
+//     recent", which is inherently a BACKWARD-from-now query with no way to
+//     ask "the N oldest of what's newer than X" -- matching the brief's own
+//     "return the newer messages or empty; for M6 focus on backward/initial"
+//     guidance and mautrix-meta's own early-return for an unsupported forward
+//     case (_reference/meta/pkg/connector/backfill.go's FetchMessages).
+//
+// CONVERSION REUSE: every backfilled message is converted via the EXACT SAME
+// convertMessageToMatrix(c.msgConverter(), c) function events.go's live
+// MESSAGE_POSTED dispatch calls (queueMessagePosted, ConvertMessageFunc) --
+// not a parallel/duplicated conversion path -- so a backfilled message's
+// text, formatting, mentions, thread routing, and attachments are IDENTICAL
+// to what the same message would have produced if it had arrived live.
+//
+// defaultFetchMessagesCount is used only when bridgev2 supplies a
+// non-positive params.Count (defensive; the framework's own doc comment
+// says it should always be a positive "preferred number of messages",
+// but nothing in the interface contract guarantees that). Task 3 wires
+// the real config-driven initial-history limit; this is not that limit.
+const defaultFetchMessagesCount = 20
+
+var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
+
+// FetchMessages implements bridgev2.BackfillingNetworkAPI for history
+// backfill (M6 Task 1). Dispatches to fetchFlatMessages for a non-threaded
+// top-level request; every other combination (Forward, a ThreadRoot-scoped
+// call, or a ThreadsOnly portal) is not this task's scope -- see the SCOPE
+// note in this file's region comment above -- and returns an empty,
+// HasMore=false response rather than an error, so the framework's backfill
+// queue treats it as "nothing more to do here" instead of a failure.
+func (c *GChatClient) FetchMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
+	if params.Forward {
+		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
+	}
+	if params.ThreadRoot != "" {
+		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
+	}
+	if meta, ok := params.Portal.Metadata.(*PortalMetadata); ok && meta != nil && meta.ThreadsOnly {
+		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
+	}
+	return c.fetchFlatMessages(ctx, params)
+}
+
+// fetchFlatMessages pages a flat portal's message history via list_topics,
+// taking each topic's head reply (topic.replies[0]) as the flat message --
+// see this file's region doc comment above for the full RPC-choice, cursor,
+// and scope rationale.
+func (c *GChatClient) fetchFlatMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
+	group, err := gcid.ParsePortalID(params.Portal.ID)
+	if err != nil {
+		return nil, fmt.Errorf("googlechat: invalid portal id %q: %w", params.Portal.ID, err)
+	}
+
+	delivered, err := decodeBackfillCursor(params.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	count := params.Count
+	if count <= 0 {
+		count = defaultFetchMessagesCount
+	}
+	requestSize := delivered + count
+
+	list := c.listTopicsFn
+	if list == nil {
+		conn := c.getConn()
+		if conn == nil {
+			return nil, fmt.Errorf("googlechat: not connected")
+		}
+		list = conn.ListTopics
+	}
+	resp, err := list(ctx, &pb.ListTopicsRequest{
+		GroupId:           gchatmeow.PartsToGroupID(group.ID, group.IsDM),
+		PageSizeForTopics: proto.Int32(int32(requestSize)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("googlechat: list_topics failed: %w", err)
+	}
+
+	// Server order is newest-first (portal.py:428's own comment: "The
+	// reversed list is probably already sorted properly, but re-sort it just
+	// in case" -- ported literally: reverse first, then a stable sort by
+	// SortTime, so ties keep the server's original relative order after the
+	// reversal, exactly like Python's `sorted(reversed(topics), key=...)`).
+	topics := slices.Clone(resp.GetTopics())
+	slices.Reverse(topics)
+	slices.SortStableFunc(topics, func(a, b *pb.Topic) int {
+		return int(a.GetSortTime() - b.GetSortTime())
+	})
+
+	if delivered > len(topics) {
+		delivered = len(topics)
+	}
+	newTopics := topics[:len(topics)-delivered]
+
+	getIntent := c.getIntentForFn
+	if getIntent == nil {
+		getIntent = func(ctx context.Context, portal *bridgev2.Portal, sender bridgev2.EventSender, evtType bridgev2.RemoteEventType) (bridgev2.MatrixAPI, bool) {
+			return portal.GetIntentFor(ctx, sender, c.UserLogin, evtType)
+		}
+	}
+	convert := convertMessageToMatrix(c.msgConverter(), c)
+
+	hasAnchor := params.AnchorMessage != nil
+	var anchorMicros int64
+	if hasAnchor {
+		anchorMicros = gchatmeow.TimeToMicros(params.AnchorMessage.Timestamp)
+	}
+
+	log := zerolog.Ctx(ctx)
+	messages := make([]*bridgev2.BackfillMessage, 0, len(newTopics))
+	for _, topic := range newTopics {
+		replies := topic.GetReplies()
+		if len(replies) == 0 {
+			continue
+		}
+		msg := replies[0]
+		// Anchor filter: exclude anything at or after the portal's oldest
+		// already-bridged message, mirroring meta's own wrapBackfillEvents
+		// slices.DeleteFunc gate for the !forward direction
+		// (_reference/meta/pkg/connector/backfill.go). Only ever excludes
+		// entries from the newest (first-requested) page in practice, since
+		// every later page's newTopics slice is, by construction, entirely
+		// older than anything a previous page already delivered.
+		if hasAnchor && msg.GetCreateTime() >= anchorMicros {
+			continue
+		}
+		gcMessageID := msg.GetId().GetMessageId()
+		if gcMessageID == "" {
+			log.Warn().Msg("googlechat: backfill topic head reply has no message id, skipping")
+			continue
+		}
+		senderID := gcid.MakeUserID(msg.GetCreator().GetUserId().GetId())
+		sender := bridgev2.EventSender{
+			Sender:   senderID,
+			IsFromMe: c.IsThisUser(ctx, senderID),
+		}
+		intent, ok := getIntent(ctx, params.Portal, sender, bridgev2.RemoteEventBackfill)
+		if !ok {
+			continue
+		}
+		cm, err := convert(ctx, params.Portal, intent, msg)
+		if err != nil {
+			log.Err(err).Str("gc_message_id", gcMessageID).Msg("googlechat: failed to convert backfill message, skipping")
+			continue
+		}
+		messages = append(messages, &bridgev2.BackfillMessage{
+			ConvertedMessage: cm,
+			Sender:           sender,
+			ID:               gcid.MakeMessageID(gcMessageID),
+			Timestamp:        gchatmeow.MicrosToTime(msg.GetCreateTime()),
+			StreamOrder:      msg.GetCreateTime(),
+		})
+	}
+
+	hasMore := len(topics) >= requestSize && !resp.GetContainsFirstTopic()
+	return &bridgev2.FetchMessagesResponse{
+		Messages: messages,
+		Cursor:   encodeBackfillCursor(delivered + len(newTopics)),
+		HasMore:  hasMore,
+	}, nil
+}
+
+// decodeBackfillCursor parses the "topics delivered so far" counter this
+// file's Cursor encodes (see the region doc comment above). An empty cursor
+// (the first page of a backfill run) decodes to 0. Any other malformed value
+// is a genuine error -- a corrupted/foreign cursor must not be silently
+// treated as "start over", which would re-deliver already-bridged history.
+func decodeBackfillCursor(cursor networkid.PaginationCursor) (int, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(string(cursor))
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("googlechat: invalid backfill cursor %q", cursor)
+	}
+	return n, nil
+}
+
+// encodeBackfillCursor is decodeBackfillCursor's inverse.
+func encodeBackfillCursor(delivered int) networkid.PaginationCursor {
+	return networkid.PaginationCursor(strconv.Itoa(delivered))
+}
+
+// endregion

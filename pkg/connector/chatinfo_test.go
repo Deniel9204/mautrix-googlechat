@@ -240,6 +240,30 @@ func TestChatInfoFromGetGroupResponseDM(t *testing.T) {
 	if info.Members.OtherUserID != networkid.UserID("200") {
 		t.Errorf("OtherUserID = %q, want \"200\"", info.Members.OtherUserID)
 	}
+	if !info.CanBackfill {
+		t.Error("CanBackfill = false, want true (M6 Task 1: the framework must be told this portal supports FetchMessages)")
+	}
+}
+
+// TestChatInfoFromGetGroupResponseSetsCanBackfill and
+// TestChatInfoFromWorldItemSetsCanBackfill (below) pin M6 Task 1's
+// CanBackfill wiring independently of any other ChatInfo field, across BOTH
+// entry points (the live GetChatInfo RPC path and the chat-list-sync/
+// ChatResync path) -- see chatinfo.go's doc comments on each CanBackfill
+// field for why both must set it.
+func TestChatInfoFromGetGroupResponseSetsCanBackfill(t *testing.T) {
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}}
+	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
+	if !info.CanBackfill {
+		t.Error("CanBackfill = false, want true")
+	}
+}
+
+func TestChatInfoFromWorldItemSetsCanBackfill(t *testing.T) {
+	info := chatInfoFromWorldItem(&pb.WorldItemLite{GroupId: spaceGroupID("space1")}, ownID)
+	if !info.CanBackfill {
+		t.Error("CanBackfill = false, want true")
+	}
 }
 
 func TestChatInfoFromGetGroupResponseSpace(t *testing.T) {

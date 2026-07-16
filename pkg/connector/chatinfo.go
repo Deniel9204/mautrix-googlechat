@@ -113,8 +113,17 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 	}
 
 	info := &bridgev2.ChatInfo{
-		Type:    &roomType,
-		Members: chatMemberList(memberIDs, ownUserID, group.IsDM),
+		Type: &roomType,
+		// CanBackfill (M6 Task 1): tells the framework this portal supports
+		// bridgev2.BackfillingNetworkAPI.FetchMessages (backfill.go), so it
+		// queues history backfill for it -- unconditionally true, matching
+		// Python's own backfill() being called for every portal regardless
+		// of room type (portal.py:385-404); FetchMessages itself returns an
+		// empty response for the strategies M6 hasn't implemented yet
+		// (see backfill.go's region doc comment) rather than this flag
+		// gating which portals are even offered the chance.
+		CanBackfill: true,
+		Members:     chatMemberList(memberIDs, ownUserID, group.IsDM),
 	}
 	// Name (spaces only): DM room names are derived by bridgev2 from the
 	// other member's ghost displayname (portal.py:281-284's
@@ -172,7 +181,10 @@ func chatInfoFromWorldItem(item *pb.WorldItemLite, ownUserID networkid.UserID) *
 	if isDM {
 		roomType = database.RoomTypeDM
 	}
-	info := &bridgev2.ChatInfo{Type: &roomType}
+	// CanBackfill: see chatInfoFromGetGroupResponse's identical field for the
+	// full rationale -- both ChatInfo-building entry points (this one feeds
+	// sync.go's chat-list-sync/ChatResync path) must set it the same way.
+	info := &bridgev2.ChatInfo{Type: &roomType, CanBackfill: true}
 
 	if isDM {
 		info.Members = dmMemberListFromWorldItem(item, ownUserID)

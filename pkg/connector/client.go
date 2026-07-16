@@ -303,6 +303,25 @@ type GChatClient struct {
 	// (portalKey, revision) pair without a full DB harness. Mirrors every
 	// other *Fn seam on this type.
 	savePortalRevisionFn func(ctx context.Context, portalKey networkid.PortalKey, revision int64)
+
+	// listTopicsFn issues the list_topics RPC that backfill.go's FetchMessages
+	// needs to page through a flat portal's message history (M6 Task 1).
+	// Defaults to conn.ListTopics; overridden in tests so FetchMessages'
+	// request construction (group id, cumulative page size) and pagination
+	// logic can be exercised without a live gchatmeow.Client connection --
+	// mirrors catchUpUserFn/paginatedWorldFn above.
+	listTopicsFn func(ctx context.Context, req *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error)
+
+	// getIntentForFn resolves the Matrix intent to bridge a backfilled
+	// message as (backfill.go's FetchMessages, M6 Task 1). Defaults to
+	// params.Portal.GetIntentFor(ctx, sender, c.UserLogin,
+	// bridgev2.RemoteEventBackfill); overridden in tests because the real
+	// method dereferences portal.Bridge (bridgev2.Portal.GetIntentFor ->
+	// getIntentAndUserMXIDFor -> portal.Bridge.GetGhostByID), which is nil
+	// for this package's lightweight test portals (no full bridgev2.Bridge+DB
+	// harness) -- mirrors getMessageFn/addPendingToIgnoreFn's own reasoning
+	// above.
+	getIntentForFn func(ctx context.Context, portal *bridgev2.Portal, sender bridgev2.EventSender, evtType bridgev2.RemoteEventType) (bridgev2.MatrixAPI, bool)
 }
 
 var _ bridgev2.NetworkAPI = (*GChatClient)(nil)
