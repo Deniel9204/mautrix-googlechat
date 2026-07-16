@@ -5,7 +5,9 @@
 *.db-journal
 *.log
 /logs
-/.idea/workspace.xml
+/.idea/
+*.iml
+/.serena/
 .env
 .env.spike
 /.superpowers/
