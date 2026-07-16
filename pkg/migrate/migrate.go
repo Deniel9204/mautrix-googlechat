@@ -197,12 +197,19 @@ func Run(ctx context.Context, deps *Deps, opts Options) (*Summary, error) {
 }
 
 // targetHasExistingData reports whether the target bridgev2 database
-// already has any portals or user logins in it. These two tables are
-// sufficient signals: a target that has ever run a live bridge, or a
-// previous migration, will have at least one of them populated; an
-// untouched-but-schema-upgraded fresh database will have neither.
+// already has any data this migration would write. It counts EVERY entity
+// table the migration populates, not just portals/logins: bridgev2 persists a
+// bare `user` row the first time any Matrix user messages the bridge bot
+// (loadUser -> DB.User.Insert), before any portal or login exists, so a target
+// where someone contacted the bot but never logged in has `user` rows and no
+// portals/logins -- counting only portal+user_login would misclassify that as
+// empty and let the migration write into a non-fresh DB (Task 7's user writes
+// would then PK-conflict or silently merge). An untouched, schema-upgraded
+// fresh database has zero rows in all of these; any non-zero count means the
+// target is not fresh. (`user` is a reserved word -> quoted; the others are
+// quoted too for uniformity, valid in both SQLite and Postgres.)
 func targetHasExistingData(ctx context.Context, db *dbutil.Database) (bool, error) {
-	for _, table := range []string{"portal", "user_login"} {
+	for _, table := range []string{`portal`, `ghost`, `message`, `reaction`, `"user"`, `user_login`} {
 		var count int
 		err := db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(&count)
 		if err != nil {

@@ -192,6 +192,26 @@ func TestRun_NonEmptyTargetGuard(t *testing.T) {
 	}
 }
 
+// TestRun_NonEmptyTargetGuard_BareUserRow pins the guard-hardening fix: a
+// target that has a bare `user` row (someone messaged the bridge bot) but NO
+// portals and NO logins must still be treated as non-empty. Counting only
+// portal+user_login (the original guard) would have misclassified this as
+// fresh and let the migration write into it. Breakable by removing `"user"`
+// from targetHasExistingData's table list.
+func TestRun_NonEmptyTargetGuard_BareUserRow(t *testing.T) {
+	deps := validDeps(t)
+	ctx := context.Background()
+	_, err := deps.Target.Exec(ctx,
+		`INSERT INTO "user" (bridge_id, mxid) VALUES ('', '@contacted-bot:example.com')`)
+	if err != nil {
+		t.Fatalf("seeding bare user row: %v", err)
+	}
+
+	if _, err := Run(ctx, deps, Options{}); !errors.Is(err, ErrTargetNotEmpty) {
+		t.Fatalf("Run without Force against a target with only a bare user row: got err=%v, want ErrTargetNotEmpty", err)
+	}
+}
+
 func TestUppercaseCookieKeys(t *testing.T) {
 	t.Run("nil map returns nil", func(t *testing.T) {
 		if got := UppercaseCookieKeys(nil); got != nil {
