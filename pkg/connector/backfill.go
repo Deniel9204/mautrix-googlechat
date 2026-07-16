@@ -433,6 +433,28 @@ func groupRevision(evt *pb.Event) int64 {
 // includes the group's very first topic) -- either one independently means
 // there is no more history beyond what has been delivered.
 //
+// CONCURRENT TOPIC CREATION (the positional cursor's one soft spot, and why
+// it is safe anyway): FetchMessages runs against an already-live portal, so
+// ordinary live traffic can create a NEW topic between two pages of the same
+// backfill run. Because the cursor is a positional count ("topics delivered
+// so far") against the server's live "most recent N" ranking, a burst of new
+// topics shifts that ranking and momentarily desyncs the count -- a later
+// page's newTopics slice can then re-include a topic an earlier page already
+// delivered. This does NOT lose or duplicate history: (a) the framework
+// re-derives params.AnchorMessage from the DB before EVERY FetchMessages call
+// (mautrix-go bridgev2/portalbackfill.go's doBackwardsBackfill), so the
+// anchor filter below strips any re-included, already-bridged topic on the
+// very next page; and (b) `delivered` only ever grows, so the requested size
+// eventually outgrows any transient burst and the drain still converges on
+// the group's first topic. The only cost is one or more pages that re-deliver
+// nothing while the count catches up -- wasted work, never corruption. A
+// topic-id frontier (remember the oldest delivered topic id, diff against it)
+// would remove even that waste; the positional scheme is kept for M6 because
+// the anchor filter already guarantees correctness and Task 3's small
+// initial-history limit bounds the wasted pages. TestFetchMessagesFlatAnchor-
+// GrowsBetweenPagesNoDuplicate pins the no-duplicate property under exactly
+// this concurrent-growth scenario.
+//
 // SCOPE (documented, not silent, gaps -- left for later M6 tasks):
 //   - A topic with a real Google Chat thread even inside an otherwise-flat
 //     room (topic_read_state.thread_created_usec > 0) is bridged as ONLY its
@@ -614,17 +636,28 @@ func (c *GChatClient) fetchFlatMessages(ctx context.Context, params bridgev2.Fet
 	}, nil
 }
 
+// maxBackfillCursor bounds a decoded cursor well below math.MaxInt32 so that
+// requestSize (delivered + count) can never overflow the int32 PageSizeForTopics
+// field it is cast into (fetchFlatMessages). 1<<20 topics is orders of
+// magnitude beyond any real Google Chat conversation's history, so a value
+// above it is a corrupted/foreign cursor, not a real position -- rejected
+// rather than silently wrapped negative on the cast (which would then request
+// a nonsensical page size).
+const maxBackfillCursor = 1 << 20
+
 // decodeBackfillCursor parses the "topics delivered so far" counter this
 // file's Cursor encodes (see the region doc comment above). An empty cursor
 // (the first page of a backfill run) decodes to 0. Any other malformed value
-// is a genuine error -- a corrupted/foreign cursor must not be silently
-// treated as "start over", which would re-deliver already-bridged history.
+// -- non-numeric, negative, or absurdly large (see maxBackfillCursor) -- is a
+// genuine error: a corrupted/foreign cursor must not be silently treated as
+// "start over" (which would re-deliver already-bridged history) nor allowed
+// to overflow the int32 page-size cast.
 func decodeBackfillCursor(cursor networkid.PaginationCursor) (int, error) {
 	if cursor == "" {
 		return 0, nil
 	}
 	n, err := strconv.Atoi(string(cursor))
-	if err != nil || n < 0 {
+	if err != nil || n < 0 || n > maxBackfillCursor {
 		return 0, fmt.Errorf("googlechat: invalid backfill cursor %q", cursor)
 	}
 	return n, nil

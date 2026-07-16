@@ -107,7 +107,30 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 		}
 	}
 
-	roomType := database.RoomTypeSpace
+	// A non-DM Google Chat conversation (Google's own term for it is a
+	// "Space") is an ordinary group chat and maps to bridgev2's
+	// RoomTypeDefault -- NOT RoomTypeSpace. Those two "space"s are different
+	// concepts that collided by name: bridgev2's RoomTypeSpace means a Matrix
+	// m.space CONTAINER in a parent/child room hierarchy (see
+	// docs/research/04-bridgev2-framework.md:445 and mautrix-go
+	// bridgev2/portal.go:5253-5254, which stamps creation_content
+	// type=m.space on any RoomTypeSpace portal), which a Google Chat group
+	// conversation is not -- this bridge has no parent/child portal hierarchy
+	// and never sets ChatInfo.ParentID. Using RoomTypeSpace here (an M1 Task
+	// 12 naming-collision bug, corrected in M6 Task 1) had two consequences,
+	// both wrong: every non-DM room was created as an m.space container
+	// instead of a normal chat room, AND -- the reason M6 caught it --
+	// mautrix-go's own backfill triggers are ALL gated on
+	// `portal.RoomType != database.RoomTypeSpace` (portal.go:3870, 5362,
+	// 5400-5404), so a RoomTypeSpace portal is silently skipped by the
+	// backfill queue no matter what ChatInfo.CanBackfill says, making this
+	// milestone's whole flat-room history feature a no-op for group Spaces.
+	// The Python bridge agrees this is an ordinary room (portal.py:681-694's
+	// _create_matrix_room sets no m.space creation_content at all), as does
+	// the meta blueprint (RoomTypeDefault for ordinary group chats,
+	// _reference/meta/pkg/connector/chatinfo.go:138, reserving RoomTypeSpace
+	// for its literal Community-container feature).
+	roomType := database.RoomTypeDefault
 	if group.IsDM {
 		roomType = database.RoomTypeDM
 	}
@@ -177,7 +200,13 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 func chatInfoFromWorldItem(item *pb.WorldItemLite, ownUserID networkid.UserID) *bridgev2.ChatInfo {
 	_, isDM, _ := gchatmeow.GroupIDToParts(item.GetGroupId())
 
-	roomType := database.RoomTypeSpace
+	// RoomTypeDefault (not RoomTypeSpace) for a non-DM Google Chat "Space" --
+	// see chatInfoFromGetGroupResponse's identical roomType block for the full
+	// naming-collision rationale (both ChatInfo-building entry points must
+	// agree, or the same conversation would resolve to different room types
+	// depending on which path -- live GetChatInfo vs chat-list sync -- created
+	// it first).
+	roomType := database.RoomTypeDefault
 	if isDM {
 		roomType = database.RoomTypeDM
 	}

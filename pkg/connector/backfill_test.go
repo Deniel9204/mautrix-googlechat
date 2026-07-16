@@ -1308,11 +1308,129 @@ func TestDecodeBackfillCursorEmptyIsZero(t *testing.T) {
 }
 
 func TestDecodeBackfillCursorRejectsGarbage(t *testing.T) {
-	for _, bad := range []networkid.PaginationCursor{"not-a-number", "-1"} {
+	// "9999999999" is > maxBackfillCursor: a corrupted/foreign cursor that,
+	// unguarded, would overflow the int32 PageSizeForTopics cast.
+	for _, bad := range []networkid.PaginationCursor{"not-a-number", "-1", "9999999999"} {
 		if _, err := decodeBackfillCursor(bad); err == nil {
 			t.Errorf("decodeBackfillCursor(%q) = nil error, want error", bad)
 		}
 	}
+}
+
+// TestFetchMessagesFlatCursorLargerThanAvailableClampsToNoNewMessages pins
+// the clamp at backfill.go's `if delivered > len(topics)` guard: a cursor
+// claiming more delivered than the server now returns (e.g. history was
+// trimmed/retention-expired between pages) must not panic on a negative slice
+// bound, and must yield zero new messages with HasMore=false rather than
+// re-delivering the whole page.
+func TestFetchMessagesFlatCursorLargerThanAvailableClampsToNoNewMessages(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		return &pb.ListTopicsResponse{
+			Topics:             []*pb.Topic{flatTopic("t1", "m1", "u", "one", 10)},
+			ContainsFirstTopic: proto.Bool(true),
+		}, nil
+	})
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: flatBackfillPortal(group),
+		Count:  3,
+		Cursor: encodeBackfillCursor(5), // claims 5 delivered, server has 1
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	if len(resp.Messages) != 0 {
+		t.Fatalf("len(Messages) = %d, want 0 (cursor claims more delivered than exist)", len(resp.Messages))
+	}
+	if resp.HasMore {
+		t.Error("HasMore = true, want false (nothing left)")
+	}
+}
+
+// TestFetchMessagesFlatAnchorGrowsBetweenPagesNoDuplicate pins the
+// concurrent-topic-creation safety property documented in backfill.go's
+// region comment: if a NEW topic is created between page 1 and page 2 (live
+// traffic during a backfill run), the positional cursor momentarily
+// re-includes an already-delivered topic, but the anchor filter (refreshed by
+// the framework from the DB before every call) strips it -- so no message is
+// delivered twice. Simulates the framework's own anchor refresh by passing
+// page 2's AnchorMessage as the OLDEST message page 1 delivered.
+func TestFetchMessagesFlatAnchorGrowsBetweenPagesNoDuplicate(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	// Initial history: 4 topics, SortTime 10..40 (newest = 40).
+	base := []*pb.Topic{
+		flatTopic("t4", "m4", "u", "four", 40),
+		flatTopic("t3", "m3", "u", "three", 30),
+		flatTopic("t2", "m2", "u", "two", 20),
+		flatTopic("t1", "m1", "u", "one", 10),
+	}
+	var callNum int
+	gc := newBackfillTestClient("owner", func(_ context.Context, req *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
+		callNum++
+		topics := base
+		if callNum >= 2 {
+			// A brand-new topic m5 (SortTime 50) arrived after page 1 -- now
+			// the "most recent N" ranking includes it at the front.
+			topics = append([]*pb.Topic{flatTopic("t5", "m5", "u", "five", 50)}, base...)
+		}
+		n := req.GetPageSizeForTopics()
+		if int(n) > len(topics) {
+			n = int32(len(topics))
+		}
+		return &pb.ListTopicsResponse{Topics: topics[:n], ContainsFirstTopic: proto.Bool(int(n) >= len(topics))}, nil
+	})
+	portal := flatBackfillPortal(group)
+
+	// Page 1: newest 2 of {10..40} -> m3, m4 (ascending).
+	page1, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{Portal: portal, Count: 2})
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(page1.Messages) != 2 || page1.Messages[0].ID != gcid.MakeMessageID("m3") || page1.Messages[1].ID != gcid.MakeMessageID("m4") {
+		t.Fatalf("page 1 messages = %v, want [m3 m4]", backfillIDs(page1))
+	}
+
+	// Page 2: framework refreshes AnchorMessage to the OLDEST message page 1
+	// delivered (m3, ts=30). A new topic m5 has since arrived. Without the
+	// anchor filter the positional cursor would re-include m4 (or worse); with
+	// it, only strictly-older-than-m3 messages come through, no duplicate.
+	page2, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal: portal,
+		Count:  2,
+		Cursor: page1.Cursor,
+		AnchorMessage: &database.Message{
+			ID:        gcid.MakeMessageID("m3"),
+			Timestamp: gchatmeow.MicrosToTime(30),
+		},
+	})
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	// Assert no message from page 1 reappears in page 2, and nothing at/after
+	// the anchor leaks through.
+	delivered := map[networkid.MessageID]bool{}
+	for _, m := range page1.Messages {
+		delivered[m.ID] = true
+	}
+	for _, m := range page2.Messages {
+		if delivered[m.ID] {
+			t.Errorf("page 2 re-delivered %q, want no duplicates across the concurrent-growth boundary", m.ID)
+		}
+		if m.Timestamp.UnixMicro() >= 30 {
+			t.Errorf("page 2 delivered %q at ts=%d, want strictly older than the anchor (30)", m.ID, m.Timestamp.UnixMicro())
+		}
+	}
+}
+
+// backfillIDs is a small test helper: the message IDs of a response, for
+// readable failure messages.
+func backfillIDs(resp *bridgev2.FetchMessagesResponse) []networkid.MessageID {
+	ids := make([]networkid.MessageID, len(resp.Messages))
+	for i, m := range resp.Messages {
+		ids[i] = m.ID
+	}
+	return ids
 }
 
 // --- CanBackfill wiring compile-time proof --------------------------------
