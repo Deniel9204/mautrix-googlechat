@@ -526,19 +526,25 @@ var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 //     into the Forward stub below and silently never fetch any thread
 //     replies -- verified by reading portalbackfill.go, not assumed.
 //   - params.Forward && params.AnchorMessage != nil (with ThreadRoot == ""):
-//     forward CATCH-UP on an EXISTING room ("new messages since the last
-//     known one"). doForwardBackfill is invoked from TWO DISTINCT call sites:
-//     the room-creation seed ALWAYS passes lastMessage==nil (handled by the
-//     otherwise-branch below), while the SEPARATE resync call site
-//     (portal.go:3882's handleRemoteChatResync path) passes a non-nil
-//     lastMessage and lands here -- and that resync path is dormant for this
-//     bridge today, since pkg/connector emits no RemoteChatResync event and
-//     implements no RemoteChatResyncBackfill/CheckNeedsBackfill (verified by
-//     grep). (fetchThreadBackfill's ThreadRoot-scoped call also sets
-//     Forward=true, but is already routed to fetchThreadMessages by the
-//     ThreadRoot check above, never reaching here.) Returns an empty,
-//     HasMore=false response -- documented GC limitation (see the Forward
-//     bullet in this file's region doc comment above); M2's catch_up_user
+//     forward CATCH-UP on an EXISTING, NON-EMPTY room ("new messages since the
+//     last known one"). doForwardBackfill is invoked from TWO DISTINCT call
+//     sites: the room-creation seed (portal.go:5404) ALWAYS passes
+//     lastMessage==nil, and the chat-list RESYNC path (portal.go:3874's
+//     handleRemoteChatResync) passes whatever GetLastMessage returns for the
+//     portal. That resync path IS live for this bridge -- sync.go emits a
+//     simplevent.ChatResync with a LatestMessageTS on every chat-list sync
+//     (M1), and simplevent.ChatResync itself implements the framework's
+//     RemoteChatResyncBackfill: its default CheckNeedsBackfill returns true
+//     when LatestMessageTS is newer than the last bridged message
+//     (simplevent/chat.go:43-49). When it fires on a portal that ALREADY has
+//     bridged messages, lastMessage is non-nil and the call lands HERE; when
+//     it fires on an EMPTY portal, lastMessage is nil and it lands in the
+//     seed (otherwise-branch below) instead. (fetchThreadBackfill's
+//     ThreadRoot-scoped call also sets Forward=true, but is already routed to
+//     fetchThreadMessages by the ThreadRoot check above, never reaching here.)
+//     For the non-empty-portal case here we return an empty, HasMore=false
+//     response -- documented GC limitation (see the Forward bullet in this
+//     file's region doc comment above); M2's catch_up_user
 //     already owns this case for existing rooms.
 //   - otherwise (Forward==false, OR Forward==true && AnchorMessage==nil):
 //     fetchTopicHeadMessages, for a flat portal's backward/queue path, a
