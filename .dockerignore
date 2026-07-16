@@ -1,0 +1,32 @@
+# Build context excludes for the Docker build. Keep anything the Dockerfile
+# COPYs: go.mod, go.sum, go source (cmd/, pkg/), build.sh, docker-run.sh.
+
+.git
+.github
+.idea
+.serena
+.superpowers
+docs/
+*.iml
+
+# Local dev artifacts / build output
+/mautrix-googlechat
+/tmp/
+/logs
+*.log
+*.db
+*.db-journal
+
+# Local config / secrets, never needed in the build context
+.env
+.env.spike
+/config.yaml
+/registration.yaml
+*cookie*
+*.cookies
+
+# Docs, not needed to build the binary
+README.md
+CHANGELOG.md
+LICENSE
+CLAUDE.md

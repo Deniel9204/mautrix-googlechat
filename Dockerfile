@@ -1,6 +1,8 @@
 FROM golang:1-alpine AS builder
 RUN apk add --no-cache git ca-certificates build-base
 WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
 RUN go build -tags goolm -o /usr/bin/mautrix-googlechat ./cmd/mautrix-googlechat
 
