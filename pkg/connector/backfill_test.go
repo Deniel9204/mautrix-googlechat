@@ -1561,6 +1561,66 @@ func TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically(t *testing.
 	}
 }
 
+// TestFetchMessagesThreadRootKeepsDistinctSiblingAtSameMicrosecond pins the
+// ThreadRoot-scoped analog of
+// TestFetchMessagesFlatAnchorKeepsDistinctSiblingAtSameMicrosecond: the
+// anchor filter's `msg.GetCreateTime() < anchorMicros` cutoff must exclude
+// the head only by id match, and anything strictly OLDER than the anchor by
+// time, while KEEPING a distinct reply that happens to share the anchor's
+// exact microsecond CreateTime. The existing
+// TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically test above
+// has no same-microsecond non-head message, so a regression from `<` to
+// `<=` would silently drop a genuine same-microsecond reply and still pass
+// every other test in this file.
+func TestFetchMessagesThreadRootKeepsDistinctSiblingAtSameMicrosecond(t *testing.T) {
+	group := gcid.GroupID{ID: "space-1", IsDM: false}
+	head := threadReply("head-1", "u1", "head text", 3_000_000)
+	sibling := threadReply("reply-sibling", "u2", "sibling text", 3_000_000) // same µs as anchor, distinct id
+	older := threadReply("reply-older", "u3", "older text", 1_000_000)       // strictly older: excluded
+	newer := threadReply("reply-newer", "u4", "newer text", 5_000_000)       // strictly newer: kept
+	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
+		// Deliberately out of order, mirroring the sibling test above.
+		return &pb.ListMessagesResponse{Messages: []*pb.Message{newer, head, sibling, older}}, nil
+	})
+	anchor := threadRootAnchor("head-1", "topic-1", 3_000_000)
+
+	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
+		Portal:        flatBackfillPortal(group),
+		ThreadRoot:    anchor.ID,
+		Forward:       true,
+		AnchorMessage: anchor,
+		Count:         10,
+	})
+	if err != nil {
+		t.Fatalf("FetchMessages returned error: %v", err)
+	}
+	got := map[networkid.MessageID]bool{}
+	for _, m := range resp.Messages {
+		got[m.ID] = true
+	}
+	if got[gcid.MakeMessageID("head-1")] {
+		t.Error("head-1 was re-delivered, want excluded (id-matches the anchor)")
+	}
+	if got[gcid.MakeMessageID("reply-older")] {
+		t.Error("reply-older was re-delivered, want excluded (strictly older than the anchor)")
+	}
+	if !got[gcid.MakeMessageID("reply-sibling")] {
+		t.Error("reply-sibling (distinct id, same microsecond as anchor) was excluded, want kept")
+	}
+	if !got[gcid.MakeMessageID("reply-newer")] {
+		t.Error("reply-newer (strictly newer than the anchor) was excluded, want kept")
+	}
+	if len(resp.Messages) != 2 {
+		t.Fatalf("len(Messages) = %d, want 2 (reply-sibling + reply-newer)", len(resp.Messages))
+	}
+	wantIDs := []networkid.MessageID{gcid.MakeMessageID("reply-sibling"), gcid.MakeMessageID("reply-newer")}
+	for i, want := range wantIDs {
+		if resp.Messages[i].ID != want {
+			t.Errorf("Messages[%d].ID = %q, want %q (chronological oldest-first)", i, resp.Messages[i].ID, want)
+		}
+	}
+}
+
 // TestFetchMessagesThreadRootNilAnchorReturnsEmptyResponse covers the
 // defensive case the augment file calls out explicitly: with no anchor
 // message there is no topic id to resolve, so this must return an empty
