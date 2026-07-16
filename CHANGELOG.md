@@ -2,15 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-This project does not yet follow Semantic Versioning tags/releases; entries
-below summarize the Go rewrite's progress at a milestone level rather than
-a commit-by-commit history.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project uses calendar versioning (`YY.MM`), matching the other
+mautrix bridges.
 
-## [Unreleased]
+## [26.07] - 2026-07-16
 
-Initial Go rewrite of the `mautrix/googlechat` bridge on top of the
-mautrix-go bridgev2 framework, replacing the original Python implementation.
+First tagged release: a complete Go rewrite of the `mautrix/googlechat`
+bridge on top of the mautrix-go bridgev2 framework (v0.29.0), replacing the
+original Python implementation.
 
 ### Added
 
