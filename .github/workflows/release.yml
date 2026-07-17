@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags: ["v0.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  linux-binaries:
+    runs-on: ubuntu-latest
+    name: Build linux binaries
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Reuses the Dockerfile's xx cross-toolchain; the `binary` target has no
+      # RUN under the target platform, so no QEMU is needed here.
+      - name: Build static binaries via buildx
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --target binary \
+            --build-arg "VERSION=$GITHUB_REF_NAME" \
+            --build-arg "COMMIT=$GITHUB_SHA" \
+            --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o type=local,dest=dist .
+          mkdir -p out
+          mv dist/linux_amd64/mautrix-googlechat out/mautrix-googlechat-amd64
+          mv dist/linux_arm64/mautrix-googlechat out/mautrix-googlechat-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: out/
+
+  darwin-binary:
+    runs-on: macos-latest
+    name: Build darwin-arm64 binary
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: |
+          go build -tags goolm \
+            -ldflags "-s -w -X main.Tag=$GITHUB_REF_NAME -X main.Commit=$GITHUB_SHA -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X maunium.net/go/mautrix.GoModVersion=$(go list -m -f '{{.Version}}' maunium.net/go/mautrix)" \
+            -o mautrix-googlechat-darwin-arm64 ./cmd/mautrix-googlechat
+          ./mautrix-googlechat-darwin-arm64 --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-binary
+          path: mautrix-googlechat-darwin-arm64
+
+  release:
+    runs-on: ubuntu-latest
+    name: Create GitHub release
+    needs: [linux-binaries, darwin-binary]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: assets
+
+      - name: Checksums
+        run: cd assets && chmod +x mautrix-googlechat-* && sha256sum * > sha256sums.txt
+
+      # Title matches mautrix convention: v0.2607.0 -> "v26.07",
+      # v0.2607.3 -> "v26.07.3". Notes = the tag's CHANGELOG section.
+      - name: Release notes from changelog
+        id: notes
+        run: |
+          raw="${GITHUB_REF_NAME#v0.}"
+          yymm="${raw%%.*}"
+          patch="${raw#*.}"
+          short="${yymm:0:2}.${yymm:2:2}"
+          calver="$short.$patch"
+          if [ "$patch" = "0" ]; then
+            title="v$short"
+            pattern="($calver|$short)"
+          else
+            title="v$calver"
+            pattern="$calver"
+          fi
+          awk -v pat="$pattern" '
+            $0 ~ ("^## \\[" pat "\\]") {found=1; next}
+            /^## \[/ && found {exit}
+            found {print}
+          ' CHANGELOG.md > notes.md
+          printf '\nDocker image: `ghcr.io/%s:v%s`\n' "${GITHUB_REPOSITORY,,}" "$calver" >> notes.md
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "${{ steps.notes.outputs.title }}" \
+            --notes-file notes.md \
+            assets/*
