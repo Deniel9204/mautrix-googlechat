@@ -21,9 +21,14 @@ ARG VERSION=unknown
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 RUN CGO_ENABLED=1 xx-go build -tags goolm \
-    -ldflags="-s -w -X main.Tag=${VERSION} -X main.Commit=${COMMIT} -X main.BuildTime=${BUILD_TIME} -X maunium.net/go/mautrix.GoModVersion=$(go list -m -f '{{.Version}}' maunium.net/go/mautrix)" \
+    -ldflags="-s -w -linkmode external -extldflags -static -X main.Tag=${VERSION} -X main.Commit=${COMMIT} -X main.BuildTime=${BUILD_TIME} -X maunium.net/go/mautrix.GoModVersion=$(go list -m -f '{{.Version}}' maunium.net/go/mautrix)" \
     -o /usr/bin/mautrix-googlechat ./cmd/mautrix-googlechat \
     && xx-verify /usr/bin/mautrix-googlechat
+
+# Standalone static binary export for GitHub release assets:
+#   docker buildx build --target binary -o type=local,dest=dist .
+FROM scratch AS binary
+COPY --from=builder /usr/bin/mautrix-googlechat /mautrix-googlechat
 
 FROM alpine:3.24
 RUN apk add --no-cache ffmpeg ca-certificates jq curl bash

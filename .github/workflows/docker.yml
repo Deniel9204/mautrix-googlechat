@@ -17,8 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Git tags are v0.YYMM.PATCH (mautrix CalVer); also publish the
-      # user-facing calendar form (26.07.2 / 26.07) as image tags.
+      # Git tags are v0.YYMM.PATCH (mautrix CalVer); docker version tags use
+      # the v-prefixed calendar form like upstream mautrix bridges
+      # (v0.2607.3 -> :v26.07.3 + :v26.07).
       - name: Calendar version tags
         id: calver
         if: startsWith(github.ref, 'refs/tags/v0.')
@@ -26,8 +27,8 @@ jobs:
           raw="${GITHUB_REF_NAME#v0.}"
           yymm="${raw%%.*}"
           patch="${raw#*.}"
-          echo "full=${yymm:0:2}.${yymm:2:2}.${patch}" >> "$GITHUB_OUTPUT"
-          echo "short=${yymm:0:2}.${yymm:2:2}" >> "$GITHUB_OUTPUT"
+          echo "full=v${yymm:0:2}.${yymm:2:2}.${patch}" >> "$GITHUB_OUTPUT"
+          echo "short=v${yymm:0:2}.${yymm:2:2}" >> "$GITHUB_OUTPUT"
 
       - name: Docker metadata
         id: meta
@@ -35,10 +36,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v0.') }}
             type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=${{ steps.calver.outputs.full }},enable=${{ steps.calver.outputs.full != '' }}
             type=raw,value=${{ steps.calver.outputs.short }},enable=${{ steps.calver.outputs.short != '' }}
             type=sha,format=short
