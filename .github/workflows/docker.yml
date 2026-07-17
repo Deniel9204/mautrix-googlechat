@@ -17,6 +17,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Git tags are v0.YYMM.PATCH (mautrix CalVer); also publish the
+      # user-facing calendar form (26.07.2 / 26.07) as image tags.
+      - name: Calendar version tags
+        id: calver
+        if: startsWith(github.ref, 'refs/tags/v0.')
+        run: |
+          raw="${GITHUB_REF_NAME#v0.}"
+          yymm="${raw%%.*}"
+          patch="${raw#*.}"
+          echo "full=${yymm:0:2}.${yymm:2:2}.${patch}" >> "$GITHUB_OUTPUT"
+          echo "short=${yymm:0:2}.${yymm:2:2}" >> "$GITHUB_OUTPUT"
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -27,6 +39,8 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ steps.calver.outputs.full }},enable=${{ steps.calver.outputs.full != '' }}
+            type=raw,value=${{ steps.calver.outputs.short }},enable=${{ steps.calver.outputs.short != '' }}
             type=sha,format=short
 
       - name: Build timestamp
@@ -55,7 +69,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ (startsWith(github.ref, 'refs/tags/') && steps.meta.outputs.version) || 'unknown' }}
+            VERSION=${{ (startsWith(github.ref, 'refs/tags/') && github.ref_name) || 'unknown' }}
             COMMIT=${{ github.sha }}
             BUILD_TIME=${{ steps.ts.outputs.value }}
           cache-from: type=gha
