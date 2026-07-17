@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.07.3] - 2026-07-17
+
+### Added
+
+- GitHub Releases are now created automatically on every release tag, titled
+  with the calendar version like other mautrix bridges (e.g. `v26.07.3`) and
+  carrying prebuilt static binaries (`mautrix-googlechat-amd64`, `-arm64`,
+  `-darwin-arm64`) plus `sha256sums.txt`.
+
+### Changed
+
+- Docker version tags now use the v-prefixed calendar form matching upstream
+  mautrix bridges (`:v26.07.3`, `:v26.07`); the unprefixed `:0.YYMM.P` and
+  `:26.07.x` forms are no longer published.
+- The Docker binary is now fully statically linked (`-linkmode external
+  -extldflags -static`), same as upstream mautrix release builds.
+
 ## [26.07.2] - 2026-07-17
 
 ### Added
