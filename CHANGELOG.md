@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.07.2] - 2026-07-17
+
+### Added
+
+- Docker images are now also tagged with the calendar version (`:26.07.2`,
+  `:26.07`) alongside the git-tag semver forms (`:0.2607.2`, `:0.2607`), so
+  image tags match what `--version` reports.
+
 ## [26.07.1] - 2026-07-16
 
 ### Added
