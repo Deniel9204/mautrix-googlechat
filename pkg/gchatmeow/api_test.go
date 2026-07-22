@@ -250,12 +250,12 @@ type hasRequestHeader interface {
 	GetRequestHeader() *pb.RequestHeader
 }
 
-// TestAllSixteenRPCsSetEndpointAndRequestHeader is a table-driven smoke
-// test over all 16 /api/* wrappers: each must POST to its named endpoint,
+// TestAllRPCsSetEndpointAndRequestHeader is a table-driven smoke
+// test over all 19 /api/* wrappers: each must POST to its named endpoint,
 // and must stamp request_header on the outgoing request. It does not assert
 // per-RPC response field plumbing beyond "no error" -- GetSelfUserStatus
 // above covers the full wire format (including the response side) in detail.
-func TestAllSixteenRPCsSetEndpointAndRequestHeader(t *testing.T) {
+func TestAllRPCsSetEndpointAndRequestHeader(t *testing.T) {
 	tests := []struct {
 		name     string
 		endpoint string
@@ -341,10 +341,25 @@ func TestAllSixteenRPCsSetEndpointAndRequestHeader(t *testing.T) {
 			_, err := c.ListMessages(context.Background(), req)
 			return req, err
 		}},
+		{"CreateMembership", "create_membership", func(c *Client) (hasRequestHeader, error) {
+			req := &pb.CreateMembershipRequest{}
+			_, err := c.CreateMembership(context.Background(), req)
+			return req, err
+		}},
+		{"RemoveMemberships", "remove_memberships", func(c *Client) (hasRequestHeader, error) {
+			req := &pb.RemoveMembershipsRequest{}
+			_, err := c.RemoveMemberships(context.Background(), req)
+			return req, err
+		}},
+		{"UpdateGroup", "update_group", func(c *Client) (hasRequestHeader, error) {
+			req := &pb.UpdateGroupRequest{}
+			_, err := c.UpdateGroup(context.Background(), req)
+			return req, err
+		}},
 	}
 
-	if len(tests) != 16 {
-		t.Fatalf("table has %d cases, want 16", len(tests))
+	if len(tests) != 19 {
+		t.Fatalf("table has %d cases, want 19", len(tests))
 	}
 
 	for _, tt := range tests {

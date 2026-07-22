@@ -49,6 +49,27 @@ func PartsToGroupID(id string, isDM bool) *pb.GroupId {
 	return &pb.GroupId{Id: &pb.GroupId_SpaceId{SpaceId: &pb.SpaceId{SpaceId: proto.String(id)}}}
 }
 
+// SpaceID builds a bare *pb.SpaceId from a plain space id, for the requests
+// that take a space directly rather than a GroupId oneof (e.g. update_group).
+func SpaceID(id string) *pb.SpaceId {
+	return &pb.SpaceId{SpaceId: proto.String(id)}
+}
+
+// UserMemberID builds a *pb.MemberId identifying a user by gaia id, for the
+// member_ids lists in membership requests.
+func UserMemberID(gaia string) *pb.MemberId {
+	return &pb.MemberId{Id: &pb.MemberId_UserId{UserId: &pb.UserId{Id: proto.String(gaia)}}}
+}
+
+// UserInviteeMemberInfo builds a *pb.InviteeMemberInfo identifying a user by
+// gaia id, for the invitee_member_infos list create_membership uses when
+// inviting other users into a space.
+func UserInviteeMemberInfo(gaia string) *pb.InviteeMemberInfo {
+	return &pb.InviteeMemberInfo{Id: &pb.InviteeMemberInfo_InviteeInfo{
+		InviteeInfo: &pb.InviteeInfo{UserId: &pb.UserId{Id: proto.String(gaia)}},
+	}}
+}
+
 // MicrosToTime converts a microsecond-since-epoch timestamp (as used
 // throughout the Google Chat API) to a UTC time.Time.
 //
