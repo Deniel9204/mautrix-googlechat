@@ -29,6 +29,14 @@
 //   - PaginatedWorld returns the account's chats (world sync);
 //   - the BrowserChannel choreography (register -> SID -> ack GET -> initial
 //     ping) actually delivers events, and the $req double-encoding is accepted.
+//
+// Opt-in probes for the outbound-membership/rename feature (issue #11), each
+// gated on its own env var and skipped otherwise:
+//   - TestLiveUpload: outbound media upload (GCHAT_LIVE_GROUP_ID).
+//   - TestLiveRoomName: reversible space rename (GCHAT_LIVE_SPACE_ID).
+//   - TestLiveMembershipRoundTrip: net-zero invite+remove, i.e. the
+//     create_membership + remove_memberships RPCs (GCHAT_LIVE_SPACE_ID +
+//     GCHAT_LIVE_INVITE_GAIA). DESTRUCTIVE -- use a throwaway target account.
 package gchatmeow
 
 import (
@@ -503,4 +511,120 @@ func probeWorld(t *testing.T, ctx context.Context, client *Client, label string,
 	t.Logf("VARIANT %s: status=%d body_len=%d hex[:%d]=%s unmarshal_err=%v WORLD_ITEMS=%d SECTIONS=%d",
 		label, res.StatusCode, len(body), prefixN, hex.EncodeToString(body[:prefixN]),
 		rawErr, len(resp.GetWorldItems()), len(resp.GetWorldSectionResponses()))
+}
+
+// TestLiveRoomName verifies the update_group rename RPC end to end and
+// REVERSIBLY: it reads the space's current name, renames it to a probe value,
+// asserts the RPC succeeds, then restores the original name -- net-zero.
+//
+// Requires GCHAT_LIVE_SPACE_ID = a plain space id (no space: prefix) the
+// account can rename; renaming may require a space-manager role, in which case
+// a plain member gets a clean error here (which is itself a useful result).
+// Skips if unset.
+//
+//	export GCHAT_LIVE_SPACE_ID='AAAAxxxxxxx'
+//	go test -tags 'goolm live' -run TestLiveRoomName -v -count=1 ./pkg/gchatmeow/
+func TestLiveRoomName(t *testing.T) {
+	cookies := liveCookies(t)
+	spaceID := os.Getenv("GCHAT_LIVE_SPACE_ID")
+	if spaceID == "" {
+		t.Skip("set GCHAT_LIVE_SPACE_ID to a space id the account can rename")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	// Read the current name so we can restore it.
+	gg, err := client.GetGroup(ctx, &pb.GetGroupRequest{
+		GroupId:      PartsToGroupID(spaceID, false),
+		FetchOptions: []pb.GetGroupRequest_FetchOptions{pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME},
+	})
+	if err != nil {
+		t.Fatalf("get_group (reading current name): %v", err)
+	}
+	orig := gg.GetGroup().GetName()
+	t.Logf("current space name = %q", orig)
+
+	rename := func(name string) error {
+		_, err := client.UpdateGroup(ctx, &pb.UpdateGroupRequest{
+			SpaceId:     SpaceID(spaceID),
+			Name:        proto.String(name),
+			UpdateMasks: []pb.UpdateGroupRequest_UpdateMask{pb.UpdateGroupRequest_NAME},
+		})
+		return err
+	}
+
+	probe := orig + " [rename-probe]"
+	if err := rename(probe); err != nil {
+		t.Fatalf("FAIL update_group rename -- #11 update_group endpoint/shape or a permission error: %v", err)
+	}
+	t.Logf("PASS update_group renamed space to %q", probe)
+
+	// Restore -- best-effort; if it fails, tell the operator to fix it manually.
+	if err := rename(orig); err != nil {
+		t.Errorf("could not restore original name %q (space is currently %q, rename it back manually): %v", orig, probe, err)
+	} else {
+		t.Logf("restored original name %q -- net-zero", orig)
+	}
+}
+
+// TestLiveMembershipRoundTrip verifies create_membership + remove_memberships
+// against a live space, NET-ZERO: it invites GCHAT_LIVE_INVITE_GAIA into the
+// space, then removes them. The remove path is the SAME remove_memberships RPC
+// a self-leave uses, so this covers invite, kick, and leave in one run.
+//
+// DESTRUCTIVE / opt-in: the target account receives a real invite and is then
+// removed -- use a throwaway or second account you control, never a stranger.
+// Requires GCHAT_LIVE_SPACE_ID + GCHAT_LIVE_INVITE_GAIA (the target's numeric
+// gaia id). Skips if either is unset.
+//
+//	export GCHAT_LIVE_SPACE_ID='AAAAxxxxxxx' GCHAT_LIVE_INVITE_GAIA='123456789012345'
+//	go test -tags 'goolm live' -run TestLiveMembershipRoundTrip -v -count=1 ./pkg/gchatmeow/
+func TestLiveMembershipRoundTrip(t *testing.T) {
+	cookies := liveCookies(t)
+	spaceID := os.Getenv("GCHAT_LIVE_SPACE_ID")
+	targetGaia := os.Getenv("GCHAT_LIVE_INVITE_GAIA")
+	if spaceID == "" || targetGaia == "" {
+		t.Skip("set GCHAT_LIVE_SPACE_ID and GCHAT_LIVE_INVITE_GAIA (a throwaway target's gaia id) to run")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+	groupID := PartsToGroupID(spaceID, false)
+
+	// Invite (create_membership) -- how the connector's HandleMatrixMembership
+	// routes an Invite.
+	if _, err := client.CreateMembership(ctx, &pb.CreateMembershipRequest{
+		GroupId:            groupID,
+		InviteeMemberInfos: []*pb.InviteeMemberInfo{UserInviteeMemberInfo(targetGaia)},
+	}); err != nil {
+		t.Fatalf("FAIL create_membership (invite) -- #11 endpoint/shape or permission: %v", err)
+	}
+	t.Logf("PASS create_membership invited %s", targetGaia)
+
+	// Remove (remove_memberships) -- the same RPC Kick and Leave use. Also the
+	// net-zero cleanup for the invite above.
+	if _, err := client.RemoveMemberships(ctx, &pb.RemoveMembershipsRequest{
+		GroupId:         groupID,
+		MemberIds:       []*pb.MemberId{UserMemberID(targetGaia)},
+		MembershipState: pb.MembershipState_MEMBER_INVITED.Enum(),
+	}); err != nil {
+		t.Errorf("remove_memberships cleanup failed -- %s may still be in the space, remove manually: %v", targetGaia, err)
+	} else {
+		t.Logf("PASS remove_memberships removed %s -- net-zero (also verifies the kick/leave RPC path)", targetGaia)
+	}
 }
