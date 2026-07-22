@@ -278,11 +278,22 @@ func TestLiveUpload(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// PaginatedWorld only returns the account's chats for a session with a
-	// live realtime channel: the connector calls syncChats only once Connect
-	// reaches CONNECTED (pkg/connector/client.go handleConnState -> syncChats).
-	// Calling it cold returns 0 items even for an account with many chats, so
-	// mirror production: connect, wait for CONNECTED, then sync.
+	// Fast path: upload into a known conversation. UploadFile only needs valid
+	// cookies + XSRF and a group id -- it does NOT depend on the realtime
+	// channel or on world sync, so a known-good group id skips the flaky
+	// discovery below entirely. Pass the PLAIN numeric id (no dm:/space:
+	// prefix), e.g. from the migrated portal ids (dm:hBEIAUAAAAE -> hBEIAUAAAAE)
+	// or any group id printed in the channel logs.
+	if gid := os.Getenv("GCHAT_LIVE_GROUP_ID"); gid != "" {
+		runUploadProbe(t, ctx, client, gid)
+		return
+	}
+
+	// Discovery path: PaginatedWorld only returns the account's chats for a
+	// session with a live realtime channel, so mirror production -- connect,
+	// wait for CONNECTED, then sync. (Note: this has been observed returning 0
+	// items even post-connect for accounts that demonstrably have chats; if it
+	// skips, use GCHAT_LIVE_GROUP_ID above instead.)
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel()
 	connected := make(chan struct{}, 1)
@@ -306,9 +317,6 @@ func TestLiveUpload(t *testing.T) {
 	// connErr is buffered(1), so the Connect goroutine can send and exit even
 	// with no reader once the deferred connCancel() unblocks it -- no leak.
 
-	// Find a conversation to upload into. UploadFile wants the PLAIN numeric
-	// group id (no dm:/space: prefix) -- see pkg/connector/media.go's
-	// buildUploadAnnotation, which passes gcid.GroupID.ID.
 	world, err := client.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
 		FetchFromUserSpaces: boolPtr(true),
 		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
@@ -339,11 +347,18 @@ func TestLiveUpload(t *testing.T) {
 		// group id) from a discovery bug (items exist but none yielded a
 		// plain id) so a skip is diagnosable without guessing.
 		t.Skipf("live upload skipped: no conversation to upload into "+
-			"(world items=%d, with group id=%d) -- if this is 0/0 the account "+
-			"has no chats: DM it from another account first, then re-run with "+
-			"-count=1 (live tests must bypass Go's result cache)", len(items), withGroup)
+			"(world items=%d, with group id=%d) -- set GCHAT_LIVE_GROUP_ID to a "+
+			"known plain group id (e.g. a migrated portal id without its dm:/"+
+			"space: prefix) and re-run with -count=1", len(items), withGroup)
 	}
 
+	runUploadProbe(t, ctx, client, groupID)
+}
+
+// runUploadProbe uploads a 1x1 PNG to groupID via the #114 risk path and
+// fails on any error (a 500 == #114 affects our wire shape too).
+func runUploadProbe(t *testing.T, ctx context.Context, client *Client, groupID string) {
+	t.Helper()
 	// A 1x1 transparent PNG -- the smallest valid image, well under #114's
 	// reported <500KB threshold.
 	png, err := base64.StdEncoding.DecodeString(
@@ -354,8 +369,8 @@ func TestLiveUpload(t *testing.T) {
 
 	meta, err := client.UploadFile(ctx, groupID, png, "issue114-probe.png", "image/png")
 	if err != nil {
-		t.Fatalf("FAIL UploadFile -- #114 DOES affect our wire shape (a 500 here confirms it): %v", err)
+		t.Fatalf("FAIL UploadFile (group_id=%s) -- #114 DOES affect our wire shape (a 500 here confirms it): %v", groupID, err)
 	}
-	t.Logf("PASS UploadFile -- #114 does NOT affect our shape: attachment_token=%q content_type=%q",
-		meta.GetAttachmentToken(), meta.GetContentType())
+	t.Logf("PASS UploadFile (group_id=%s) -- #114 does NOT affect our shape: attachment_token=%q content_type=%q",
+		groupID, meta.GetAttachmentToken(), meta.GetContentType())
 }
