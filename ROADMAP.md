@@ -71,12 +71,14 @@
   * [x] Option to use own Matrix account for messages sent from other Google Chat clients (double puppeting)
   * [x] One-shot migration from the Python bridge's database (`--migrate-from-python`)
 
-† Outbound media upload is fully implemented. The Python bridge's uploads have
-failed with an HTTP 500 since ~Feb 2026
+† Outbound media upload is implemented and **verified working against Google's
+live endpoint (2026-07-22)**. The Python bridge's uploads have failed with an
+HTTP 500 since ~Feb 2026
 ([mautrix/googlechat#114](https://github.com/mautrix/googlechat/issues/114)),
-most plausibly because its client (maugclib) appends `alt=`/`key=` params to
-the signed upload URL — a mutation this port does not perform (it sends the
-[purple-googlechat](https://github.com/EionRobb/purple-googlechat) shape, which
-uploads fine). A live upload from this bridge has not yet been run to confirm;
-`network.disable_outbound_media` turns upload attempts into clean errors if
-your account is affected.
+but that is a client request-shape bug — its client (maugclib) appends
+`alt=`/`key=` params to the signed upload URL and omits the XSRF header. This
+port does neither (it sends the
+[purple-googlechat](https://github.com/EionRobb/purple-googlechat) shape), and
+a live upload confirmed it succeeds. `network.disable_outbound_media` remains
+available to turn upload attempts into clean errors if a future change breaks
+them for your account.

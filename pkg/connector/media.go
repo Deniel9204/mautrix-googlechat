@@ -485,13 +485,13 @@ func uploadFilename(content *event.MessageEventContent) string {
 // A download or upload failure returns a clean, wrapped error and NO
 // annotation -- the caller (HandleMatrixMessage) must treat this as fatal
 // and send nothing at all, never falling back to a text-only send that
-// would silently lose the attached file. An UploadFile failure here is an
-// EXPECTED, not exceptional, outcome against Google's real servers today:
-// issue #114 (https://github.com/mautrix/googlechat/issues/114) reports
-// the /uploads endpoint returning HTTP 500 for every upload since ~Feb
-// 2026 -- the error message below names it explicitly so the failure shown
-// to the user (via bridgev2's own message-send-status translation) isn't a
-// bare, unexplained network error.
+// would silently lose the attached file. Uploads are verified working
+// against Google's live endpoint (2026-07-22); the error message below still
+// references issue #114 (https://github.com/mautrix/googlechat/issues/114) --
+// the Python bridge's upload 500s, a request-shape bug this port doesn't
+// share -- so that if uploads ever regress, the failure shown to the user
+// (via bridgev2's message-send-status translation) points at the known
+// upstream context instead of being a bare, unexplained network error.
 func (c *GChatClient) buildUploadAnnotation(ctx context.Context, msg *bridgev2.MatrixMessage, group gcid.GroupID) (*pb.Annotation, error) {
 	data, err := c.downloadMatrixMedia(ctx, msg)
 	if err != nil {
