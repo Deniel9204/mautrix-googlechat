@@ -28,6 +28,8 @@ This project is not affiliated with, endorsed by, or supported by Google.
 | Membership changes (joins/invites/leaves/kicks) | Supported |
 | History backfill | Supported (opt-in, see [Configuration](#configuration)) |
 
+The full mautrix-style feature matrix is in [ROADMAP.md](ROADMAP.md).
+
 ## Requirements
 
 - Go 1.25 or newer
