@@ -50,6 +50,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -611,17 +612,16 @@ func TestLiveRoomName(t *testing.T) {
 //
 // DESTRUCTIVE / opt-in: the target account receives a real invite and is then
 // removed -- use a throwaway or second account you control, never a stranger.
-// Requires GCHAT_LIVE_SPACE_ID + GCHAT_LIVE_INVITE_GAIA (the target's numeric
-// gaia id). Skips if either is unset.
+// Requires GCHAT_LIVE_SPACE_ID + GCHAT_LIVE_INVITE_GAIA (the target's email or numeric gaia id). Skips if either is unset.
 //
 //	export GCHAT_LIVE_SPACE_ID='AAAAxxxxxxx' GCHAT_LIVE_INVITE_GAIA='123456789012345'
 //	go test -tags 'goolm live' -run TestLiveMembershipRoundTrip -v -count=1 ./pkg/gchatmeow/
 func TestLiveMembershipRoundTrip(t *testing.T) {
 	cookies := liveCookies(t)
 	spaceID := os.Getenv("GCHAT_LIVE_SPACE_ID")
-	targetGaia := os.Getenv("GCHAT_LIVE_INVITE_GAIA")
-	if spaceID == "" || targetGaia == "" {
-		t.Skip("set GCHAT_LIVE_SPACE_ID and GCHAT_LIVE_INVITE_GAIA (a throwaway target's gaia id) to run")
+	target := os.Getenv("GCHAT_LIVE_INVITE_GAIA")
+	if spaceID == "" || target == "" {
+		t.Skip("set GCHAT_LIVE_SPACE_ID and GCHAT_LIVE_INVITE_GAIA (a throwaway target's gaia id OR email) to run")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -635,25 +635,98 @@ func TestLiveMembershipRoundTrip(t *testing.T) {
 	}
 	groupID := PartsToGroupID(spaceID, false)
 
-	// Invite (create_membership) -- how the connector's HandleMatrixMembership
-	// routes an Invite.
+	// Build the invitee: an email goes in invitee_info.email, a numeric gaia in
+	// invitee_info.user_id. The connector always has a ghost's gaia (user_id);
+	// email is a live-test convenience, since a human has an email handier than
+	// a raw gaia id.
+	var invitee *pb.InviteeInfo
+	if strings.Contains(target, "@") {
+		invitee = &pb.InviteeInfo{Email: proto.String(target)}
+		t.Logf("inviting by email %q", target)
+	} else {
+		invitee = &pb.InviteeInfo{UserId: &pb.UserId{Id: proto.String(target)}}
+		t.Logf("inviting by gaia %q", target)
+	}
+
+	// Snapshot current members so we can identify and remove exactly whom this
+	// invite adds -- keeps the run net-zero even for an email invite whose
+	// gaia we don't know up front.
+	before, err := spaceMemberGaias(ctx, client, spaceID)
+	if err != nil {
+		t.Fatalf("get_group (pre-invite snapshot): %v%s", err, errDetail(err))
+	}
+
 	if _, err := client.CreateMembership(ctx, &pb.CreateMembershipRequest{
-		GroupId:            groupID,
-		InviteeMemberInfos: []*pb.InviteeMemberInfo{UserInviteeMemberInfo(targetGaia)},
+		GroupId: groupID,
+		InviteeMemberInfos: []*pb.InviteeMemberInfo{
+			{Id: &pb.InviteeMemberInfo_InviteeInfo{InviteeInfo: invitee}},
+		},
 	}); err != nil {
 		t.Fatalf("FAIL create_membership (invite) -- #11 endpoint/shape or permission: %v%s", err, errDetail(err))
 	}
-	t.Logf("PASS create_membership invited %s", targetGaia)
+	t.Logf("PASS create_membership invited %q", target)
 
-	// Remove (remove_memberships) -- the same RPC Kick and Leave use. Also the
-	// net-zero cleanup for the invite above.
-	if _, err := client.RemoveMemberships(ctx, &pb.RemoveMembershipsRequest{
-		GroupId:         groupID,
-		MemberIds:       []*pb.MemberId{UserMemberID(targetGaia)},
-		MembershipState: pb.MembershipState_MEMBER_INVITED.Enum(),
-	}); err != nil {
-		t.Errorf("remove_memberships cleanup failed -- %s may still be in the space, remove manually: %v%s", targetGaia, err, errDetail(err))
-	} else {
-		t.Logf("PASS remove_memberships removed %s -- net-zero (also verifies the kick/leave RPC path)", targetGaia)
+	// Identify the newly-added member(s) via a get_group diff and remove them
+	// (net-zero, and this exercises remove_memberships == the kick/leave RPC).
+	after, err := spaceMemberGaias(ctx, client, spaceID)
+	if err != nil {
+		t.Errorf("get_group (post-invite snapshot) failed -- %q may still be invited, remove manually: %v%s", target, err, errDetail(err))
+		return
 	}
+	var added []string
+	for g := range after {
+		if !before[g] {
+			added = append(added, g)
+		}
+	}
+	if len(added) == 0 {
+		t.Logf("NOTE create_membership succeeded, but no new member id appeared in get_group yet "+
+			"(an email invite can stay pending without a resolved gaia). If %q is now invited, remove them "+
+			"manually; remove_memberships was not exercised this run.", target)
+		return
+	}
+	for _, g := range added {
+		if _, err := client.RemoveMemberships(ctx, &pb.RemoveMembershipsRequest{
+			GroupId:         groupID,
+			MemberIds:       []*pb.MemberId{UserMemberID(g)},
+			MembershipState: pb.MembershipState_MEMBER_INVITED.Enum(),
+		}); err != nil {
+			t.Errorf("remove_memberships cleanup for %s failed -- remove manually: %v%s", g, err, errDetail(err))
+		} else {
+			t.Logf("PASS remove_memberships removed %s -- net-zero (also verifies the kick/leave RPC path)", g)
+		}
+	}
+}
+
+// spaceMemberGaias returns the set of gaia ids currently in the space (joined
+// + invited members), read via get_group with production's request shape.
+func spaceMemberGaias(ctx context.Context, client *Client, spaceID string) (map[string]bool, error) {
+	resp, err := client.GetGroup(ctx, &pb.GetGroupRequest{
+		GroupId: PartsToGroupID(spaceID, false),
+		FetchOptions: []pb.GetGroupRequest_FetchOptions{
+			pb.GetGroupRequest_MEMBERS,
+			pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME,
+		},
+		IncludeInviteDms: proto.Bool(true),
+	})
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, m := range resp.GetMemberships() {
+		if id := m.GetId().GetMemberId().GetUserId().GetId(); id != "" {
+			set[id] = true
+		}
+	}
+	for _, m := range resp.GetJoinedMemberIds() {
+		if id := m.GetUserId().GetId(); id != "" {
+			set[id] = true
+		}
+	}
+	for _, m := range resp.GetInvitedMemberIds() {
+		if id := m.GetUserId().GetId(); id != "" {
+			set[id] = true
+		}
+	}
+	return set, nil
 }
