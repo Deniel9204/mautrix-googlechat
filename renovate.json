@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "description": "Automerge patch-level updates once CI is green; minor/major stay as normal PRs",
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true
+    }
+  ]
+}
