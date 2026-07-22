@@ -278,6 +278,34 @@ func TestLiveUpload(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
+	// PaginatedWorld only returns the account's chats for a session with a
+	// live realtime channel: the connector calls syncChats only once Connect
+	// reaches CONNECTED (pkg/connector/client.go handleConnState -> syncChats).
+	// Calling it cold returns 0 items even for an account with many chats, so
+	// mirror production: connect, wait for CONNECTED, then sync.
+	connCtx, connCancel := context.WithCancel(ctx)
+	defer connCancel()
+	connected := make(chan struct{}, 1)
+	client.OnConnectionState = func(state ConnState, err error) {
+		if state == ConnStateConnected {
+			select {
+			case connected <- struct{}{}:
+			default:
+			}
+		}
+	}
+	connErr := make(chan error, 1)
+	go func() { connErr <- client.Connect(connCtx) }()
+	select {
+	case <-connected:
+	case err := <-connErr:
+		t.Fatalf("Connect returned before connecting: %v", err)
+	case <-time.After(60 * time.Second):
+		t.Fatal("no CONNECTED state within 60s (channel choreography drift?)")
+	}
+	// connErr is buffered(1), so the Connect goroutine can send and exit even
+	// with no reader once the deferred connCancel() unblocks it -- no leak.
+
 	// Find a conversation to upload into. UploadFile wants the PLAIN numeric
 	// group id (no dm:/space: prefix) -- see pkg/connector/media.go's
 	// buildUploadAnnotation, which passes gcid.GroupID.ID.
