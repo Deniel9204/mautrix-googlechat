@@ -23,7 +23,7 @@ This project is not affiliated with, endorsed by, or supported by Google.
 | Read receipts | Supported |
 | Typing notifications | Supported |
 | Inbound media (Google Chat → Matrix: images, files) | Supported |
-| Outbound media (Matrix → Google Chat) | Implemented, but currently rejected by Google's server ([upstream issue #114](https://github.com/mautrix/googlechat/issues/114)); can be disabled via `network.disable_outbound_media` |
+| Outbound media (Matrix → Google Chat) | Implemented using the [purple-googlechat](https://github.com/EionRobb/purple-googlechat) request shape, which avoids the request bug suspected of causing the Python bridge's upload 500s ([upstream issue #114](https://github.com/mautrix/googlechat/issues/114)); not yet verified against the live endpoint. Can be disabled via `network.disable_outbound_media` |
 | Room renames / topic changes | Supported |
 | Membership changes (joins/invites/leaves/kicks) | Supported |
 | History backfill | Supported (opt-in, see [Configuration](#configuration)) |

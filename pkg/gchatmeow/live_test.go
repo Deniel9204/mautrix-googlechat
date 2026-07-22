@@ -34,6 +34,7 @@ package gchatmeow
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"testing"
 	"time"
@@ -248,4 +249,71 @@ func TestLiveSendReceive(t *testing.T) {
 	}
 	connCancel()
 	<-connErr
+}
+
+// TestLiveUpload attempts exactly one real media upload against Google's
+// /uploads endpoint -- the issue #114 risk path. It answers, definitively for
+// THIS bridge's wire shape (which deliberately avoids maugclib's alt=/key=
+// pollution of the signed upload URL and sends the XSRF header on both hops),
+// whether outbound media upload works today. A 500 here == #114 also affects
+// our shape; a pass == #114 is a Python-maugclib bug we don't share.
+//
+//	go test -tags 'goolm live' -run TestLiveUpload -v -timeout 5m ./pkg/gchatmeow/
+func TestLiveUpload(t *testing.T) {
+	cookies := liveCookies(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	// Find a conversation to upload into. UploadFile wants the PLAIN numeric
+	// group id (no dm:/space: prefix) -- see pkg/connector/media.go's
+	// buildUploadAnnotation, which passes gcid.GroupID.ID.
+	world, err := client.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
+		FetchFromUserSpaces: boolPtr(true),
+		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+	})
+	if err != nil {
+		t.Fatalf("PaginatedWorld: %v", err)
+	}
+	var groupID string
+	for _, item := range world.GetWorldItems() {
+		gid := item.GetGroupId()
+		if gid == nil {
+			continue
+		}
+		if dm := gid.GetDmId().GetDmId(); dm != "" {
+			groupID = dm
+		} else if sp := gid.GetSpaceId().GetSpaceId(); sp != "" {
+			groupID = sp
+		}
+		if groupID != "" {
+			break
+		}
+	}
+	if groupID == "" {
+		t.Skip("live upload skipped: the test account has no conversation to upload into -- " +
+			"have another user DM the account first, then re-run")
+	}
+
+	// A 1x1 transparent PNG -- the smallest valid image, well under #114's
+	// reported <500KB threshold.
+	png, err := base64.StdEncoding.DecodeString(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+	if err != nil {
+		t.Fatalf("decode probe png: %v", err)
+	}
+
+	meta, err := client.UploadFile(ctx, groupID, png, "issue114-probe.png", "image/png")
+	if err != nil {
+		t.Fatalf("FAIL UploadFile -- #114 DOES affect our wire shape (a 500 here confirms it): %v", err)
+	}
+	t.Logf("PASS UploadFile -- #114 does NOT affect our shape: attachment_token=%q content_type=%q",
+		meta.GetAttachmentToken(), meta.GetContentType())
 }

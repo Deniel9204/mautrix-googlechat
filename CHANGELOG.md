@@ -63,10 +63,12 @@ original Python implementation.
   bidirectionally.
 - Inbound media: images and files sent in Google Chat are downloaded and
   bridged to Matrix as native media events.
-- Outbound media support (Matrix → Google Chat uploads) is implemented, but
-  currently fails against Google's live servers due to an upstream issue
+- Outbound media support (Matrix → Google Chat uploads) is implemented using
+  the purple-googlechat request shape, which avoids the request bug suspected
+  of causing the Python bridge's upload 500s
   ([mautrix/googlechat#114](https://github.com/mautrix/googlechat/issues/114));
-  it can be disabled via `network.disable_outbound_media`.
+  it has not yet been verified against the live endpoint, and can be disabled
+  via `network.disable_outbound_media`.
 - Room metadata sync: room renames, topic/description changes, and
   membership changes (joins, invites, leaves, kicks) are bridged as they
   happen on Google Chat's side.
