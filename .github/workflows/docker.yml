@@ -48,7 +48,7 @@ jobs:
 
       # binfmt emulation for the final-stage `RUN apk add` under linux/arm64;
       # the Go build itself is cross-compiled natively via tonistiigi/xx.
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
 
       - uses: docker/setup-buildx-action@v4
 
