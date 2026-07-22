@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.07.4] - 2026-07-22
+
+### Fixed
+
+- Chat-list sync now returns the account's conversations. The
+  `paginated_world` request was missing a world-section, so the server
+  returned an empty world and newly-created Google Chat conversations never
+  auto-created a portal.
+
+### Changed
+
+- Outbound media upload confirmed working against Google's live endpoint (the
+  upload 500s tracked in
+  [mautrix/googlechat#114](https://github.com/mautrix/googlechat/issues/114)
+  are a client request-shape bug this bridge doesn't share).
+- Dependency and CI maintenance: hourly Renovate with patch automerge, and
+  updated GitHub Actions plus the `tonistiigi/xx` cross-compiler.
+- Project documentation consolidated into `docs/ARCHITECTURE.md`.
+
 ## [26.07.3] - 2026-07-17
 
 ### Added
