@@ -406,3 +406,29 @@ func (c *Client) ListMessages(ctx context.Context, req *pb.ListMessagesRequest) 
 	resp := &pb.ListMessagesResponse{}
 	return resp, c.doRequest(ctx, "list_messages", req, resp)
 }
+
+// CreateMembership adds member(s) to a space (an invite/add). Spaces only.
+// Endpoint: create_membership.
+func (c *Client) CreateMembership(ctx context.Context, req *pb.CreateMembershipRequest) (*pb.CreateMembershipResponse, error) {
+	req.RequestHeader = newRequestHeader()
+	resp := &pb.CreateMembershipResponse{}
+	return resp, c.doRequest(ctx, "create_membership", req, resp)
+}
+
+// RemoveMemberships removes member(s) from a space. Removing the logged-in
+// user's own id is how a "leave" is performed. Spaces only.
+// Endpoint: remove_memberships.
+func (c *Client) RemoveMemberships(ctx context.Context, req *pb.RemoveMembershipsRequest) (*pb.RemoveMembershipsResponse, error) {
+	req.RequestHeader = newRequestHeader()
+	resp := &pb.RemoveMembershipsResponse{}
+	return resp, c.doRequest(ctx, "remove_memberships", req, resp)
+}
+
+// UpdateGroup updates a space's metadata; used here to rename a space (Name +
+// the NAME update mask). Spaces only -- the request has no DM arm.
+// Endpoint: update_group.
+func (c *Client) UpdateGroup(ctx context.Context, req *pb.UpdateGroupRequest) (*pb.UpdateGroupResponse, error) {
+	req.RequestHeader = newRequestHeader()
+	resp := &pb.UpdateGroupResponse{}
+	return resp, c.doRequest(ctx, "update_group", req, resp)
+}

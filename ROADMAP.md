@@ -21,12 +21,12 @@
   * [x] Typing notifications
   * [x] Read receipts
   * [ ] Membership actions
-    * [ ] Invite
+    * [x] Invite
     * [ ] Join (accept invite)
-    * [ ] Kick
-    * [ ] Leave
-  * [ ] Room metadata changes
-    * [ ] Name
+    * [x] Kick
+    * [x] Leave
+  * [x] Room metadata changes
+    * [x] Name
 * Google Chat → Matrix
   * [x] Message content
     * [x] Text

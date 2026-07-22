@@ -29,6 +29,14 @@
 //   - PaginatedWorld returns the account's chats (world sync);
 //   - the BrowserChannel choreography (register -> SID -> ack GET -> initial
 //     ping) actually delivers events, and the $req double-encoding is accepted.
+//
+// Opt-in probes for the outbound-membership/rename feature (issue #11), each
+// gated on its own env var and skipped otherwise:
+//   - TestLiveUpload: outbound media upload (GCHAT_LIVE_GROUP_ID).
+//   - TestLiveRoomName: reversible space rename (GCHAT_LIVE_SPACE_ID).
+//   - TestLiveMembershipRoundTrip: net-zero invite+remove, i.e. the
+//     create_membership + remove_memberships RPCs (GCHAT_LIVE_SPACE_ID +
+//     GCHAT_LIVE_INVITE_GAIA). DESTRUCTIVE -- use a throwaway target account.
 package gchatmeow
 
 import (
@@ -36,11 +44,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +58,18 @@ import (
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
+
+// errDetail surfaces the server's response body (first 512 bytes) from an
+// *UnexpectedStatusError, which the error's own Error() omits -- for an
+// opaque 500/4xx this is where Google's actual reason (e.g. invalid user id,
+// permission) appears.
+func errDetail(err error) string {
+	var ue *UnexpectedStatusError
+	if errors.As(err, &ue) && ue.Body != "" {
+		return fmt.Sprintf(" [status %d body: %q]", ue.Status, ue.Body)
+	}
+	return ""
+}
 
 func liveCookies(t *testing.T) map[string]string {
 	t.Helper()
@@ -503,4 +525,219 @@ func probeWorld(t *testing.T, ctx context.Context, client *Client, label string,
 	t.Logf("VARIANT %s: status=%d body_len=%d hex[:%d]=%s unmarshal_err=%v WORLD_ITEMS=%d SECTIONS=%d",
 		label, res.StatusCode, len(body), prefixN, hex.EncodeToString(body[:prefixN]),
 		rawErr, len(resp.GetWorldItems()), len(resp.GetWorldSectionResponses()))
+}
+
+// TestLiveRoomName verifies the update_group rename RPC end to end and
+// REVERSIBLY: it reads the space's current name, renames it to a probe value,
+// asserts the RPC succeeds, then restores the original name -- net-zero.
+//
+// Requires GCHAT_LIVE_SPACE_ID = a plain space id (no space: prefix) the
+// account can rename; renaming may require a space-manager role, in which case
+// a plain member gets a clean error here (which is itself a useful result).
+// Skips if unset. Optionally set GCHAT_LIVE_SPACE_ORIG_NAME to the space's
+// current name to skip the get_group read-back (and thus verify update_group
+// even if get_group is unavailable for the account).
+//
+//	export GCHAT_LIVE_SPACE_ID='AAAAxxxxxxx'
+//	# optional: export GCHAT_LIVE_SPACE_ORIG_NAME='My Space'
+//	go test -tags 'goolm live' -run TestLiveRoomName -v -count=1 ./pkg/gchatmeow/
+func TestLiveRoomName(t *testing.T) {
+	cookies := liveCookies(t)
+	spaceID := os.Getenv("GCHAT_LIVE_SPACE_ID")
+	if spaceID == "" {
+		t.Skip("set GCHAT_LIVE_SPACE_ID to a space id the account can rename")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	// The original name is needed so the rename can be restored (net-zero).
+	// Prefer an explicitly provided name (GCHAT_LIVE_SPACE_ORIG_NAME) so the
+	// rename RPC can be verified even if get_group is unavailable; otherwise
+	// read it via get_group, mirroring production's exact request shape
+	// (chatinfo.go: MEMBERS + INCLUDE_DYNAMIC_GROUP_NAME + IncludeInviteDms).
+	orig := os.Getenv("GCHAT_LIVE_SPACE_ORIG_NAME")
+	if orig == "" {
+		gg, err := client.GetGroup(ctx, &pb.GetGroupRequest{
+			GroupId: PartsToGroupID(spaceID, false),
+			FetchOptions: []pb.GetGroupRequest_FetchOptions{
+				pb.GetGroupRequest_MEMBERS,
+				pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME,
+			},
+			IncludeInviteDms: proto.Bool(true),
+		})
+		if err != nil {
+			t.Fatalf("get_group (reading current name) failed: %v\n"+
+				"  - check GCHAT_LIVE_SPACE_ID is a PLAIN space id (no \"space:\" prefix) for a space this account is a member of;\n"+
+				"  - or set GCHAT_LIVE_SPACE_ORIG_NAME=<current name> to skip the read-back and test update_group directly.", err)
+		}
+		orig = gg.GetGroup().GetName()
+	}
+	t.Logf("original space name = %q", orig)
+
+	rename := func(name string) error {
+		_, err := client.UpdateGroup(ctx, &pb.UpdateGroupRequest{
+			SpaceId:     SpaceID(spaceID),
+			Name:        proto.String(name),
+			UpdateMasks: []pb.UpdateGroupRequest_UpdateMask{pb.UpdateGroupRequest_NAME},
+		})
+		return err
+	}
+
+	probe := orig + " [rename-probe]"
+	if err := rename(probe); err != nil {
+		t.Fatalf("FAIL update_group rename -- #11 update_group endpoint/shape or a permission error: %v%s", err, errDetail(err))
+	}
+	t.Logf("PASS update_group renamed space to %q", probe)
+
+	// Restore -- best-effort; if it fails, tell the operator to fix it manually.
+	if err := rename(orig); err != nil {
+		t.Errorf("could not restore original name %q (space is currently %q, rename it back manually): %v", orig, probe, err)
+	} else {
+		t.Logf("restored original name %q -- net-zero", orig)
+	}
+}
+
+// TestLiveMembershipRoundTrip verifies create_membership + remove_memberships
+// against a live space, NET-ZERO: it invites GCHAT_LIVE_INVITE_GAIA into the
+// space, then removes them. The remove path is the SAME remove_memberships RPC
+// a self-leave uses, so this covers invite, kick, and leave in one run.
+//
+// DESTRUCTIVE / opt-in: the target account receives a real invite and is then
+// removed -- use a throwaway or second account you control, never a stranger.
+// Requires GCHAT_LIVE_SPACE_ID + GCHAT_LIVE_INVITE_GAIA (the target's email or numeric gaia id). Skips if either is unset.
+//
+//	export GCHAT_LIVE_SPACE_ID='AAAAxxxxxxx' GCHAT_LIVE_INVITE_GAIA='123456789012345'
+//	go test -tags 'goolm live' -run TestLiveMembershipRoundTrip -v -count=1 ./pkg/gchatmeow/
+func TestLiveMembershipRoundTrip(t *testing.T) {
+	cookies := liveCookies(t)
+	spaceID := os.Getenv("GCHAT_LIVE_SPACE_ID")
+	target := os.Getenv("GCHAT_LIVE_INVITE_GAIA")
+	if spaceID == "" || target == "" {
+		t.Skip("set GCHAT_LIVE_SPACE_ID and GCHAT_LIVE_INVITE_GAIA (a throwaway target's gaia id OR email) to run")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+	groupID := PartsToGroupID(spaceID, false)
+
+	// Build the invitee: an email goes in invitee_info.email, a numeric gaia in
+	// invitee_info.user_id. The connector always has a ghost's gaia (user_id);
+	// email is a live-test convenience, since a human has an email handier than
+	// a raw gaia id.
+	var invitee *pb.InviteeInfo
+	if strings.Contains(target, "@") {
+		invitee = &pb.InviteeInfo{Email: proto.String(target)}
+		t.Logf("inviting by email %q", target)
+	} else {
+		invitee = &pb.InviteeInfo{UserId: &pb.UserId{Id: proto.String(target)}}
+		t.Logf("inviting by gaia %q", target)
+	}
+
+	// Snapshot current members so an EMAIL invite (whose gaia we don't know up
+	// front) can still be cleaned up net-zero via a diff. Not needed for a
+	// gaia invite (we already know the id), but cheap and useful.
+	before, err := spaceMemberGaias(ctx, client, spaceID)
+	if err != nil {
+		t.Fatalf("get_group (pre-invite snapshot): %v%s", err, errDetail(err))
+	}
+
+	// Invite. Non-fatal on error: create_membership success is proven when it
+	// returns nil (logged PASS), but a re-run against a target already invited
+	// from a prior run may error here -- in which case we still proceed to the
+	// remove step so the stuck invite gets cleaned up and remove_memberships is
+	// exercised.
+	if _, err := client.CreateMembership(ctx, &pb.CreateMembershipRequest{
+		GroupId: groupID,
+		InviteeMemberInfos: []*pb.InviteeMemberInfo{
+			{Id: &pb.InviteeMemberInfo_InviteeInfo{InviteeInfo: invitee}},
+		},
+	}); err != nil {
+		t.Logf("create_membership returned an error (may be already-invited from a prior run): %v%s", err, errDetail(err))
+	} else {
+		t.Logf("PASS create_membership invited %q", target)
+	}
+
+	// Decide whom to remove. For a gaia target we know exactly who it is (no
+	// need to trust a get_group diff, which can miss a pending invite); for an
+	// email target, diff the membership snapshot to find the added gaia.
+	var toRemove []string
+	if !strings.Contains(target, "@") {
+		toRemove = []string{target}
+	} else {
+		after, err := spaceMemberGaias(ctx, client, spaceID)
+		if err != nil {
+			t.Errorf("get_group (post-invite snapshot) failed -- %q may still be invited, remove manually: %v%s", target, err, errDetail(err))
+			return
+		}
+		for g := range after {
+			if !before[g] {
+				toRemove = append(toRemove, g)
+			}
+		}
+	}
+	if len(toRemove) == 0 {
+		t.Logf("NOTE create_membership succeeded, but no gaia to remove was resolved "+
+			"(email invite still pending). If %q is now invited, remove them manually; "+
+			"remove_memberships was not exercised this run.", target)
+		return
+	}
+	for _, g := range toRemove {
+		if _, err := client.RemoveMemberships(ctx, &pb.RemoveMembershipsRequest{
+			GroupId:         groupID,
+			MemberIds:       []*pb.MemberId{UserMemberID(g)},
+			MembershipState: pb.MembershipState_MEMBER_INVITED.Enum(),
+		}); err != nil {
+			t.Errorf("remove_memberships cleanup for %s failed -- remove manually: %v%s", g, err, errDetail(err))
+		} else {
+			t.Logf("PASS remove_memberships removed %s -- net-zero (also verifies the kick/leave RPC path)", g)
+		}
+	}
+}
+
+// spaceMemberGaias returns the set of gaia ids currently in the space (joined
+// + invited members), read via get_group with production's request shape.
+func spaceMemberGaias(ctx context.Context, client *Client, spaceID string) (map[string]bool, error) {
+	resp, err := client.GetGroup(ctx, &pb.GetGroupRequest{
+		GroupId: PartsToGroupID(spaceID, false),
+		FetchOptions: []pb.GetGroupRequest_FetchOptions{
+			pb.GetGroupRequest_MEMBERS,
+			pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME,
+		},
+		IncludeInviteDms: proto.Bool(true),
+	})
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, m := range resp.GetMemberships() {
+		if id := m.GetId().GetMemberId().GetUserId().GetId(); id != "" {
+			set[id] = true
+		}
+	}
+	for _, m := range resp.GetJoinedMemberIds() {
+		if id := m.GetUserId().GetId(); id != "" {
+			set[id] = true
+		}
+	}
+	for _, m := range resp.GetInvitedMemberIds() {
+		if id := m.GetUserId().GetId(); id != "" {
+			set[id] = true
+		}
+	}
+	return set, nil
 }
