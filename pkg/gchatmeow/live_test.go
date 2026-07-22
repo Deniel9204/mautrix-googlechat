@@ -1,6 +1,6 @@
 //go:build live
 
-// Package gchatmeow live-protocol validation harness (M1 Task 13 spike).
+// Package gchatmeow live-protocol validation harness.
 //
 // This is the ONLY test that talks to real Google Chat. It is gated behind the
 // `live` build tag AND the presence of real cookies in the environment, so it
@@ -21,8 +21,7 @@
 // logged, never written to the repo. `.spike-fixtures` and `.env` are
 // gitignored.
 //
-// What it validates (the 2026 protocol-drift risks from docs/research/07 R1 and
-// the open questions in 01/02/05):
+// What it validates (the 2026 protocol-drift risks):
 //   - the frozen API key + client_version=2440378181258 still authenticate;
 //   - GET /mole/world still yields an XSRF token (not a logged-out page);
 //   - alt=proto responses decode (and whether any arrive base64 — api.go's
@@ -160,7 +159,7 @@ func TestLiveProtocol(t *testing.T) {
 
 func boolPtr(b bool) *bool { return &b }
 
-// TestLiveSendReceive exercises the M2 send path (create_topic) and the inbound
+// TestLiveSendReceive exercises the send path (create_topic) and the inbound
 // MESSAGE_POSTED→text conversion against real Google Chat: it finds a
 // conversation the test account can post to, sends a uniquely-marked message,
 // and confirms the message comes back on the channel as a MESSAGE_POSTED echo
@@ -236,7 +235,7 @@ func TestLiveSendReceive(t *testing.T) {
 		t.Fatalf("Connect returned early: %v", err)
 	}
 
-	// Send via create_topic (the M2 send path; RequestHeader is stamped inside).
+	// Send via create_topic (the send path; RequestHeader is stamped inside).
 	resp, err := client.CreateTopic(ctx, &pb.CreateTopicRequest{
 		GroupId:   target,
 		LocalId:   &localID,
@@ -263,10 +262,11 @@ func TestLiveSendReceive(t *testing.T) {
 
 // TestLiveUpload attempts exactly one real media upload against Google's
 // /uploads endpoint -- the issue #114 risk path. It answers, definitively for
-// THIS bridge's wire shape (which deliberately avoids maugclib's alt=/key=
-// pollution of the signed upload URL and sends the XSRF header on both hops),
-// whether outbound media upload works today. A 500 here == #114 also affects
-// our shape; a pass == #114 is a Python-maugclib bug we don't share.
+// THIS bridge's wire shape (which deliberately avoids polluting the signed
+// upload URL with alt=/key= query params and sends the XSRF header on both
+// hops), whether outbound media upload works today. A 500 here == #114 also
+// affects our shape; a pass == #114 is caused by the signed-URL alt=/key=
+// pollution this shape avoids.
 //
 // The account whose cookies you export MUST have at least one Google Chat
 // conversation (a DM or space) — the upload is scoped to a group_id. A

@@ -223,9 +223,8 @@ func TestCatchUpDispatchesEventsThroughHandleGChatEvent(t *testing.T) {
 	}
 }
 
-// TestCatchUpSplitsMultiBodyEventsBeforeDispatch pins fidelity with
-// portal.py:494-495's `for evt in source.client.split_event_bodies(multi_evt)`:
-// a raw catch_up_user event can itself carry more than one body (field 8,
+// TestCatchUpSplitsMultiBodyEventsBeforeDispatch pins that a raw
+// catch_up_user event can itself carry more than one body (field 8,
 // "bodies") exactly like a live StreamEventsResponse event does, and each
 // body must become its own dispatched event.
 func TestCatchUpSplitsMultiBodyEventsBeforeDispatch(t *testing.T) {
@@ -399,9 +398,8 @@ func TestCatchUpRPCFailureLeavesWatermarkUnchanged(t *testing.T) {
 
 // TestCatchUpAbortedStatusLeavesWatermarkUnchanged covers the response-level
 // failure mode (as opposed to a transport-level RPC error above): an
-// ABORTED_* status (portal.py:474-480's equivalent check for catch_up_group)
-// means the server refused to honor the requested range at all, so nothing
-// it returned is safe to replay or advance the watermark to.
+// ABORTED_* status means the server refused to honor the requested range at
+// all, so nothing it returned is safe to replay or advance the watermark to.
 func TestCatchUpAbortedStatusLeavesWatermarkUnchanged(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
@@ -635,10 +633,10 @@ func TestHandleConnStateSetsSyncInProgressSynchronously(t *testing.T) {
 
 // --- watermark advancement on the live handleGChatEvent path -------------
 // Every successfully handled event (not just catch-up replay) moves the
-// watermark, mirroring user.py:674-682's on_stream_event (gchat-port-auditor
-// P0 fix: without this, the watermark could only ever move forward from
-// inside catchUp's own replay, so it would go stale during ordinary live
-// traffic and eventually make catch_up_user permanently fail). The USER
+// watermark (gchat-port-auditor P0 fix: without this, the watermark could
+// only ever move forward from inside catchUp's own replay, so it would go
+// stale during ordinary live traffic and eventually make catch_up_user
+// permanently fail). The USER
 // watermark advances ONLY from user_revision; group_revision goes to the
 // per-portal watermark instead (M2-review Important #2); and the advance
 // happens only AFTER a successful queue (M2-review Important #3).
@@ -879,8 +877,7 @@ func newBackfillTestClient(ownGaia string, list func(context.Context, *pb.ListTo
 }
 
 // flatTopic builds a *pb.Topic shaped like a non-threaded topic: exactly one
-// reply (the flat message itself), matching portal.py's own
-// `topic.replies[0]` reading of a non-threaded topic.
+// reply (the flat message itself, read as topic.replies[0]).
 func flatTopic(topicID, msgID, creatorGaia, text string, sortTime int64) *pb.Topic {
 	return &pb.Topic{
 		Id:       &pb.TopicId{TopicId: proto.String(topicID)},
@@ -901,8 +898,7 @@ func flatTopic(topicID, msgID, creatorGaia, text string, sortTime int64) *pb.Top
 // must issue exactly ONE ListTopics call, with PageSizeForTopics = params.Count
 // (the entire requested backfill depth, not a growing cumulative request), and
 // the response must report HasMore=false with an empty Cursor -- there is no
-// next page to ask for, ever, matching portal.py's _initial_backfill (one
-// ListTopicsRequest, no loop).
+// next page to ask for, ever (one ListTopicsRequest, no loop).
 func TestFetchMessagesFlatCallsListTopicsOnceWithGroupAndCount(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var gotReq *pb.ListTopicsRequest
@@ -970,10 +966,10 @@ func TestFetchMessagesFlatZeroCountFallsBackToDefault(t *testing.T) {
 // --- chronological ordering + field mapping ----------------------------
 
 // TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields pins the
-// brief's core ask: the server returns topics NEWEST-FIRST (matching
-// portal.py's own need to reverse them, portal.py:428); the response must
-// come back oldest-to-newest, and each BackfillMessage's ID/Sender/
-// Timestamp/StreamOrder must be derived from its topic's head reply.
+// brief's core ask: the server returns topics NEWEST-FIRST (so they must be
+// reversed); the response must come back oldest-to-newest, and each
+// BackfillMessage's ID/Sender/Timestamp/StreamOrder must be derived from its
+// topic's head reply.
 func TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	// Server order: newest (m3) first, oldest (m1) last -- exactly what a
@@ -1059,10 +1055,9 @@ func TestFetchMessagesFlatSenderIsFromMe(t *testing.T) {
 // `type Reaction struct`, attached to Message.Reactions field 21) carries
 // ONLY Emoji/Count/CurrentUserParticipated/CreateTimestamp -- no reactor user
 // id -- so there is no identity to build a bridgev2.BackfillReaction.Sender
-// from. Python makes the identical choice: portal.py's _initial_backfill
-// (portal.py:406-448) never reads message.reactions at all; reactions are
-// bridged exclusively from live MessageReactionEvents, which do carry a real
-// reactor id. This test builds a GC Message whose Reactions field IS
+// from. Reactions are bridged exclusively from live MessageReactionEvents,
+// which do carry a real reactor id. This test builds a GC Message whose
+// Reactions field IS
 // populated (Count>0, CurrentUserParticipated=true -- the only case a naive
 // future change might be tempted to attribute to the current user) and
 // asserts the resulting BackfillMessage.Reactions is nil/empty regardless.
@@ -1333,11 +1328,11 @@ func TestFetchMessagesFlatAnchorKeepsDistinctSiblingAtSameMicrosecond(t *testing
 // Chat thread even inside an otherwise-flat room
 // (topic_read_state.thread_created_usec > 0) was bridged as ONLY its head
 // reply, never setting ShouldBackfillThread, so the framework would never
-// drive a ThreadRoot-scoped fetch for its other replies -- unlike Python's
-// `self.threads_only or topic.topic_read_state.thread_created_usec > 0`
-// (portal.py:432). These two tests pin the closed gap: a flat topic that DOES
-// carry a real thread now gets ShouldBackfillThread=true; a plain flat topic
-// (no real thread) still does not.
+// drive a ThreadRoot-scoped fetch for its other replies -- the rule being
+// threads_only OR topic_read_state.thread_created_usec > 0. These two tests
+// pin the closed gap: a flat topic that DOES carry a real thread now gets
+// ShouldBackfillThread=true; a plain flat topic (no real thread) still does
+// not.
 
 func TestFetchMessagesFlatTopicWithRealThreadSetsShouldBackfillThread(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
@@ -1697,12 +1692,10 @@ func TestFetchMessagesThreadRootCallsListMessagesWithTopicFromAnchorMetadata(t *
 
 // TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically pins the
 // brief's "head message not duplicated" ask plus chronological ordering:
-// list_messages may re-include the topic's head reply (Python's own
-// handle_googlechat_message defends against exactly this via its DB
-// existence check, portal.py:1348-1350) -- this must filter it out via the
-// same anchor criterion fetchTopicHeadMessages uses (mirrored for the
-// forward direction), and the two genuine replies must come back oldest
-// first regardless of the server's delivery order.
+// list_messages may re-include the topic's head reply -- this must filter it
+// out via the same anchor criterion fetchTopicHeadMessages uses (mirrored
+// for the forward direction), and the two genuine replies must come back
+// oldest first regardless of the server's delivery order.
 func TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	head := threadReply("head-1", "u1", "head text", 1_000_000)

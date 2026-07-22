@@ -3,17 +3,16 @@ package connector
 // GChatClient is the per-UserLogin bridgev2.NetworkAPI implementation. It
 // owns exactly one gchatmeow.Client at a time (c.conn) and translates its
 // connection-state callbacks into bridgev2 BridgeState updates (see
-// bridgestate.go's connStateToBridgeState and docs/research/04 §4.11 / 07
-// §1.3 "Connection lifecycle").
+// bridgestate.go's connStateToBridgeState).
 //
-// The conn field is deliberately NOT named "Client" (as it was through Task
-// 10): *GChatClient itself has a Connect method (the bridgev2.NetworkAPI
-// entry point below), so "gc.Client.Connect(ctx)" (the real gchatmeow
-// supervision loop) and "gc.Connect(ctx)" (this type's own method) are two
-// entirely different things that both compile -- an earlier revision of
-// login.go's attachAndConnect called out exactly this confusion as a P0 risk.
-// Renaming the field to conn removes the naming collision that made the two
-// easy to conflate.
+// The conn field is deliberately NOT named "Client": *GChatClient itself has
+// a Connect method (the bridgev2.NetworkAPI entry point below), so
+// "gc.Client.Connect(ctx)" (the real gchatmeow supervision loop) and
+// "gc.Connect(ctx)" (this type's own method) are two entirely different
+// things that both compile -- an earlier revision of login.go's
+// attachAndConnect called out exactly this confusion as a P0 risk. Renaming
+// the field to conn removes the naming collision that made the two easy to
+// conflate.
 import (
 	"context"
 	"fmt"
@@ -69,12 +68,11 @@ type GChatClient struct {
 	// starts would otherwise observe the flag still false and take
 	// backfill.go's catchUp branch concurrently with an unfinished first
 	// sync -- calling catch_up_user with a meaningless (still probably zero)
-	// UserLoginMetadata.Revision watermark (gchat-port-auditor P1 finding,
-	// M2 Task 7). catchUp checks this flag and skips its RPC call entirely
-	// while it is true, deferring (not losing) that reconnect's catch-up
-	// opportunity: once the first sync finishes, advanceUserRevision
-	// (backfill.go) picks up tracking from the very next live event, same as
-	// any other reconnect.
+	// UserLoginMetadata.Revision watermark. catchUp checks this flag and skips
+	// its RPC call entirely while it is true, deferring (not losing) that
+	// reconnect's catch-up opportunity: once the first sync finishes,
+	// advanceUserRevision (backfill.go) picks up tracking from the very next
+	// live event, same as any other reconnect.
 	syncInProgress bool
 
 	// metaMu guards all UserLoginMetadata mutations + the paired Save, and
@@ -83,9 +81,9 @@ type GChatClient struct {
 	// (backfill.go) also updates the user revision watermark here once per
 	// successfully handled inbound event that carries a user_revision -- so
 	// on a busy account this lock IS taken on the live event path, at Google
-	// Chat's own event-revision cadence (matching Python's set_revision,
-	// called from on_stream_event for every user-revisioned event,
-	// user.py:674-682; no regression, just no longer connect/logout-only).
+	// Chat's own event-revision cadence (once per successfully handled
+	// user-revisioned inbound event; no regression, just no longer
+	// connect/logout-only).
 	// Without this lock, the now-multiple independent, unsynchronized writers
 	// -- persistCookies (conn's OnConnectionState goroutine), LogoutRemote (a
 	// bridgev2 goroutine), Connect's pre-flight read of meta.Cookies (a third
@@ -110,8 +108,8 @@ type GChatClient struct {
 
 	// disconnectFn tears down a superseded/replaced conn. Defaults to
 	// (*gchatmeow.Client).Disconnect; overridden in tests so old-client
-	// teardown (Task 10 review carry-over: the cookie-resubmit goroutine
-	// leak) can be observed via a counter without a live network client.
+	// teardown (the cookie-resubmit goroutine leak) can be observed via a
+	// counter without a live network client.
 	disconnectFn func(*gchatmeow.Client)
 	// saveFn persists UserLogin.Metadata changes. Defaults to
 	// UserLogin.Save; overridden in tests that don't have a full
@@ -163,9 +161,8 @@ type GChatClient struct {
 	createTopicFn func(ctx context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error)
 
 	// createMessageFn issues the create_message RPC that handlematrix.go's
-	// HandleMatrixMessage needs to send a reply into an EXISTING topic (M3
-	// Task 6, taken when msg.ThreadRoot != nil -- see send_message's
-	// `if thread_id:` branch, client.py:441-458). Defaults to
+	// HandleMatrixMessage needs to send a reply into an EXISTING topic (taken
+	// when msg.ThreadRoot != nil). Defaults to
 	// conn.CreateMessage; overridden in tests for the same reason
 	// createTopicFn is (no live gchatmeow.Client connection in this
 	// package's tests).
@@ -173,7 +170,7 @@ type GChatClient struct {
 
 	// editMessageFn issues the edit_message RPC that handleedit.go's
 	// HandleMatrixEdit needs to push a Matrix edit of a previously bridged
-	// message to Google Chat (M4 Task 1). Defaults to conn.EditMessage;
+	// message to Google Chat. Defaults to conn.EditMessage;
 	// overridden in tests so the outbound edit path (request construction,
 	// response -> MessageMetadata.LastEditTime mapping) can be exercised
 	// without a live gchatmeow.Client connection -- mirrors
@@ -182,7 +179,7 @@ type GChatClient struct {
 
 	// deleteMessageFn issues the delete_message RPC that handleredact.go's
 	// HandleMatrixMessageRemove needs to push a Matrix redaction of a
-	// previously bridged message to Google Chat (M4 Task 2). Defaults to
+	// previously bridged message to Google Chat. Defaults to
 	// conn.DeleteMessage; overridden in tests so the outbound redaction
 	// path (request construction) can be exercised without a live
 	// gchatmeow.Client connection -- mirrors editMessageFn above.
@@ -190,8 +187,8 @@ type GChatClient struct {
 
 	// updateReactionFn issues the update_reaction RPC that handlereaction.go's
 	// HandleMatrixReaction/HandleMatrixReactionRemove need to push a Matrix
-	// reaction add/remove of a previously bridged message to Google Chat (M4
-	// Task 3). Defaults to conn.UpdateReaction; overridden in tests so the
+	// reaction add/remove of a previously bridged message to Google Chat.
+	// Defaults to conn.UpdateReaction; overridden in tests so the
 	// outbound reaction path (request construction: ADD vs REMOVE type, the
 	// emoji, the target MessageId) can be exercised without a live
 	// gchatmeow.Client connection -- mirrors editMessageFn/deleteMessageFn
@@ -200,7 +197,7 @@ type GChatClient struct {
 
 	// markGroupReadstateFn issues the mark_group_readstate RPC that
 	// handlereceipt.go's HandleMatrixReadReceipt needs to push a Matrix read
-	// receipt in a portal room to Google Chat (M4 Task 4). Defaults to
+	// receipt in a portal room to Google Chat. Defaults to
 	// conn.MarkGroupReadstate; overridden in tests so the outbound read
 	// receipt path (request construction: group id, ExactMessage vs receipt
 	// timestamp selection) can be exercised without a live gchatmeow.Client
@@ -210,7 +207,7 @@ type GChatClient struct {
 
 	// setTypingStateFn issues the set_typing_state RPC that handletyping.go's
 	// HandleMatrixTyping needs to push a Matrix typing start/stop in a
-	// portal room to Google Chat (M4 Task 5). Defaults to
+	// portal room to Google Chat. Defaults to
 	// conn.SetTypingState; overridden in tests so the outbound typing path
 	// (request construction: group/topic context oneof, TYPING vs STOPPED
 	// state) can be exercised without a live gchatmeow.Client connection --
@@ -219,24 +216,22 @@ type GChatClient struct {
 
 	// uploadFileFn issues the resumable /uploads RPC that handlematrix.go's
 	// HandleMatrixMessage media branch needs to attach a Matrix media
-	// message's file to Google Chat as an UPLOAD_METADATA annotation (M5
-	// Task 5, gchatmeow.Client.UploadFile, Task 2, pkg/gchatmeow/upload.go).
-	// Defaults to conn.UploadFile; overridden in tests so both the
-	// successful-upload -> annotation composition AND the #114
-	// upload-failure -> clean-error path (media.go's buildUploadAnnotation)
-	// can be exercised without a live gchatmeow.Client connection -- mirrors
-	// createTopicFn/createMessageFn above.
+	// message's file to Google Chat as an UPLOAD_METADATA annotation
+	// (gchatmeow.Client.UploadFile, pkg/gchatmeow/upload.go). Defaults to
+	// conn.UploadFile; overridden in tests so both the successful-upload ->
+	// annotation composition AND the #114 upload-failure -> clean-error path
+	// (media.go's buildUploadAnnotation) can be exercised without a live
+	// gchatmeow.Client connection -- mirrors createTopicFn/createMessageFn
+	// above.
 	uploadFileFn func(ctx context.Context, groupID string, data []byte, filename, mimeType string) (*pb.UploadMetadata, error)
 
 	// downloadMediaFn downloads (and, for an encrypted room, decrypts) the
 	// Matrix media an outbound media message references (media.go's
-	// buildUploadAnnotation, M5 Task 5), matching portal.py's
-	// `self.main_intent.download_media` (portal.py:1090,1095) -- decryption
-	// itself is handled internally by bridgev2's own DownloadMedia
-	// (mautrix-go bridgev2/matrix/intent.go's ASIntent.DownloadMedia)
-	// whenever the file argument is non-nil, so this port needs no separate
-	// decrypt_attachment call of its own the way portal.py does
-	// (portal.py:1091-1093). Defaults to msg.Portal.Bridge.Bot.DownloadMedia
+	// buildUploadAnnotation) -- decryption itself is handled
+	// internally by bridgev2's own DownloadMedia (mautrix-go
+	// bridgev2/matrix/intent.go's ASIntent.DownloadMedia) whenever the file
+	// argument is non-nil, so this port needs no separate decryption call of
+	// its own. Defaults to msg.Portal.Bridge.Bot.DownloadMedia
 	// (downloadMatrixMedia, below); overridden in tests because
 	// bridgev2.Portal.Bridge is nil for this package's lightweight test
 	// fixtures (spacePortal/dmPortal, handlematrix_test.go) -- mirrors
@@ -257,14 +252,13 @@ type GChatClient struct {
 	getMessageFn func(ctx context.Context, receiver networkid.UserLoginID, id networkid.MessageID) (*database.Message, error)
 
 	// addPendingToIgnoreFn registers a send's local_id as a pending-to-ignore
-	// transaction on msg.Portal (handlematrix.go's HandleMatrixMessage, Task
-	// 6's echo-dedup mechanism), BEFORE the create_topic RPC is issued --
-	// matching portal.py's `self._local_dedup.add(local_id)` happening before
-	// dispatch (portal.py:908-909), not after the RPC returns (the
-	// megabridge defect this ports around, docs/research/08b row 61: its
-	// AddPendingToIgnore call only fires once the RPC response is in hand,
-	// leaving a race window where a fast echo on the event stream arrives
-	// before the pending entry exists). Defaults to msg.AddPendingToIgnore;
+	// transaction on msg.Portal (handlematrix.go's HandleMatrixMessage, the
+	// echo-dedup mechanism), BEFORE the create_topic RPC is issued --
+	// registered before dispatch, not after the RPC returns (the megabridge
+	// defect this ports around: its AddPendingToIgnore call only fires once
+	// the RPC response is in hand, leaving a race window where a fast echo on
+	// the event stream arrives before the pending entry exists). Defaults to
+	// msg.AddPendingToIgnore;
 	// overridden in tests because bridgev2.Portal.outgoingMessages is a
 	// private field only initialized by a real bridgev2.Bridge's loadPortal
 	// (portal.go) -- the lightweight spacePortal/dmPortal test fixtures
@@ -285,8 +279,8 @@ type GChatClient struct {
 
 	// queueRemoteEventFn queues one inbound bridgev2.RemoteEvent built from a
 	// live gchatmeow stream event (events.go's handleGChatEvent, starting
-	// with MESSAGE_POSTED in Task 4; later M2+ event kinds -- edits,
-	// reactions, deletes -- route through the same seam). Defaults to
+	// with MESSAGE_POSTED; later event kinds -- edits, reactions, deletes --
+	// route through the same seam). Defaults to
 	// c.UserLogin.QueueRemoteEvent; overridden in tests that construct a
 	// UserLogin without a full bridgev2.Bridge+DB harness, for the same
 	// reason queueChatResyncFn (sync.go) exists: the real
@@ -301,8 +295,8 @@ type GChatClient struct {
 
 	// savePortalRevisionFn parks a group_revision watermark on one portal's
 	// PortalMetadata.Revision (backfill.go's advancePortalRevision, the
-	// group-revision half of M2 Task 7's split between the user watermark and
-	// the per-portal one). Defaults to a real
+	// group-revision half of the split between the user watermark and the
+	// per-portal one). Defaults to a real
 	// bridgev2.Bridge.GetPortalByKey + Portal.Save; overridden in tests
 	// because this package's lightweight test UserLogins have a nil Bridge
 	// (newTestUserLogin, client_test.go) that the real lookup would
@@ -312,8 +306,8 @@ type GChatClient struct {
 	savePortalRevisionFn func(ctx context.Context, portalKey networkid.PortalKey, revision int64)
 
 	// listTopicsFn issues the single list_topics RPC that backfill.go's
-	// FetchMessages uses to fetch a flat portal's message history (M6 Task 1;
-	// single-shot, matching portal.py's _initial_backfill -- see backfill.go).
+	// FetchMessages uses to fetch a flat portal's message history (single-shot
+	// -- see backfill.go).
 	// Defaults to conn.ListTopics; overridden in tests so FetchMessages'
 	// request construction (group id, page size) and single-shot response
 	// handling can be exercised without a live gchatmeow.Client connection --
@@ -322,8 +316,7 @@ type GChatClient struct {
 
 	// listMessagesFn issues the single list_messages RPC that backfill.go's
 	// fetchThreadMessages uses to fetch one topic's thread replies for a
-	// ThreadRoot-scoped FetchMessages call (M6 Task 2; single-shot, matching
-	// portal.py's _initial_backfill thread branch -- see backfill.go).
+	// ThreadRoot-scoped FetchMessages call (single-shot -- see backfill.go).
 	// Defaults to conn.ListMessages; overridden in tests so the request
 	// construction (parent topic id + group, page size) and response
 	// handling can be exercised without a live gchatmeow.Client connection --
@@ -331,7 +324,7 @@ type GChatClient struct {
 	listMessagesFn func(ctx context.Context, req *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error)
 
 	// getIntentForFn resolves the Matrix intent to bridge a backfilled
-	// message as (backfill.go's FetchMessages, M6 Task 1). Defaults to
+	// message as (backfill.go's FetchMessages). Defaults to
 	// params.Portal.GetIntentFor(ctx, sender, c.UserLogin,
 	// bridgev2.RemoteEventBackfill); overridden in tests because the real
 	// method dereferences portal.Bridge (bridgev2.Portal.GetIntentFor ->
@@ -346,10 +339,10 @@ var _ bridgev2.NetworkAPI = (*GChatClient)(nil)
 
 // Connect builds a gchatmeow.Client from this login's persisted
 // UserLoginMetadata (cookies + user agent) -- LoadUserLogin (connector.go)
-// only allocates the *GChatClient shell, per docs/research/04 §8: "LoadUserLogin
-// runs under the global cache lock -- construct the client from
-// login.Metadata only; do network I/O in Connect" -- wires its callbacks, and
-// starts its supervision loop in the background. Never returns an error
+// only allocates the *GChatClient shell (it runs under the global cache
+// lock, so the client is built from login.Metadata only, with network I/O
+// deferred to here) -- wires its callbacks, and starts its supervision loop
+// in the background. Never returns an error
 // (bridgev2.NetworkAPI.Connect's contract); failures are surfaced via
 // BridgeState.Send, matching a missing/invalid cookie set to BAD_CREDENTIALS.
 //
@@ -421,14 +414,13 @@ func hasRequiredCookies(cookies map[string]string) bool {
 // defensive double-Connect never leaves an orphaned client goroutine (and
 // live webchannel session) running -- wires conn's callbacks to this
 // GChatClient's bridge-state mapping (handleConnState) and event stub
-// (handleGChatEvent, Task 12's territory), and starts conn's supervision loop
+// (handleGChatEvent), and starts conn's supervision loop
 // in the background.
 //
 // Also resets initialSyncDone: installing a new conn represents a fresh
 // session bootstrap (a brand new gchatmeow.Client, not one of its own
 // internal silent reconnects), so the next Connected transition should run
-// syncChats again, matching Python's on_connect_later running once per
-// User.connect() call (user.py:259-292 -> 526-560).
+// syncChats again, once per fresh connection bootstrap.
 //
 // ctx is retained for the connection's lifetime: it is the context
 // conn.Connect runs under, and the OnConnectionState closure captures it for
@@ -466,12 +458,10 @@ func (c *GChatClient) wireAndStart(ctx context.Context, conn *gchatmeow.Client) 
 // (channel.go's SetOnReconnect) emit ConnStateConnected too, including after
 // the routine ~1.5h channel-lifetime recycle (client.go's
 // ErrChannelLifetimeExpired branch, which starts a brand new channel that
-// re-registers and re-fires OnConnect). Python's equivalent path is
-// explicitly silent there (user.py:322-325's _skip_on_connect skips
-// on_connect_later entirely) and its bare on_reconnect (user.py:562-565)
-// never calls sync() either -- the only recurring resync Python performs is
-// an hourly, throttled sync(limit=3) (user.py:578-591), which is out of
-// scope for this task (sync.go's syncChats doc comment) and not
+// re-registers and re-fires OnConnect). That reconnect path must stay
+// silent -- a bare reconnect must not re-run sync(). The only recurring
+// resync worth performing is an hourly, throttled one, which is out of
+// scope here (sync.go's syncChats doc comment) and not
 // reintroduced by this gate; this just stops the one-time sync from
 // silently becoming a "resync on every reconnect" one.
 func (c *GChatClient) shouldSyncOnConnect() bool {
@@ -605,30 +595,27 @@ func (c *GChatClient) reportState(state gchatmeow.ConnState, err error) {
 // wireAndStart): it reports the mapped BridgeState, and -- once the
 // connection actually reaches CONNECTED -- re-persists conn's current
 // (possibly rotated) cookies into UserLoginMetadata so a later restart resumes
-// with the freshest session (Task 10 review carry-over (c); see also
-// login.go's SubmitCookies, which persists the initial post-validation
-// snapshot once at login).
+// with the freshest session (see also login.go's SubmitCookies, which
+// persists the initial post-validation snapshot once at login).
 //
 // It also branches on shouldSyncOnConnect's one-time-per-conn latch to pick
 // between two mutually exclusive actions, both run in their own goroutine
 // (see below for why): the FIRST time this conn reaches Connected, it kicks
-// off the chat-list sync (sync.go's syncChats, Task 12), matching Python's
-// on_connect_later calling self.sync() once per connect() call right before
-// pushing BridgeStateEvent.CONNECTED (user.py:555-560). EVERY SUBSEQUENT
+// off the chat-list sync (sync.go's syncChats), running once per connect
+// right before pushing BridgeStateEvent.CONNECTED. EVERY SUBSEQUENT
 // Connected transition for the same conn -- i.e. every reconnect, including
 // gchatmeow's own internal webchannel reconnects (see shouldSyncOnConnect's
 // doc comment) -- instead runs backfill.go's catchUp, replaying whatever
 // happened on the account during the gap through the normal event-queue
-// path (M2 Task 7, M1 review Important #2: a SID-expiring re-register
-// resets the channel's AID to 0, so the server never replays that gap on
-// its own -- pkg/gchatmeow/client.go's wireChannel doc comment flags this
-// exact risk). Reusing shouldSyncOnConnect's existing latch instead of a
-// second one keeps the "first connect vs. reconnect" distinction in exactly
-// one place, and automatically inherits its failure/retry behavior:
-// syncChats resets the latch on a failed first sync (resetSyncLatch, its
-// own doc comment) specifically so the NEXT Connected retries the first
-// sync rather than incorrectly running catchUp against portals that were
-// never created.
+// path (a SID-expiring re-register resets the channel's AID to 0, so the
+// server never replays that gap on its own -- pkg/gchatmeow/client.go's
+// wireChannel doc comment flags this exact risk). Reusing
+// shouldSyncOnConnect's existing latch instead of a second one keeps the
+// "first connect vs. reconnect" distinction in exactly one place, and
+// automatically inherits its failure/retry behavior: syncChats resets the
+// latch on a failed first sync (resetSyncLatch, its own doc comment)
+// specifically so the NEXT Connected retries the first sync rather than
+// incorrectly running catchUp against portals that were never created.
 //
 // Both syncChats and catchUp run in their own goroutine rather than inline:
 // handleConnState is conn's OnConnectionState callback and runs on conn's
@@ -706,9 +693,9 @@ func (c *GChatClient) IsLoggedIn() bool {
 // LogoutRemote disconnects and best-effort clears the stored cookies so a
 // later Connect (e.g. after a restart) reports BAD_CREDENTIALS instead of
 // replaying a session the user explicitly logged out of. Google Chat's
-// cookie-based sessions have no known remote "revoke" endpoint (docs/research
-// 01/03 don't document one), so there is no remote invalidation call to make
-// -- "best-effort" here means "local cleanup, tolerate a failed Save".
+// cookie-based sessions have no known remote "revoke" endpoint, so there is
+// no remote invalidation call to make -- "best-effort" here means "local
+// cleanup, tolerate a failed Save".
 //
 // Also sets the loggedOut latch (under the same metaMu-guarded update as the
 // cookie clear) so a persistCookies call from a Connected callback already in
@@ -772,10 +759,9 @@ func (c *GChatClient) removePending(msg *bridgev2.MatrixMessage, txnID networkid
 // must call this wrapper rather than reaching into msg.Portal.Bridge.Bot
 // directly. msg.Content.File is passed through as-is (nil for an
 // unencrypted room, a populated *event.EncryptedFileInfo for an encrypted
-// one) -- DownloadMedia's own contract is to decrypt in that case, matching
-// portal.py's `if message.file and decrypt_attachment:` branch
-// (portal.py:1089) without this port needing its own decrypt_attachment
-// call (see downloadMediaFn's doc comment).
+// one) -- DownloadMedia's own contract is to decrypt in that case, without
+// this port needing its own decryption call (see downloadMediaFn's doc
+// comment).
 func (c *GChatClient) downloadMatrixMedia(ctx context.Context, msg *bridgev2.MatrixMessage) ([]byte, error) {
 	if c.downloadMediaFn != nil {
 		return c.downloadMediaFn(ctx, msg.Content.URL, msg.Content.File)
@@ -810,8 +796,8 @@ func (c *GChatClient) IsThisUser(_ context.Context, userID networkid.UserID) boo
 }
 
 // GetChatInfo and GetUserInfo are implemented in chatinfo.go and userinfo.go
-// (Task 12) respectively.
+// respectively.
 
-// GetCapabilities is implemented in capabilities.go (Task 5).
+// GetCapabilities is implemented in capabilities.go.
 
 // HandleMatrixMessage is implemented in handlematrix.go.

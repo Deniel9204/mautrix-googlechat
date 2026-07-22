@@ -302,7 +302,7 @@ func TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot(t *te
 // roomFeatures' own nil-safe default (capabilities.go).
 // --- convertEditToMatrix (M4 Task 1: inbound MESSAGE_UPDATED) ---------------
 //
-// Ports handle_googlechat_edit's dedup + re-conversion (portal.py:1228-1260).
+// These cover convertEditToMatrix's dedup + re-conversion.
 
 // editMsg builds a *pb.Message shaped like a MESSAGE_UPDATED body's payload:
 // the same message id as the original (edits never change the id), a new
@@ -352,8 +352,8 @@ func TestConvertEditToMatrix_ReconvertsBody(t *testing.T) {
 // existing[0] is the m.image row. A MESSAGE_UPDATED that now carries text
 // (e.g. an added caption or a Drive/Meet/YouTube link annotation surfaced as
 // text) must NOT m.replace the image event with m.text -- it must be dropped
-// entirely, restoring Python's non-text guard (portal.py:1248-1251,
-// "multipart message edits are hard, don't even try").
+// entirely, per the non-text guard (multipart message edits are hard, don't
+// even try).
 func TestConvertEditToMatrix_AttachmentOnlyMessageIgnored(t *testing.T) {
 	attPart := &database.Message{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -447,11 +447,10 @@ func TestConvertEditToMatrix_DedupReadsFromTextPartNotFirstPart(t *testing.T) {
 	}
 }
 
-// TestConvertEditToMatrix_DedupSkipsStaleEdit pins portal.py:1238-1240's
-// `if self._edit_dedup[msg_id] >= edit_ts: ... return` -- an edit whose
-// last_edit_time is EQUAL to the stored value is a duplicate and must be
-// ignored via bridgev2.ErrIgnoringRemoteEvent, leaving the stored metadata
-// untouched.
+// TestConvertEditToMatrix_DedupSkipsStaleEdit pins the dedup gate (skip when
+// stored_last_edit_time >= edit_ts) -- an edit whose last_edit_time is EQUAL
+// to the stored value is a duplicate and must be ignored via
+// bridgev2.ErrIgnoringRemoteEvent, leaving the stored metadata untouched.
 func TestConvertEditToMatrix_DedupSkipsStaleEdit(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -518,8 +517,7 @@ func TestConvertEditToMatrix_AppliesNewerEditAndUpdatesLastEditTime(t *testing.T
 }
 
 // TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset
-// pins portal.py:1236's `edit_ts = evt.last_edit_time or evt.last_update_time`
-// fallback.
+// pins the `edit_ts = last_edit_time or last_update_time` fallback.
 func TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -540,11 +538,10 @@ func TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset(t *t
 	}
 }
 
-// TestConvertEditToMatrix_EmptyTextBodyIgnored pins portal.py:1248-1251's
-// `elif target.msgtype != "m.text" or not evt.text_body: ... return` --  an
-// edit with no text_body at all (msgconv.ToMatrix's empty-text early return,
-// from-gchat.go) must be dropped via ErrIgnoringRemoteEvent, not applied as
-// an empty-body edit.
+// TestConvertEditToMatrix_EmptyTextBodyIgnored pins the non-text guard's
+// no-text-body half -- an edit with no text_body at all (msgconv.ToMatrix's
+// empty-text early return, from-gchat.go) must be dropped via
+// ErrIgnoringRemoteEvent, not applied as an empty-body edit.
 func TestConvertEditToMatrix_EmptyTextBodyIgnored(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),

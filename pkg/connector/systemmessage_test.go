@@ -1,7 +1,7 @@
 package connector
 
 // systemmessage_test.go -- inbound SYSTEM_MESSAGE (membership changes, room
-// rename/topic changes) -> bridgev2.RemoteChatInfoChange (M4 Task 6). Mirrors
+// rename/topic changes) -> bridgev2.RemoteChatInfoChange. Mirrors
 // events_test.go's newEventTestClient/messagePostedEvent capture pattern.
 
 import (
@@ -121,7 +121,7 @@ func TestHandleGChatEventSystemMessageMembershipJoinedQueuesJoinDelta(t *testing
 		t.Errorf("Membership = %q, want %q", member.Membership, event.MembershipJoin)
 	}
 	if member.PrevMembership != "" {
-		t.Errorf("PrevMembership = %q, want \"\" (ensure_joined is unconditional/idempotent in Python, portal.py:1304-1305)", member.PrevMembership)
+		t.Errorf("PrevMembership = %q, want \"\" (ensure_joined is unconditional/idempotent)", member.PrevMembership)
 	}
 
 	typed := (*queued)[0].(bridgev2.RemoteEvent)
@@ -141,7 +141,7 @@ func TestHandleGChatEventSystemMessageMembershipJoinedQueuesJoinDelta(t *testing
 	}
 	createPortal, ok := (*queued)[0].(bridgev2.RemoteEventThatMayCreatePortal)
 	if !ok || !createPortal.ShouldCreatePortal() {
-		t.Error("ShouldCreatePortal() = false, want true (Python's create_matrix_room runs before SYSTEM_MESSAGE dispatch, portal.py:573-574)")
+		t.Error("ShouldCreatePortal() = false, want true (room creation runs before SYSTEM_MESSAGE dispatch)")
 	}
 }
 
@@ -177,15 +177,13 @@ func TestHandleGChatEventSystemMessageMembershipLeftQueuesLeaveDelta(t *testing.
 // --- membershipChangeDelta: all 9 MembershipChangedMetadata_Type values ----
 
 // TestMembershipChangeDeltaMapsAllNineTypes pins the mapping from GC's 9
-// MembershipChangedMetadata_Type values (docs/research/02-wire-protocol.md's
-// wire inventory) onto (Membership, PrevMembership, ok), grouped exactly the
-// way Python's own if/elif chain groups them (handle_googlechat_membership_change,
-// portal.py:1296-1335): INVITED -> invite, {JOINED, ADDED, BOT_ADDED} -> join
-// (unconditional/idempotent, no PrevMembership gate), {LEFT, REMOVED,
+// MembershipChangedMetadata_Type values onto (Membership, PrevMembership,
+// ok), grouped the way the
+// dispatch groups them: INVITED -> invite, {JOINED, ADDED, BOT_ADDED} ->
+// join (unconditional/idempotent, no PrevMembership gate), {LEFT, REMOVED,
 // BOT_REMOVED, KICKED_DUE_TO_OTR_CONFLICT} -> leave (gated on a prior join).
 // ROLE_UPDATED and the zero-value TYPE_UNSPECIFIED both fall outside that
-// chain -- ok=false, no Matrix membership action, matching Python's
-// implicit no-op for both.
+// grouping -- ok=false, no Matrix membership action for both.
 func TestMembershipChangeDeltaMapsAllNineTypes(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -223,16 +221,15 @@ func TestMembershipChangeDeltaMapsAllNineTypes(t *testing.T) {
 
 // --- MEMBERSHIP_CHANGED: ROLE_UPDATED produces no member delta, but the
 // system message is still fully consumed (never bridged as ordinary text),
-// matching Python's unconditional `return` after
-// handle_googlechat_membership_change (portal.py:1370-1374) ----------------
+// because the membership arm unconditionally consumes it -----------------
 
 // TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled pins
 // two things at once: ROLE_UPDATED produces no member delta (MemberChanges
 // stays nil), but the event is still queued (not dropped outright) so that
 // CreatePortal:true can still create the Matrix room if this happens to be
-// the first event this bridge ever sees for the portal -- matching Python's
-// unconditional create_matrix_room-before-dispatch (portal.py:573-574,
-// queueMembershipChanged's own doc comment).
+// the first event this bridge ever sees for the portal -- because room
+// creation runs unconditionally before the SYSTEM_MESSAGE dispatch
+// (queueMembershipChanged's own doc comment).
 func TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-3", "98765", 1,
@@ -374,8 +371,8 @@ func TestHandleGChatEventSystemMessageGroupDetailsEmptyDescriptionStillApplies(t
 }
 
 // --- ROOM_UPDATED: an empty rename with no group details metadata falls
-// through to ordinary message bridging, matching Python's
-// `else: return False` (portal.py:1278-1279) ---------------------------
+// through to ordinary message bridging (tryRoomUpdated's `else` case)
+// -----------------------------------------------------------------------
 
 func TestHandleGChatEventSystemMessageRoomUpdatedEmptyRenameFallsThrough(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -397,8 +394,8 @@ func TestHandleGChatEventSystemMessageRoomUpdatedEmptyRenameFallsThrough(t *test
 }
 
 // --- SYSTEM_MESSAGE with an annotation type that is neither ROOM_UPDATED
-// nor MEMBERSHIP_CHANGED also falls through, matching Python's implicit
-// no-op when update_type matches neither elif (portal.py:1369-1374) --------
+// nor MEMBERSHIP_CHANGED also falls through (the annotation type matches
+// neither dispatch arm) ----------------------------------------------------
 
 func TestHandleGChatEventSystemMessageUnrecognizedAnnotationTypeFallsThrough(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -416,8 +413,8 @@ func TestHandleGChatEventSystemMessageUnrecognizedAnnotationTypeFallsThrough(t *
 	}
 }
 
-// --- SYSTEM_MESSAGE with 2 annotations falls through, matching Python's
-// own `len(evt.annotations) == 1` gate (portal.py:1362) --------------------
+// --- SYSTEM_MESSAGE with 2 annotations falls through, via the
+// `len(annotations) == 1` gate ---------------------------------------------
 
 func TestHandleGChatEventSystemMessageTwoAnnotationsFallsThrough(t *testing.T) {
 	gc, queued := newEventTestClient("112233")

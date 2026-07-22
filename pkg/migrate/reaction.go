@@ -1,9 +1,8 @@
 package migrate
 
-// migrateReactions implements M7 Task 6's reaction half -- see
-// .superpowers/sdd/m7-migration-schema-map.md §3 (Reaction) for the full
-// field-by-field mapping this replicates exactly. Same raw-INSERT-through-ctx
-// approach as message.go/portal.go/ghost.go.
+// migrateReactions implements the reaction half of the migration,
+// replicating the source schema's reaction mapping field-by-field. Same
+// raw-INSERT-through-ctx approach as message.go/portal.go/ghost.go.
 
 import (
 	"context"

@@ -56,9 +56,9 @@ func urlMetadataAnnotation(rawURL, imageURL string, shouldNotRender bool) *pb.An
 	}
 }
 
-// TestAppendLinkAnnotations_VideoCallMetadata ports the video_call_metadata
-// branch (portal.py:1496-1503): a Meet URL not already present in the body
-// is appended with a "\n\n" separator.
+// TestAppendLinkAnnotations_VideoCallMetadata covers the video_call_metadata
+// branch: a Meet URL not already present in the body is appended with a
+// "\n\n" separator.
 func TestAppendLinkAnnotations_VideoCallMetadata(t *testing.T) {
 	text := "join the call"
 	annotations := []*pb.Annotation{videoCallAnnotation("https://meet.google.com/abc-defg-hij", false)}
@@ -71,9 +71,9 @@ func TestAppendLinkAnnotations_VideoCallMetadata(t *testing.T) {
 	}
 }
 
-// TestAppendLinkAnnotations_DriveMetadata ports the drive_metadata branch
-// (portal.py:1504-1511): DRIVE_OPEN_URL?id=<id> is appended when the raw id
-// is not already present in the body.
+// TestAppendLinkAnnotations_DriveMetadata covers the drive_metadata branch:
+// DRIVE_OPEN_URL?id=<id> is appended when the raw id is not already present
+// in the body.
 func TestAppendLinkAnnotations_DriveMetadata(t *testing.T) {
 	text := "check this doc"
 	annotations := []*pb.Annotation{driveAnnotation("1a2b3c", false)}
@@ -86,9 +86,9 @@ func TestAppendLinkAnnotations_DriveMetadata(t *testing.T) {
 	}
 }
 
-// TestAppendLinkAnnotations_YoutubeMetadata ports the youtube_metadata
-// branch (portal.py:1512-1519): YOUTUBE_URL?v=<id> is appended when the raw
-// id is not already present in the body.
+// TestAppendLinkAnnotations_YoutubeMetadata covers the youtube_metadata
+// branch: YOUTUBE_URL?v=<id> is appended when the raw id is not already
+// present in the body.
 func TestAppendLinkAnnotations_YoutubeMetadata(t *testing.T) {
 	text := "watch this"
 	annotations := []*pb.Annotation{youtubeAnnotation("dQw4w9WgXcQ")}
@@ -101,9 +101,8 @@ func TestAppendLinkAnnotations_YoutubeMetadata(t *testing.T) {
 	}
 }
 
-// TestAppendLinkAnnotations_EmptyTextBodySetNotAppended ports the
-// `if not evt.text_body: evt.text_body = str(url)` branch: an empty body
-// is SET to the bare URL, not prefixed with "\n\n".
+// TestAppendLinkAnnotations_EmptyTextBodySetNotAppended covers the empty-body
+// branch: an empty body is SET to the bare URL, not prefixed with "\n\n".
 func TestAppendLinkAnnotations_EmptyTextBodySetNotAppended(t *testing.T) {
 	annotations := []*pb.Annotation{driveAnnotation("driveid1", false)}
 
@@ -117,8 +116,7 @@ func TestAppendLinkAnnotations_EmptyTextBodySetNotAppended(t *testing.T) {
 
 // TestAppendLinkAnnotations_AlreadyPresentSkipsDrive covers the substring
 // dedup check: if the drive id is already present anywhere in the body
-// (e.g. the user pasted the link themselves), Python does not append a
-// duplicate.
+// (e.g. the user pasted the link themselves), no duplicate is appended.
 func TestAppendLinkAnnotations_AlreadyPresentSkipsDrive(t *testing.T) {
 	text := "see https://drive.google.com/open?id=driveid1 for the doc"
 	annotations := []*pb.Annotation{driveAnnotation("driveid1", false)}
@@ -145,11 +143,10 @@ func TestAppendLinkAnnotations_AlreadyPresentSkipsVideoCall(t *testing.T) {
 
 // TestAppendLinkAnnotations_DuplicateDriveAnnotationsDedupeAgainstRunningText
 // is the key double-render/dedup test for the append path itself: TWO
-// drive_metadata annotations referencing the SAME id in one message. Python
-// mutates evt.text_body in place as it iterates, so the SECOND annotation's
-// `id not in evt.text_body` check sees the URL the FIRST one just appended
-// and is skipped -- the id must appear exactly once in the result, not
-// twice.
+// drive_metadata annotations referencing the SAME id in one message. The
+// body is mutated in place as the loop iterates, so the SECOND annotation's
+// presence check sees the URL the FIRST one just appended and is skipped --
+// the id must appear exactly once in the result, not twice.
 func TestAppendLinkAnnotations_DuplicateDriveAnnotationsDedupeAgainstRunningText(t *testing.T) {
 	text := "shared twice"
 	annotations := []*pb.Annotation{
@@ -167,11 +164,9 @@ func TestAppendLinkAnnotations_DuplicateDriveAnnotationsDedupeAgainstRunningText
 
 // TestAppendLinkAnnotations_ShouldNotRenderStillAppends is a fidelity pin:
 // unlike url_metadata's AttachmentURL branch, NONE of video_call_metadata /
-// drive_metadata / youtube_metadata's should_not_render fields are read by
-// portal.py's _preprocess_annotations (verified against the full text of
-// all three branches, portal.py:1496-1519). A should_not_render=true
-// annotation of these types is still appended -- this looks surprising but
-// is intentional fidelity to Python, not a bug.
+// drive_metadata / youtube_metadata read their should_not_render field. A
+// should_not_render=true annotation of these types is still appended -- this
+// looks surprising but is intentional, not a bug.
 func TestAppendLinkAnnotations_ShouldNotRenderStillAppends(t *testing.T) {
 	text := "hidden-ish"
 	annotations := []*pb.Annotation{
@@ -188,18 +183,18 @@ func TestAppendLinkAnnotations_ShouldNotRenderStillAppends(t *testing.T) {
 }
 
 // TestAppendLinkAnnotations_UrlMetadataNeverAppended is THE key
-// double-render pin from the M5 Task 4 investigation: Python's
-// _preprocess_annotations never appends a url_metadata annotation's URL to
-// text_body at all (regardless of should_not_render or image_url) --
-// url_metadata instead becomes an AttachmentURL for the (out-of-scope, HTTP)
-// attachment-download path. gchatfmt.Parse (via renderURL, convert.go:523)
-// already renders a DO_NOT_RENDER-chip url_metadata annotation as an inline
-// <a href> wrapping EXISTING text -- if AppendLinkAnnotations also appended
-// url_metadata's URL to the body, that URL would render TWICE (once as the
-// inline hyperlink around the original text, once as new plain appended
-// text). This test proves AppendLinkAnnotations leaves the body completely
-// unchanged for url_metadata, in every combination of should_not_render and
-// image_url presence.
+// double-render pin from the M5 Task 4 investigation: a url_metadata
+// annotation's URL is never appended to the body at all (regardless of
+// should_not_render or image_url) -- url_metadata instead becomes an
+// AttachmentURL for the (out-of-scope, HTTP) attachment-download path.
+// gchatfmt.Parse (via renderURL in convert.go) already renders a
+// DO_NOT_RENDER-chip url_metadata annotation as an inline <a href> wrapping
+// EXISTING text -- if AppendLinkAnnotations also appended url_metadata's URL
+// to the body, that URL would render TWICE (once as the inline hyperlink
+// around the original text, once as new plain appended text). This test
+// proves AppendLinkAnnotations leaves the body completely unchanged for
+// url_metadata, in every combination of should_not_render and image_url
+// presence.
 func TestAppendLinkAnnotations_UrlMetadataNeverAppended(t *testing.T) {
 	text := "check out this link"
 	tests := []struct {
@@ -248,9 +243,9 @@ func TestAppendLinkAnnotations_NoMatchingAnnotationsLeavesTextUnchanged(t *testi
 }
 
 // TestAppendLinkAnnotations_MixedOrderMatchesAnnotationOrder proves
-// annotations are processed in their given order (matching Python's plain
-// `for annotation in evt.annotations:` iteration, no sorting) and that
-// unrelated annotation types interleaved among them are simply skipped.
+// annotations are processed in their given order (a plain iteration, no
+// sorting) and that unrelated annotation types interleaved among them are
+// simply skipped.
 func TestAppendLinkAnnotations_MixedOrderMatchesAnnotationOrder(t *testing.T) {
 	text := "start"
 	annotations := []*pb.Annotation{

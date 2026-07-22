@@ -1,14 +1,13 @@
 package migrate
 
-// White-box tests (package migrate) for migrateMessages -- M7 Task 6. See
-// .superpowers/sdd/m7-migration-schema-map.md §2 (Message -- THE HARD ONE)
-// for the index->part_id rule under test.
+// White-box tests (package migrate) for migrateMessages, exercising the
+// index->part_id rule (Message is the hardest mapping).
 //
 // newMessageFixtureSourceDB/seedMessageFixtureRows build a dedicated fixture
-// (rather than reusing source_test.go's shared 2-row fixture) because this
-// task's brief needs multi-row message groups the shared fixture doesn't
-// have. reaction_test.go reuses seedMessageFixtureRows so both files agree
-// on exactly the same message groups.
+// (rather than reusing source_test.go's shared 2-row fixture) because these
+// tests need multi-row message groups the shared fixture doesn't have.
+// reaction_test.go reuses seedMessageFixtureRows so both files agree on
+// exactly the same message groups.
 
 import (
 	"context"

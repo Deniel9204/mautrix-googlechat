@@ -1,9 +1,7 @@
 package connector
 
 // userinfo.go -- GetUserInfo (per-ghost user info via get_members) and the
-// displayname fallback chain. Ports mautrix_googlechat/puppet.py's
-// update_info (puppet.py:145), get_name_from_info (puppet.py:179-201), and
-// _update_photo/_reupload_gc_photo (puppet.py:219-266, avatar download).
+// displayname fallback chain, plus per-ghost avatar download and reupload.
 import (
 	"context"
 	"fmt"
@@ -18,12 +16,10 @@ import (
 )
 
 // GetUserInfo resolves ghost.ID's Google Chat user info via a single-member
-// get_members RPC (client.py:691, proto_get_members). Fidelity note:
-// user.py's get_users (user.py:466) batches and caches lookups across a
-// whole sync pass; that batching wrapper is not ported here since
-// NetworkAPI.GetUserInfo is always called for one ghost at a time -- sync.go
-// does its own prefetch batching separately, matching sync()'s
-// prefetch_users set (user.py:627,646).
+// get_members RPC. Design note: batching and caching lookups across a whole
+// sync pass is intentionally not done here, since NetworkAPI.GetUserInfo is
+// always called for one ghost at a time -- sync.go does its own prefetch
+// batching separately.
 func (c *GChatClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
 	conn := c.getConn()
 	if conn == nil {
@@ -106,13 +102,11 @@ func (c *GChatClient) updateOwnLoginProfile(ctx context.Context) {
 
 func strPtr(s string) *string { return &s }
 
-// userInfoFromUser wraps a googlechat.User into bridgev2.UserInfo. Ports
-// puppet.py's update_info (puppet.py:145-155): displayname via
-// get_name_from_info (see displaynameParams), avatar via _update_photo (see
-// wrapAvatar), contact identifiers via _update_contact_info's
-// com.beeper.bridge.identifiers (puppet.py:167 -- unconditionally
-// "mailto:<email>", even when email is empty; matched here as-is for
-// fidelity), and is_bot from the user id's type.
+// userInfoFromUser wraps a googlechat.User into bridgev2.UserInfo:
+// displayname via the fallback chain (see displaynameParams), avatar via
+// wrapAvatar, contact identifiers as com.beeper.bridge.identifiers
+// (unconditionally "mailto:<email>", even when email is empty), and is_bot
+// from the user id's type.
 func (c *GChatClient) userInfoFromUser(ctx context.Context, user *pb.User) *bridgev2.UserInfo {
 	name := c.Main.Config.FormatDisplayname(ctx, displaynameParams(user))
 	isBot := user.GetUserId().GetType() == pb.UserType_BOT
@@ -134,21 +128,20 @@ func (c *GChatClient) userInfoFromUser(ctx context.Context, user *pb.User) *brid
 }
 
 // displaynameParams resolves the name fallback chain before handing off to
-// Config.FormatDisplayname, porting puppet.py's get_name_from_info
-// (puppet.py:179-201): full name used as-is if present; otherwise
+// Config.FormatDisplayname: full name used as-is if present; otherwise
 // first+last (space-joined, skipping whichever half is empty) if either is
 // present; otherwise left blank so the displayname_template's own
 // `{{ or .Name .Email "Unknown user" }}` fallback (example-config.yaml)
-// applies -- matching Python's further "else info.email" / "return None"
-// steps without duplicating them here.
+// applies -- the further "else email" / blank steps are left to the template
+// rather than duplicated here.
 //
-// Also ports get_name_from_info's other branch (puppet.py:194-198): when the
-// API gives a full name but no explicit first_name, FirstName is derived
-// from the full name instead of staying empty, stripping a trailing
-// last_name suffix if one is present (e.g. name="Ada Lovelace",
-// last_name="Lovelace" -> FirstName="Ada"). This only affects FirstName (the
-// default displayname_template doesn't reference {{.FirstName}} at all --
-// example-config.yaml -- so it only matters for a customized template).
+// The other branch: when the API gives a full name but no explicit
+// first_name, FirstName is derived from the full name instead of staying
+// empty, stripping a trailing last_name suffix if one is present (e.g.
+// name="Ada Lovelace", last_name="Lovelace" -> FirstName="Ada"). This only
+// affects FirstName (the default displayname_template doesn't reference
+// {{.FirstName}} at all -- example-config.yaml -- so it only matters for a
+// customized template).
 func displaynameParams(user *pb.User) DisplaynameParams {
 	name := user.GetName()
 	first := user.GetFirstName()
@@ -176,18 +169,16 @@ func displaynameParams(user *pb.User) DisplaynameParams {
 }
 
 // wrapAvatar builds the bridgev2.Avatar bridgev2.Ghost.UpdateAvatar reuploads
-// from a raw avatar_url. Ports puppet.py's _update_photo (puppet.py:219-243):
-// an empty URL means "no avatar" (Remove: true); a non-empty one is
-// downloaded (scheme forced to https, puppet.py:249, ported as
-// gchatmeow.ForceHTTPS) via gchatmeow.DownloadAvatar rather than net/http
+// from a raw avatar_url: an empty URL means "no avatar" (Remove: true); a
+// non-empty one is downloaded (scheme forced to https via
+// gchatmeow.ForceHTTPS) with gchatmeow.DownloadAvatar rather than net/http
 // directly -- pkg/connector never touches the network itself, everything
 // routes through gchatmeow (this bridge's one networking layer, RPCs and
-// avatar downloads alike). Avatar.ID is the RAW (pre-https-forcing) URL,
-// matching Python's own change-detection key (`photo_url != self.photo_id`,
-// puppet.py:220-221, compares the untransformed URL); bridgev2.Ghost itself
-// skips Get and the whole reupload when AvatarID is unchanged (ghost.go's
-// prepareAvatar), so sha256 hashing / re-upload-skipped-when-unchanged
-// (puppet.py:251-256) doesn't need separate porting here.
+// avatar downloads alike). Avatar.ID is the RAW (pre-https-forcing) URL used
+// as the change-detection key (the untransformed URL is what's compared);
+// bridgev2.Ghost itself skips Get and the whole reupload when AvatarID is
+// unchanged (ghost.go's prepareAvatar), so sha256 hashing /
+// re-upload-skipped-when-unchanged doesn't need separate handling here.
 func wrapAvatar(avatarURL string) *bridgev2.Avatar {
 	if avatarURL == "" {
 		return &bridgev2.Avatar{Remove: true}

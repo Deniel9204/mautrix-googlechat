@@ -1,41 +1,21 @@
 package gchatmeow
 
-// Attachment download, ported from two Python sources:
+// Attachment download: builds the URL to fetch an UPLOAD_METADATA
+// annotation's file from, then performs the actual GET with manual
+// redirect-following, per-hop cookie gating, and a size cap.
 //
-//   - mautrix_googlechat/portal.py's _preprocess_annotations (portal.py:
-//     1464-1524, upload_metadata branch at 1470-1485): builds the URL to
-//     fetch an UPLOAD_METADATA annotation's file from.
-//   - maugclib/client.py's Client.download_attachment (client.py:182-236)
-//     and its helper Client.read_with_max_size (client.py:238-273): the
-//     actual GET, with manual redirect-following, per-hop cookie gating,
-//     and a size cap.
-//
-// portal.py:1536-1539 (_process_googlechat_attachment) picks between these
-// two download paths itself, based on the SAME "*.google.com" host check
-// used inside download_attachment:
-//
-//	if att.url.host.endswith(".google.com"):
-//	    data, mime, filename = await source.client.download_attachment(att.url, max_size)
-//	else:
-//	    data, mime, filename = await self._download_external_attachment(att.url, max_size)
-//
-// i.e. Python has TWO nearly-identical implementations of "GET with a size
-// cap" -- one that assumes a *.google.com host and always attaches cookies
-// (_download_external_attachment, portal.py:1455-1462, backed by a fresh
-// aiohttp.ClientSession -- no cookies, no redirect following at all, single
-// hop only), and one used for both google.com AND non-google.com hosts
-// inside a single call (download_attachment itself, which internally
-// switches per-hop between the authenticated session and a fresh
-// cookie-less one). DownloadAttachment below collapses both into ONE loop --
-// matching download_attachment's per-hop branch -- since it is a strict
-// superset: a URL that never leaves google.com just never takes the
-// cookie-less branch, and a URL that's cookie-less end-to-end (the
-// external-attachment case) behaves identically to
-// _download_external_attachment except for also following redirects, which
-// portal.py's external path never needed to (external CDN links don't
-// redirect back to an authenticated Google endpoint) but doing so anyway is
-// harmless and keeps this package's callers (Task 3) from needing to know
-// which of the two Python code paths applies to a given URL up front.
+// The download path is chosen by a "*.google.com" host check: google.com
+// hosts get the authenticated (cookie-bearing) session, and everything else
+// gets a fresh cookie-less request. DownloadAttachment below collapses both
+// cases into ONE loop, switching per-hop between the authenticated session
+// and a cookie-less one. This is a strict superset of the two paths the
+// protocol needs: a URL that never leaves google.com simply never takes the
+// cookie-less branch, and a URL that's cookie-less end-to-end (an external
+// CDN attachment) behaves like a plain single-session download except that
+// it also follows redirects. External CDN links don't redirect back to an
+// authenticated Google endpoint, so following redirects there is harmless --
+// and it keeps this package's callers (Task 3) from needing to know which
+// download path applies to a given URL up front.
 import (
 	"context"
 	"fmt"
@@ -49,23 +29,19 @@ import (
 )
 
 const (
-	// getAttachmentURLEndpoint mirrors portal.py:1480's
-	// `URL("https://chat.google.com/api/get_attachment_url")` verbatim.
+	// getAttachmentURLEndpoint is Google Chat's attachment-URL API endpoint.
 	getAttachmentURLEndpoint = "https://chat.google.com/api/get_attachment_url"
 
-	// fifeImageSize mirrors portal.py:1478's `query["sz"] = "w10000-h10000"`
-	// -- an effectively-unbounded size request to Google's FIFE image proxy
-	// so the full-resolution original is returned rather than a thumbnail.
+	// fifeImageSize is the `sz` query value -- an effectively-unbounded size
+	// request to Google's FIFE image proxy so the full-resolution original is
+	// returned rather than a thumbnail.
 	fifeImageSize = "w10000-h10000"
 
-	// maxDownloadRedirects mirrors client.py:206's `while depth < 10` loop
-	// bound (comment: "Usually there are 4 redirects for files and 1 for
-	// images"). Unlike Python -- whose loop simply falls off the end and
-	// implicitly returns None if the 10th response is STILL a redirect,
-	// which would crash its caller trying to unpack a 3-tuple -- this port
-	// deliberately raises an explicit error once the cap is reached, per
-	// the brief's mandate ("capped at 10 -> error on the 11th"); see
-	// DownloadAttachment's loop.
+	// maxDownloadRedirects caps manual redirect-following at 10 hops (usually
+	// there are 4 redirects for files and 1 for images). On reaching the cap
+	// this port deliberately raises an explicit error rather than returning
+	// empty-handed, per the brief's mandate ("capped at 10 -> error on the
+	// 11th"); see DownloadAttachment's loop.
 	maxDownloadRedirects = 10
 )
 
@@ -73,11 +49,10 @@ const (
 // with automatic redirect-following disabled via CheckRedirect:
 // DownloadAttachment's own loop inspects each redirect's Location header
 // itself and decides afresh, at EVERY hop, whether the next hop's host
-// should get cookies -- exactly mirroring client.py:217-223's comment
-// ("Follow redirects manually in order to re-add authorization headers when
-// redirected from googleusercontent.com back to chat.google.com"). Go's
-// default automatic redirect-following would instead permanently strip the
-// Cookie header on the FIRST cross-host hop (net/http's
+// should get cookies. Redirects must be followed manually in order to re-add
+// authorization headers when redirected from googleusercontent.com back to
+// chat.google.com. Go's default automatic redirect-following would instead
+// permanently strip the Cookie header on the FIRST cross-host hop (net/http's
 // shouldCopyHeaderOnRedirect) and never restore it even if a later hop
 // lands back on an allowed host. Overridable in tests, same seam pattern as
 // avatar.go's avatarHTTPClient.
@@ -88,19 +63,12 @@ var downloadHTTPClient = &http.Client{
 }
 
 // AttachmentURL builds the URL to fetch an UPLOAD_METADATA annotation's file
-// from, mirroring portal.py:1470-1485's _preprocess_annotations exactly for
-// the `annotation.HasField("upload_metadata")` branch:
-//
-//	query = {"url_type": "DOWNLOAD_URL", "attachment_token": meta.attachment_token}
-//	if meta.content_type.startswith("image/"):
-//	    query["url_type"] = "FIFE_URL"
-//	    query["sz"] = "w10000-h10000"
-//	    query["content_type"] = meta.content_type
-//	url = URL("https://chat.google.com/api/get_attachment_url").with_query(query)
+// from. For an image content_type the query uses url_type=FIFE_URL with a
+// sz bound and the content_type echoed back; otherwise url_type=DOWNLOAD_URL.
 //
 // isImage reports whether the image branch was taken (content_type has an
-// "image/" prefix), for callers (M5 Task 3) that need the same signal Python
-// derives independently via mime.split("/")[0] on the download response.
+// "image/" prefix), for callers (M5 Task 3) that need the same signal
+// derivable from the download response's mime type.
 func (c *Client) AttachmentURL(meta *pb.UploadMetadata) (string, bool, error) {
 	if meta == nil {
 		return "", false, fmt.Errorf("googlechat: nil upload metadata")
@@ -130,29 +98,21 @@ func (c *Client) AttachmentURL(meta *pb.UploadMetadata) (string, bool, error) {
 }
 
 // DownloadAttachment fetches an attachment from urlStr, following redirects
-// manually up to maxDownloadRedirects hops (client.py:182-236's
-// download_attachment), sending auth cookies ONLY to hosts matching the
-// Client's Session host allowlist (google.com; see session.go's
-// hostAllowed/defaultAllowedHostSuffixes and its doc comment on why
-// googleusercontent.com is deliberately excluded) and NONE otherwise
-// (client.py:211-215's fresh, cookie-less aiohttp.ClientSession for
-// non-google.com hops). maxSize, if greater than zero, caps the downloaded
-// body: a Content-Length that already exceeds it is rejected before any
-// body bytes are read, and the body read itself is ALSO capped in case
-// Content-Length was absent or understated (client.py:238-273's
-// read_with_max_size). maxSize <= 0 means no cap -- unlike Python's
-// read_with_max_size, whose read loop does NOT special-case max_size == 0
-// and would therefore raise FileTooLargeError on the first non-empty body
-// even though its own docstring documents 0 as "unlimited" (client.py:190-193
-// says a check only applies "If [max_size] is greater than zero"); this port
-// implements the documented contract rather than replicating that latent
-// bug, which no real caller trips over today since
-// self.matrix.media_config.upload_size (portal.py:1534) is always a
-// positive homeserver-configured limit.
+// manually up to maxDownloadRedirects hops, sending auth cookies ONLY to
+// hosts matching the Client's Session host allowlist (google.com; see
+// session.go's hostAllowed/defaultAllowedHostSuffixes and its doc comment on
+// why googleusercontent.com is deliberately excluded) and NONE otherwise (a
+// fresh, cookie-less request for non-google.com hops). maxSize, if greater
+// than zero, caps the downloaded body: a Content-Length that already exceeds
+// it is rejected before any body bytes are read, and the body read itself is
+// ALSO capped in case Content-Length was absent or understated. maxSize <= 0
+// means no cap: 0 is the documented "unlimited" contract. No real caller
+// trips over this today since the homeserver-configured media upload_size
+// limit is always positive.
 //
 // Returns the raw body, the mime type (from the Content-Type header) and
 // the filename (from Content-Disposition, falling back to the URL's last
-// path segment -- client.py:226-230).
+// path segment).
 func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
 	depth := 0
 	for {
@@ -166,14 +126,12 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 			return nil, "", "", fmt.Errorf("googlechat: invalid attachment url %q: %w", urlStr, err)
 		}
 
-		// client.py:208-215: `if url.host.endswith(".google.com"): ... else: ...`.
+		// The ".google.com" host check decides cookie vs cookie-less:
 		// c.session.hostAllowed reuses the SAME allowlist that gates cookie
 		// attachment for every other RPC this Client makes (session.go); the
 		// cookie-less branch below builds a plain request with NO
-		// Session-derived headers at all (User-Agent, Connection), matching
-		// Python's fresh aiohttp.ClientSession() having none of the
-		// authenticated session's defaults either -- and mirroring this
-		// package's existing avatar.go/DownloadAvatar cookie-less pattern.
+		// Session-derived headers at all (User-Agent, Connection) -- mirroring
+		// this package's existing avatar.go/DownloadAvatar cookie-less pattern.
 		var req *http.Request
 		if c.session.hostAllowed(u) {
 			req, err = c.session.buildRequest(ctx, http.MethodGet, urlStr, nil, nil)
@@ -189,9 +147,8 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 			return nil, "", "", fmt.Errorf("googlechat: attachment download failed: %w", err)
 		}
 
-		// client.py:220-223: only these four statuses are followed as
-		// redirects (notably NOT 303, unlike net/http's default redirect
-		// policy).
+		// Only these four statuses are followed as redirects (notably NOT
+		// 303, unlike net/http's default redirect policy).
 		if isRedirectStatus(resp.StatusCode) {
 			loc := resp.Header.Get("Location")
 			resp.Body.Close()
@@ -206,10 +163,9 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 			continue
 		}
 
-		// client.py:225: `resp.raise_for_status()` -- aiohttp raises for any
-		// status >= 400, leaving 2xx/3xx (other than the four redirect
-		// codes just handled) to fall through to the success path below,
-		// same as here.
+		// Any status >= 400 is treated as an error; 2xx/3xx (other than the
+		// four redirect codes just handled) fall through to the success path
+		// below.
 		if resp.StatusCode >= 400 {
 			resp.Body.Close()
 			return nil, "", "", &UnexpectedStatusError{URL: urlStr, Status: resp.StatusCode}
@@ -228,9 +184,8 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 	}
 }
 
-// isRedirectStatus mirrors client.py:220's
-// `resp.status in (301, 302, 307, 308)` verbatim -- 303 See Other is
-// deliberately NOT included, matching Python.
+// isRedirectStatus reports whether status is one of 301, 302, 307, 308 --
+// 303 See Other is deliberately NOT included.
 func isRedirectStatus(status int) bool {
 	switch status {
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
@@ -241,18 +196,10 @@ func isRedirectStatus(status int) bool {
 }
 
 // attachmentFilename extracts a filename from resp's Content-Disposition
-// header, falling back to the last path segment of u -- mirrors
-// client.py:226-230:
-//
-//	try:
-//	    _, params = cgi.parse_header(resp.headers["Content-Disposition"])
-//	    filename = params.get("filename") or url.path.split("/")[-1]
-//	except KeyError:
-//	    filename = url.path.split("/")[-1]
+// header, falling back to the last path segment of u.
 //
 // The fallback is computed via a manual split rather than path.Base so an
-// empty u.Path yields "" (matching Python's "".split("/")[-1] == "")
-// instead of path.Base's "." for an empty string.
+// empty u.Path yields "" instead of path.Base's "." for an empty string.
 func attachmentFilename(resp *http.Response, u *url.URL) string {
 	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
 		if _, params, err := mime.ParseMediaType(cd); err == nil {
@@ -266,14 +213,11 @@ func attachmentFilename(resp *http.Response, u *url.URL) string {
 }
 
 // readWithMaxSize reads resp's body, enforcing maxSize if it is greater than
-// zero -- mirrors client.py:238-273's read_with_max_size, minus the
-// preallocated-bytearray bookkeeping (an aiohttp-specific optimization with
-// no Go equivalent needed: io.LimitReader + io.ReadAll do the same job).
-// Content-Length is checked first as a fast-path rejection before any body
-// bytes are read (client.py:241-242); the read itself is ALSO capped via
+// zero. Content-Length is checked first as a fast-path rejection before any
+// body bytes are read; the read itself is ALSO capped via
 // io.LimitReader(maxSize+1) in case Content-Length was absent (chunked
-// transfer) or understated (client.py:248-255's "read one more byte than
-// the cap, then fail if we got it").
+// transfer) or understated -- read one more byte than the cap, then fail if
+// we got it.
 func readWithMaxSize(resp *http.Response, maxSize int64) ([]byte, error) {
 	if maxSize <= 0 {
 		data, err := io.ReadAll(resp.Body)

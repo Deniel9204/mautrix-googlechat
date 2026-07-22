@@ -2,11 +2,10 @@ package migrate
 
 // White-box tests (package migrate, not migrate_test): source_test.go builds
 // a hand-rolled fixture Python SQLite database matching the FINAL Python
-// schema reconstructed in .superpowers/sdd/m7-migration-schema-map.md
-// (§1-§5), seeds it with a couple of representative rows per table --
-// including deliberate NULLs, since every Python column the schema map
-// marks nullable is exercised by real installs -- and asserts the Get*
-// readers return the right typed rows with correct NULL handling.
+// schema this package migrates, seeds it with a couple of representative
+// rows per table -- including deliberate NULLs, since every nullable Python
+// column is exercised by real installs -- and asserts the Get* readers
+// return the right typed rows with correct NULL handling.
 //
 // The fixture is built with a normal read-write "sqlite3" connection (the
 // same driver source.go blank-imports), then closed and reopened via the

@@ -11,16 +11,11 @@ var (
 	ErrSIDExpiring            = errors.New("SID expiring")             // payload error -> re-register, no backoff
 	ErrSIDInvalid             = errors.New("SID invalid")              // HTTP 400 "Unknown SID"
 
-	// ErrFileTooLarge mirrors maugclib/exceptions.py's FileTooLargeError (a
-	// bare HangupsError subclass), raised by Client.read_with_max_size
-	// (client.py:242,255) when an attachment's Content-Length -- or, absent
-	// that, its actual body size -- exceeds the caller-supplied max_size.
-	// download.go's DownloadAttachment wraps this sentinel with context via
-	// %w so callers use errors.Is(err, ErrFileTooLarge), matching how
-	// portal.py:1540 catches FileTooLargeError specifically (distinct from
-	// the generic aiohttp.ClientResponseError branch beside it) to skip
-	// uploading an oversized attachment instead of failing the whole
-	// message.
+	// ErrFileTooLarge is returned when an attachment's Content-Length -- or,
+	// absent that, its actual body size -- exceeds the caller-supplied
+	// max_size. download.go's DownloadAttachment wraps this sentinel with
+	// context via %w so callers use errors.Is(err, ErrFileTooLarge) to skip
+	// uploading an oversized attachment instead of failing the whole message.
 	ErrFileTooLarge = errors.New("googlechat: file size larger than maximum")
 )
 
@@ -40,8 +35,7 @@ func (e *NetworkError) Unwrap() error {
 	return e.Err
 }
 
-// UnexpectedStatusError preserves the HTTP status (improvement over Python,
-// mandated by docs/research/07 §3.3 item 6).
+// UnexpectedStatusError preserves the HTTP status.
 type UnexpectedStatusError struct {
 	URL       string
 	Status    int

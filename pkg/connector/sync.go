@@ -2,8 +2,7 @@ package connector
 
 // sync.go -- chat-list sync: list the "world" (every conversation the
 // account is in), then emit one simplevent.ChatResync per chat so bridgev2
-// creates/backfill-checks portals for it. Ports mautrix_googlechat/user.py's
-// sync() (user.py:609-665).
+// creates/backfill-checks portals for it.
 import (
 	"context"
 	"sort"
@@ -51,41 +50,37 @@ type syncChatItem struct {
 }
 
 // planChatSync filters, sorts, and caps a raw PaginatedWorld item list into
-// the per-chat sync plan syncChats emits as ChatResync events. Ports
-// user.py's sync() loop (user.py:623-641):
+// the per-chat sync plan syncChats emits as ChatResync events:
 //
-//   - sort by sort_timestamp descending (user.py:624) -- sort.SliceStable so
-//     ties keep the server's original relative order, matching Python
-//     list.sort's stability guarantee;
+//   - sort by sort_timestamp descending -- sort.SliceStable so ties keep the
+//     server's original relative order (a stable sort);
 //   - walk the FULL sorted list with an absolute position counter and skip
-//     conditions copied verbatim from user.py:630-635 (blocked / hidden
-//     (hide_timestamp > 0) / not MEMBER_JOINED) -- critically, a skipped
-//     item still advances the position counter for every item after it,
-//     exactly like Python's `for index, item in enumerate(items): ...
-//     continue` (the enumerate index is over the unfiltered, sorted list;
+//     conditions (blocked / hidden (hide_timestamp > 0) / not MEMBER_JOINED)
+//     -- critically, a skipped item still advances the position counter for
+//     every item after it, exactly like enumerating the unfiltered, sorted
+//     list and `continue`-ing (the index is over the unfiltered list;
 //     `continue` does not "collapse" it). An earlier version of this
 //     function filtered first and then indexed only the survivors, which
 //     silently shifted the cap boundary earlier by one slot for every
 //     skipped chat ahead of it -- e.g. with maxSync=2 and the single most
 //     recent chat blocked, that version would auto-create portals for the
-//     2nd and 3rd most recent chats instead of just the 2nd, diverging from
-//     Python whenever a skipped chat ranks within the cap window;
-//   - cap at maxSync (bridge.initial_chat_sync, user.py:625): the newest
-//     maxSync items BY ABSOLUTE POSITION in the full sorted list are marked
-//     CreatePortal true, the rest false.
+//     2nd and 3rd most recent chats instead of just the 2nd, whenever a
+//     skipped chat ranks within the cap window;
+//   - cap at maxSync (bridge.initial_chat_sync): the newest maxSync items BY
+//     ABSOLUTE POSITION in the full sorted list are marked CreatePortal
+//     true, the rest false.
 //
-// Deviation from user.py's literal loop: Python additionally keeps (marks
-// for update/backfill, not creation) every item beyond the cap that ALREADY
-// has a local portal.mxid (user.py:638, "if portal.mxid or index <
-// max_sync"), and skips the rest outright rather than emitting anything for
-// them. This function has no access to which portals already exist (it's a
-// pure, unit-testable transform - see task-12-brief.md's testing note on
-// this), so it takes the simpler "emit for every post-filter item" approach
-// instead: bridgev2's own event dispatch (portal.go's handleRemoteEvent)
-// already drops a CreatePortal:false ChatResync when no portal exists yet
-// and processes it normally (update+backfill-check) when one does -- the
-// same net effect as user.py's gate, just enforced downstream instead of
-// here.
+// Deviation from the literal loop: the reference behavior additionally keeps
+// (marks for update/backfill, not creation) every item beyond the cap that
+// ALREADY has a local portal.mxid, and skips the rest outright rather than
+// emitting anything for them. This function has no access to which portals
+// already exist (it's a pure, unit-testable transform - see
+// task-12-brief.md's testing note on this), so it takes the simpler "emit
+// for every post-filter item" approach instead: bridgev2's own event
+// dispatch (portal.go's handleRemoteEvent) already drops a
+// CreatePortal:false ChatResync when no portal exists yet and processes it
+// normally (update+backfill-check) when one does -- the same net effect as
+// that gate, just enforced downstream instead of here.
 func planChatSync(items []*pb.WorldItemLite, maxSync int) []syncChatItem {
 	sorted := make([]*pb.WorldItemLite, len(items))
 	copy(sorted, items)
@@ -104,23 +99,21 @@ func planChatSync(items []*pb.WorldItemLite, maxSync int) []syncChatItem {
 	return plan
 }
 
-// syncChats lists the world (every conversation) via paginated_world
-// (client.py:700, proto_paginated_world) and queues one
-// simplevent.ChatResync per (post-filter) chat, matching the request shape
-// user.py's sync() builds when called with no limit (user.py:613-619):
-// fetch_from_user_spaces=true, fetch_options=[EXCLUDE_GROUP_LITE]. Intended
-// to run once Connect reaches CONNECTED (client.go's handleConnState), same
-// as Python's on_connect_later calling self.sync() right before pushing
-// BridgeStateEvent.CONNECTED (user.py:555-560).
+// syncChats lists the world (every conversation) via paginated_world and
+// queues one simplevent.ChatResync per (post-filter) chat, using the
+// no-limit request shape: fetch_from_user_spaces=true,
+// fetch_options=[EXCLUDE_GROUP_LITE]. Intended to run once Connect reaches
+// CONNECTED (client.go's handleConnState), right before pushing
+// BridgeStateEvent.CONNECTED.
 //
-// Deviations from user.py's sync(): no `limit` parameter (that's user.py's
+// Deviations from a full sync(): no `limit` parameter (that's the
 // periodic-recheck/reconnect-triggered "small sync", not part of this
 // task's scope -- M1 only wires the one-time post-connect sync); no
-// prefetch_users batching of DM member GetMembers calls (user.py:627,646 --
-// bridgev2 already batches ghost info lookups on its own portal-creation
-// path); no update_direct_chats()/m.direct sync at the end (user.py:664 --
-// bridgev2 maintains m.direct itself from portal state, this bridge never
-// needs to push it directly).
+// prefetch_users batching of DM member GetMembers calls (bridgev2 already
+// batches ghost info lookups on its own portal-creation path); no
+// update_direct_chats()/m.direct sync at the end (bridgev2 maintains
+// m.direct itself from portal state, this bridge never needs to push it
+// directly).
 //
 // Clears syncInProgress (client.go) when it finishes, via defer -- the
 // caller (handleConnState) sets it true synchronously BEFORE spawning this
@@ -224,10 +217,9 @@ func (c *GChatClient) fetchWorldWithRetry(ctx context.Context, fetch func(contex
 	// a ~2-byte stub (no world_items), so syncChats sees zero chats and no new
 	// conversation ever auto-creates a portal (verified live 2026-07-22; the
 	// maintained purple-googlechat client sends page_size=999,
-	// googlechat_conversation.c:1173-1178, while the older Python bridge --
-	// which omitted it on full sync -- predates this server change). page_size
-	// caps the returned world; 999 matches purple and covers any realistic
-	// personal account in one page.
+	// googlechat_conversation.c:1173-1178). page_size caps the returned world;
+	// 999 matches purple and covers any realistic personal account in one
+	// page.
 	req := &pb.PaginatedWorldRequest{
 		FetchFromUserSpaces:  proto.Bool(true),
 		FetchOptions:         []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},

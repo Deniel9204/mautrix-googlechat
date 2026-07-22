@@ -18,9 +18,8 @@ import (
 // the 5 RequiredCookies fields (COMPASS/SSID/SID/OSID/HSID, in that order),
 // each scoped to chat.google.com via a single "cookie" source, with COMPASS
 // alone carrying the dynamite-ui= pattern hint. Ported from
-// googlechat-megabridge/pkg/connector/login.go's Start (cleared by 08b/08c
-// for flow shape + this exact hint; see docs/research/01 §1.1-1.2 for why all
-// 5 -- not a subset -- are domain-specific to chat.google.com).
+// googlechat-megabridge/pkg/connector/login.go's Start; all 5 -- not a
+// subset -- are domain-specific to chat.google.com.
 func TestLoginStartStepShape(t *testing.T) {
 	gl := &GChatLogin{}
 	step, err := gl.Start(context.Background())
@@ -89,11 +88,10 @@ func TestLoginStartStepShape(t *testing.T) {
 // TestClassifyXSRFError pins the mapping from a client.FetchXSRFToken failure
 // to the user-facing error returned by SubmitCookies: gchatmeow.ErrNotLoggedIn
 // (Google rejected the cookies, /mole/world's AccountsSignInUi check) must
-// produce the specific ErrLoginCookiesInvalid message -- mirroring the Python
-// bridge's login-cookie command reply "Those cookies don't seem to be valid"
-// (docs/research/03 §2.1) -- while every other error (network failure,
-// malformed response, ...) collapses to the generic ErrLoginFailed rather
-// than leaking a raw transport error to the user.
+// produce the specific ErrLoginCookiesInvalid message "Those cookies don't
+// seem to be valid" -- while every other error
+// (network failure, malformed response, ...) collapses to the generic
+// ErrLoginFailed rather than leaking a raw transport error to the user.
 func TestClassifyXSRFError(t *testing.T) {
 	if got := classifyXSRFError(gchatmeow.ErrNotLoggedIn); !errors.Is(got, ErrLoginCookiesInvalid) {
 		t.Errorf("classifyXSRFError(ErrNotLoggedIn) = %v, want ErrLoginCookiesInvalid", got)
@@ -109,7 +107,7 @@ func TestClassifyXSRFError(t *testing.T) {
 }
 
 // TestExtractGaiaID pins gaia-ID extraction out of a GetSelfUserStatus
-// response (doc 01 §1.4 step 3): the happy path, and an explicit error --
+// response: the happy path, and an explicit error --
 // never a silently-empty string -- when the ID is missing at any level,
 // including a nil response.
 func TestExtractGaiaID(t *testing.T) {
@@ -154,9 +152,9 @@ func TestExtractGaiaID(t *testing.T) {
 // into NewLogin (which immediately dereferences user.Bridge.cacheLock) would
 // nil-pointer-panic the test instead of silently creating a login row. The
 // full happy-path flow (real cookies, real GetSelfUserStatus, a real
-// database-backed User) is integration-tested in the M1 live protocol spike
-// (Task 13), not here -- no in-memory bridgev2 test harness exists yet in
-// $REF/mautrix-go or $REF/meta to drive it standalone.
+// database-backed User) is integration-tested live, not here -- no
+// in-memory bridgev2 test harness exists yet in $REF/mautrix-go or
+// $REF/meta to drive it standalone.
 func TestSubmitCookiesUnreachableFailsCleanly(t *testing.T) {
 	gl := &GChatLogin{
 		User: &bridgev2.User{},
@@ -180,10 +178,9 @@ func TestSubmitCookiesUnreachableFailsCleanly(t *testing.T) {
 	}
 }
 
-// TestAttachAndConnectUsesWarmClient is a regression guard for exactly the
-// bug an adversarial audit caught in an earlier revision of this file: it is
-// easy to accidentally write "go gc.Connect(ctx)" (the *GChatClient's own
-// bridgev2.NetworkAPI method, which now -- post Task 11 -- BUILDS A NEW
+// TestAttachAndConnectUsesWarmClient is a regression guard for exactly this
+// bug: it is easy to accidentally write "go gc.Connect(ctx)" (the
+// *GChatClient's own bridgev2.NetworkAPI method, which now BUILDS A NEW
 // gchatmeow.Client from persisted metadata) instead of
 // "gc.wireAndStart(ctx, client)" (which installs and starts the given warm,
 // already-validated client) -- both compile, since *GChatClient happens to

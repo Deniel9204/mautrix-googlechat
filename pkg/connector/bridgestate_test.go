@@ -10,8 +10,7 @@ import (
 )
 
 // TestConnStateToBridgeState pins the connection-state -> bridge-state
-// mapping table from the task brief / docs/research/07 §1.3 "Connection
-// lifecycle".
+// mapping table.
 func TestConnStateToBridgeState(t *testing.T) {
 	boom := errors.New("boom")
 	tests := []struct {

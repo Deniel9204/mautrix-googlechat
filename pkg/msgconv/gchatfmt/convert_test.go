@@ -12,8 +12,8 @@ import (
 )
 
 // TestParse is the table-driven core of the behavior inventory: one case
-// per mandatory behavior from the M3 Task 1 brief. See convert.go's package
-// doc comment for the from_googlechat.py line references each case ports.
+// per mandatory behavior. See convert.go's package doc comment for the
+// behavior each case covers.
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -50,8 +50,7 @@ func TestParse(t *testing.T) {
 		{
 			// bold [0,4) and italic [2,6) partially overlap; normalization
 			// must split italic into [2,4) (nested inside bold) and [4,6)
-			// (after bold), matching the megabridge probe recorded in
-			// docs/research/08d-megabridge-msgconv.md §1.3.
+			// (after bold).
 			name: "two overlapping spans (bold+italic) get split at the boundary",
 			text: "abcdef",
 			annotations: []*pb.Annotation{
@@ -230,8 +229,8 @@ func TestParse_HyperlinkPlain(t *testing.T) {
 }
 
 // TestParse_DangerousURLSchemeNeutralized is the security regression test
-// for the javascript:/data: link-scheme fix (M7 Task 3 item 1, mirroring the
-// B1 href-escape fix above): a url_metadata annotation whose href is a
+// for the javascript:/data: link-scheme fix (mirroring the B1 href-escape
+// fix above): a url_metadata annotation whose href is a
 // javascript: URI must never become a clickable <a href="javascript:...">
 // pill -- escaping alone (B1) makes the attribute syntactically safe but
 // does nothing to stop a well-formed javascript:/data: URL from executing
@@ -320,9 +319,9 @@ func TestParse_Mention_ResolvedPill(t *testing.T) {
 	}
 }
 
-// TestParse_Mention_NilResolver: with no resolver at all (M3 Task 1's
-// default -- Task 3 wires the real one), a mention annotation must fall
-// back to the original message text, unpilled, with nothing dropped.
+// TestParse_Mention_NilResolver: with no resolver at all, a mention
+// annotation must fall back to the original message text, unpilled, with
+// nothing dropped.
 func TestParse_Mention_NilResolver(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeMentionAnnotation(0, 8, "123"),
@@ -380,12 +379,12 @@ func TestParse_MalformedAnnotationFallsBackGracefully(t *testing.T) {
 }
 
 // TestParse_HugeLengthAnnotationFallsBackGracefully is the P0 regression
-// test from the port audit: a Length near int32 max, added to a small
-// StartIndex, overflows a naive int32 sum (wire-controlled fields, unlike
-// Python's arbitrary-precision ints) and can wrap to a value that passes
-// an unpromoted ">" bounds check, which then panics as an out-of-range
-// slice bound instead of degrading to the plain-text fallback. Must not
-// panic; must fall back exactly like any other malformed annotation.
+// test: a Length near int32 max, added to a small StartIndex, overflows a
+// naive int32 sum (these are wire-controlled int32
+// fields) and can wrap to a value that passes an unpromoted ">" bounds
+// check, which then panics as an out-of-range slice bound instead of
+// degrading to the plain-text fallback. Must not panic; must fall back
+// exactly like any other malformed annotation.
 func TestParse_HugeLengthAnnotationFallsBackGracefully(t *testing.T) {
 	const text = "hello world this is a test message of some length"
 	annotations := []*pb.Annotation{
@@ -504,7 +503,7 @@ func TestParse_ValidMentionCollectedDespiteUnrelatedMalformedAnnotation(t *testi
 }
 
 // TestParse_MentionChipRenderTypeFilteredOut: a mention annotation whose chip
-// type isn't DO_NOT_RENDER is a preview chip (M5), not an inline mention --
+// type isn't DO_NOT_RENDER is a preview chip, not an inline mention --
 // gchatfmt renders no pill for it, so it must not be collected either.
 func TestParse_MentionChipRenderTypeFilteredOut(t *testing.T) {
 	chip := gchatfmt.MakeMentionAnnotation(0, 4, "200")

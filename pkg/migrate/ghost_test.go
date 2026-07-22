@@ -1,15 +1,14 @@
 package migrate
 
-// White-box tests (package migrate) for migrateGhosts -- M7 Task 5. See
-// .superpowers/sdd/m7-migration-schema-map.md §4 for the mapping under test.
+// White-box tests (package migrate) for migrateGhosts.
 //
 // TestMigrateGhosts_AliceAndBare reuses source_test.go's shared fixture (one
 // puppet with a live double-puppet configured and a full profile, one
-// all-NULL/never-registered puppet) -- exactly the NULL-coalescing cases
-// this task's brief asks for. A dedicated second fixture
-// (newBadAvatarHashSourceDB) covers the invalid-avatar_hash warn-and-coalesce
-// path, which the shared fixture has no row for (its one populated hash is a
-// valid 64-hex-char string).
+// all-NULL/never-registered puppet) -- exactly the NULL-coalescing cases we
+// need to cover. A dedicated second fixture (newBadAvatarHashSourceDB)
+// covers the invalid-avatar_hash warn-and-coalesce path, which the shared
+// fixture has no row for (its one populated hash is a valid 64-hex-char
+// string).
 
 import (
 	"context"
@@ -129,8 +128,8 @@ func TestMigrateGhosts_AliceAndBare(t *testing.T) {
 
 // newBadAvatarHashSourceDB builds a source DB whose only puppet row has a
 // photo_hash that is NOT 64 hex characters -- exercising the
-// warn-and-coalesce path (map §4: "validate it's exactly 64 hex chars ...
-// before writing").
+// warn-and-coalesce path (a photo_hash must be exactly 64 hex chars before
+// writing).
 func newBadAvatarHashSourceDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "bad_avatar_hash_source.db")

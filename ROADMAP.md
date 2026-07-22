@@ -72,12 +72,12 @@
   * [x] One-shot migration from the Python bridge's database (`--migrate-from-python`)
 
 † Outbound media upload is implemented and **verified working against Google's
-live endpoint (2026-07-22)**. The Python bridge's uploads have failed with an
-HTTP 500 since ~Feb 2026
+live endpoint (2026-07-22)**. Some clients have hit an HTTP 500 on upload
+since ~Feb 2026
 ([mautrix/googlechat#114](https://github.com/mautrix/googlechat/issues/114)),
-but that is a client request-shape bug — its client (maugclib) appends
+but that is a client request-shape bug — the affected client appends
 `alt=`/`key=` params to the signed upload URL and omits the XSRF header. This
-port does neither (it sends the
+bridge does neither (it sends the
 [purple-googlechat](https://github.com/EionRobb/purple-googlechat) shape), and
 a live upload confirmed it succeeds. `network.disable_outbound_media` remains
 available to turn upload attempts into clean errors if a future change breaks

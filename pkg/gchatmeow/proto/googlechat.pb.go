@@ -4279,7 +4279,7 @@ const (
 	Event_SHARED_DRIVE_UPDATED                        Event_EventType = 48
 	Event_MESSAGE_PERSONAL_LABEL_UPDATED              Event_EventType = 49
 	Event_USER_QUOTA_EXCEEDED                         Event_EventType = 50
-	// observed live 2026-07 as raw numbers (docs/research/09, "Unknown
+	// observed live 2026-07 as raw numbers ("Unknown
 	// event *types* delivered as raw numbers: type=64, type=83"); names
 	// sourced from purple-googlechat/googlechat.proto.
 	Event_GROUP_DEFAULT_SORT_ORDER_UPDATED Event_EventType = 64
@@ -9170,7 +9170,7 @@ type Message struct {
 	AppProfile        *AppProfile        `protobuf:"bytes,16,opt,name=app_profile,json=appProfile" json:"app_profile,omitempty"`
 	RetentionSettings *RetentionSettings `protobuf:"bytes,18,opt,name=retention_settings,json=retentionSettings" json:"retention_settings,omitempty"`
 	Reactions         []*Reaction        `protobuf:"bytes,21,rep,name=reactions" json:"reactions,omitempty"`
-	// editable_by/deletable_by: observed live 2026-07 (docs/research/09,
+	// editable_by/deletable_by: observed live 2026-07 (
 	// "Message fields 24, 25 (small enums, value 2)"); name+type sourced
 	// from purple-googlechat/googlechat.proto.
 	EditableBy       *Message_MessagePermission `protobuf:"varint,24,opt,name=editable_by,json=editableBy,enum=Message_MessagePermission" json:"editable_by,omitempty"`
@@ -14027,7 +14027,7 @@ type MessageEvent struct {
 	LastMessageInTopicTime *int64                 `protobuf:"varint,4,opt,name=last_message_in_topic_time,json=lastMessageInTopicTime" json:"last_message_in_topic_time,omitempty"`
 	PrevRevisionTime       *int64                 `protobuf:"varint,5,opt,name=prev_revision_time,json=prevRevisionTime" json:"prev_revision_time,omitempty"`
 	IsHeadMessage          *bool                  `protobuf:"varint,6,opt,name=is_head_message,json=isHeadMessage" json:"is_head_message,omitempty"`
-	// num_recipients: observed live 2026-07 (docs/research/09, "MessageEvent
+	// num_recipients: observed live 2026-07 ("MessageEvent
 	// field 7 (small enum, value 2)"); name+type sourced from
 	// purple-googlechat/googlechat.proto (plain int32, not an enum).
 	NumRecipients *int32 `protobuf:"varint,7,opt,name=num_recipients,json=numRecipients" json:"num_recipients,omitempty"`
@@ -15282,7 +15282,7 @@ func (x *TopicCreatedEvent) GetHasMoreReplied() bool {
 	return false
 }
 
-// MessageSmartRepliesEvent: observed live 2026-07 (docs/research/09,
+// MessageSmartRepliesEvent: observed live 2026-07 (
 // EventBody field 25, accompanies MESSAGE_SMART_REPLIES) -- type inferred
 // from wire shape. purple-googlechat also lacks a real definition for this
 // field (still commented out there); fields below follow the same
@@ -15290,8 +15290,8 @@ func (x *TopicCreatedEvent) GetHasMoreReplied() bool {
 // EventBody payloads (e.g. GroupUnreadSubscribedTopicCountUpdatedEvent).
 type MessageSmartRepliesEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	GroupId       *GroupId               `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`                      // observed live 2026-07, type inferred from wire shape (docs/research/09)
-	EventTimeUsec *int64                 `protobuf:"varint,2,opt,name=event_time_usec,json=eventTimeUsec" json:"event_time_usec,omitempty"` // observed live 2026-07, type inferred from wire shape (docs/research/09)
+	GroupId       *GroupId               `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`                      // observed live 2026-07, type inferred from wire shape
+	EventTimeUsec *int64                 `protobuf:"varint,2,opt,name=event_time_usec,json=eventTimeUsec" json:"event_time_usec,omitempty"` // observed live 2026-07, type inferred from wire shape
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -15340,15 +15340,15 @@ func (x *MessageSmartRepliesEvent) GetEventTimeUsec() int64 {
 	return 0
 }
 
-// GroupDefaultSortOrderUpdatedEvent: observed live 2026-07 (docs/research/09,
+// GroupDefaultSortOrderUpdatedEvent: observed live 2026-07 (
 // EventBody field 53) -- type inferred from wire shape. purple-googlechat
 // only has the EventType enum value (GROUP_DEFAULT_SORT_ORDER_UPDATED = 64)
 // for this, not a real EventBody payload definition; shape inferred as
 // above.
 type GroupDefaultSortOrderUpdatedEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	GroupId       *GroupId               `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`                      // observed live 2026-07, type inferred from wire shape (docs/research/09)
-	EventTimeUsec *int64                 `protobuf:"varint,2,opt,name=event_time_usec,json=eventTimeUsec" json:"event_time_usec,omitempty"` // observed live 2026-07, type inferred from wire shape (docs/research/09)
+	GroupId       *GroupId               `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`                      // observed live 2026-07, type inferred from wire shape
+	EventTimeUsec *int64                 `protobuf:"varint,2,opt,name=event_time_usec,json=eventTimeUsec" json:"event_time_usec,omitempty"` // observed live 2026-07, type inferred from wire shape
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -15725,7 +15725,7 @@ type Event struct {
 	//	*Event_GroupRevision
 	RevisionType isEvent_RevisionType `protobuf_oneof:"RevisionType"`
 	Bodies       []*Event_EventBody   `protobuf:"bytes,8,rep,name=bodies" json:"bodies,omitempty"` // This is the second and subsequent event bodies in this event
-	// backend_metadata/latency_data: observed live 2026-07 (docs/research/09,
+	// backend_metadata/latency_data: observed live 2026-07 (
 	// "Event field 9 ... looks like per-event trace/latency metadata" and
 	// "field 11 ... arrays of [sec, nsec] timing pairs"); name+type sourced
 	// from purple-googlechat/googlechat.proto.
@@ -22389,7 +22389,7 @@ type Event_EventBody_MessagePosted struct {
 }
 
 type Event_EventBody_TopicMuteChanged struct {
-	// observed live 2026-07 (docs/research/09); name+type sourced
+	// observed live 2026-07; name+type sourced
 	// from purple-googlechat/googlechat.proto.
 	TopicMuteChanged *TopicMuteChangedEvent `protobuf:"bytes,7,opt,name=topic_mute_changed,json=topicMuteChanged,oneof"`
 }
@@ -22401,7 +22401,7 @@ type Event_EventBody_WebPushNotification struct {
 }
 
 type Event_EventBody_GroupUnreadSubscribedTopicCountUpdatedEvent struct {
-	// observed live 2026-07 (docs/research/09); name+type sourced
+	// observed live 2026-07; name+type sourced
 	// from purple-googlechat/googlechat.proto.
 	GroupUnreadSubscribedTopicCountUpdatedEvent *GroupUnreadSubscribedTopicCountUpdatedEvent `protobuf:"bytes,11,opt,name=group_unread_subscribed_topic_count_updated_event,json=groupUnreadSubscribedTopicCountUpdatedEvent,oneof"`
 }
@@ -22420,7 +22420,7 @@ type Event_EventBody_MessageDeleted struct {
 
 type Event_EventBody_TopicCreated struct {
 	// RetentionSettingsUpdatedEvent retention_settings_updated = 19;
-	// observed live 2026-07 (docs/research/09, accompanies
+	// observed live 2026-07 (accompanies
 	// TOPIC_CREATED); name+type sourced from
 	// purple-googlechat/googlechat.proto.
 	TopicCreated *TopicCreatedEvent `protobuf:"bytes,21,opt,name=topic_created,json=topicCreated,oneof"`
@@ -22436,7 +22436,7 @@ type Event_EventBody_UserStatusUpdated struct {
 
 type Event_EventBody_MessageSmartRepliesEvent struct {
 	// WorkingHoursSettingsUpdatedEvent working_hours_settings_updated_event = 24;
-	// observed live 2026-07 (docs/research/09, accompanies
+	// observed live 2026-07 (accompanies
 	// MESSAGE_SMART_REPLIES); type inferred from wire shape --
 	// purple-googlechat also lacks a real definition for this field.
 	MessageSmartRepliesEvent *MessageSmartRepliesEvent `protobuf:"bytes,25,opt,name=message_smart_replies_event,json=messageSmartRepliesEvent,oneof"`
@@ -22466,7 +22466,7 @@ type Event_EventBody_GroupDefaultSortOrderUpdatedEvent struct {
 	// SharedDriveCreateScheduledEvent shared_drive_create_scheduled_event = 41;
 	// SharedDriveUpdatedEvent shared_drive_updated_event = 42;
 	// MessagePersonalLabelUpdatedEvent message_personal_label_updated = 43;
-	// observed live 2026-07 (docs/research/09); type inferred from
+	// observed live 2026-07; type inferred from
 	// wire shape -- purple-googlechat only has the EventType enum
 	// value (GROUP_DEFAULT_SORT_ORDER_UPDATED = 64) for this, not a
 	// real EventBody payload definition.
@@ -22474,7 +22474,7 @@ type Event_EventBody_GroupDefaultSortOrderUpdatedEvent struct {
 }
 
 type Event_EventBody_GroupReadStateUpdatedEvent struct {
-	// observed live 2026-07 (docs/research/09); name+type sourced
+	// observed live 2026-07; name+type sourced
 	// from purple-googlechat/googlechat.proto.
 	GroupReadStateUpdatedEvent *GroupReadStateUpdatedEvent `protobuf:"bytes,65,opt,name=group_read_state_updated_event,json=groupReadStateUpdatedEvent,oneof"`
 }

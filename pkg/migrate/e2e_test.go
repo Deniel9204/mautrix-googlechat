@@ -1,6 +1,6 @@
 package migrate
 
-// e2e_test.go is M7 Task 8's end-to-end migration test: ONE representative
+// e2e_test.go is the end-to-end migration test: ONE representative
 // fixture Python SQLite database -- a cross-section of a real installation,
 // not a narrow per-entity case -- migrated via the FULL Run (against the
 // REAL bridgev2 target schema, opened with the FK-enforcing "sqlite3-fk-wal"
@@ -30,17 +30,17 @@ package migrate
 // deliberately breaking the migrateUsers/migrateUserLogins step order while
 // writing this test and observing both failure modes, then reverting.
 //
-// Fixture shape (see .superpowers/sdd/task-8-brief.md's Deliverable 1 list):
+// Fixture shape:
 //   - one user WITH cookies+user_agent+revision (e2eUser1MXID), one WITHOUT
-//     (e2eUser2MXID, never logged in -- schema map §5's "skip" case);
-//   - one puppet giving e2eUser1MXID double-puppet (custom_mxid+access_token,
-//     m7-migration-preflight.md item 3), plus two more puppets/ghosts (the DM
-//     peer and a space member) that are message senders;
+//     (e2eUser2MXID, never logged in -- the "skip" case);
+//   - one puppet giving e2eUser1MXID double-puppet (custom_mxid+access_token),
+//     plus two more puppets/ghosts (the DM peer and a space member) that are
+//     message senders;
 //   - a DM portal (owned by e2eUser1MXID) and a space portal
 //     (threads_enabled=true);
 //   - a text-only message, a text+2-attachment multi-part message, and a
-//     multi-row attachment-only message (schema map §2's index->part_id
-//     rule, all three shapes);
+//     multi-row attachment-only message (the index->part_id rule, all three
+//     shapes);
 //   - a reaction on the text-part message (resolves to part_id "") and a
 //     reaction on the attachment-only message (resolves to part_id "att_0",
 //     proving the reaction's message_part_id lookup isn't hardcoded).
@@ -191,8 +191,8 @@ func newE2EFixtureSourceDB(t *testing.T) *dbutil.Database {
 
 // assertE2ESummaryCounts checks every Summary bucket against the fixture's
 // known-correct shape -- shared between the real-run and dry-run tests,
-// since the brief requires them to be IDENTICAL (a dry run must report the
-// same counts it would have committed).
+// since they must be IDENTICAL (a dry run must report the same counts it
+// would have committed).
 func assertE2ESummaryCounts(t *testing.T, summary *Summary) {
 	t.Helper()
 	cases := []struct {
@@ -214,8 +214,8 @@ func assertE2ESummaryCounts(t *testing.T, summary *Summary) {
 		}
 	}
 	// Only UserPortals is expected to warn (the space portal's
-	// unreconstructable membership gap, schema map §6/Risk #5) -- every
-	// other entity in this fixture is clean, well-formed data.
+	// unreconstructable membership gap) -- every other entity in this
+	// fixture is clean, well-formed data.
 	for _, c := range []struct {
 		name string
 		ec   EntityCount
@@ -264,8 +264,8 @@ func TestEndToEndMigration_FullRun(t *testing.T) {
 	// (FK-enforcing). If ANY insert above violated a foreign key (wrong
 	// migrator ordering, a bad identity copy, ...), this Run call would
 	// return a non-nil error and the whole transaction would have rolled
-	// back -- so a nil error here IS the FK-consistency proof the brief asks
-	// for, not just a happy-path check.
+	// back -- so a nil error here IS the FK-consistency proof, not just a
+	// happy-path check.
 	if err != nil {
 		t.Fatalf("Run: %v (a non-nil error here means an FK was violated and the whole migration rolled back)", err)
 	}

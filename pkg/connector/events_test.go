@@ -1,8 +1,8 @@
 package connector
 
-// events_test.go -- inbound MESSAGE_POSTED -> bridgev2.RemoteMessage
-// (M2 Task 4). Mirrors sync_test.go's queueChatResyncFn capture pattern: a
-// bare *GChatClient (no full bridgev2.Bridge+DB harness, see newTestUserLogin
+// events_test.go -- inbound MESSAGE_POSTED -> bridgev2.RemoteMessage.
+// Mirrors sync_test.go's queueChatResyncFn capture pattern: a bare
+// *GChatClient (no full bridgev2.Bridge+DB harness, see newTestUserLogin
 // in client_test.go) with queueRemoteEventFn overridden to append into a
 // local slice instead of dereferencing UserLogin.Bridge.
 
@@ -132,14 +132,14 @@ func TestHandleGChatEventMessagePostedSpaceQueuesRemoteMessage(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessagePostedSetsStreamOrder is the item-5 regression
-// test (M7 Task 3): a live MESSAGE_POSTED event must set StreamOrder to the
+// TestHandleGChatEventMessagePostedSetsStreamOrder is the regression test
+// for the live path: a live MESSAGE_POSTED event must set StreamOrder to the
 // message's create-time microseconds, matching backfill.go's identical
 // `StreamOrder: msg.GetCreateTime()` (backfill_test.go's
 // TestFetchMessagesFlatThread's own StreamOrder assertion) -- previously
-// this was left at its zero value on the live path, an M6-review-flagged
-// inconsistency (harmless per bridgev2 treating 0 as "absent", but
-// inconsistent with backfill for the same underlying fact).
+// this was left at its zero value on the live path, an inconsistency
+// (harmless per bridgev2 treating 0 as "absent", but inconsistent with
+// backfill for the same underlying fact).
 func TestHandleGChatEventMessagePostedSetsStreamOrder(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-so", "98765", "hi", 1_000_000)
@@ -241,7 +241,7 @@ func TestHandleGChatEventMessagePostedNilMessageSkipped(t *testing.T) {
 	}
 }
 
-// --- MESSAGE_UPDATED (edit, M4 Task 1): body is the same message_posted
+// --- MESSAGE_UPDATED (edit): body is the same message_posted
 // arm, but the outer event type is MESSAGE_UPDATED -- routed to a
 // bridgev2.RemoteEdit (ConvertEdit re-runs msgconv, see
 // msgconv_adapter_test.go's TestConvertEditToMatrix_* for the dedup/
@@ -307,8 +307,8 @@ func TestHandleGChatEventMessageUpdatedQueuesRemoteEdit(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageUpdatedSetsStreamOrder is the item-5 regression
-// test for the edit path: StreamOrder must track the SAME editTS value
+// TestHandleGChatEventMessageUpdatedSetsStreamOrder is the regression test
+// for the edit path: StreamOrder must track the SAME editTS value
 // queueMessageEdit already uses for EventMeta.Timestamp (last_edit_time,
 // falling back to last_update_time), for internal consistency between the
 // two fields on the same event.
@@ -399,16 +399,14 @@ func TestHandleGChatEventMessageUpdatedNoMessageIDSkipped(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessagePostedOnHoldTypesAreQueued pins the
-// gchat-port-auditor fix: portal.py's handle_event dispatches a
-// message_posted body to handle_googlechat_message for ANY Event.type other
-// than the literal MESSAGE_UPDATED (portal.py:539-543's `else` is
-// unconditional), not just Event.type == MESSAGE_POSTED. docs/research/02
-// documents ON_HOLD_MESSAGE_POSTED/_UPDATED/_PUBLISHED (Workspace DLP-held
-// messages) as real, observed event types carrying this same body -- an
-// earlier revision of handleMessagePosted keyed a switch on the literal
-// MESSAGE_POSTED value and silently dropped these (and any other future
-// non-MESSAGE_UPDATED type), which is message loss relative to Python.
+// TestHandleGChatEventMessagePostedOnHoldTypesAreQueued pins the fix: a
+// message_posted body must be dispatched as a new message for ANY Event.type
+// other than the literal MESSAGE_UPDATED, not just Event.type ==
+// MESSAGE_POSTED. ON_HOLD_MESSAGE_POSTED/_UPDATED/_PUBLISHED (Workspace
+// DLP-held messages) are real, observed event types carrying this same body
+// -- an earlier revision of handleMessagePosted keyed a switch on the
+// literal MESSAGE_POSTED value and silently dropped these (and any other
+// future non-MESSAGE_UPDATED type), which is message loss.
 func TestHandleGChatEventMessagePostedOnHoldTypesAreQueued(t *testing.T) {
 	onHoldTypes := []pb.Event_EventType{
 		pb.Event_ON_HOLD_MESSAGE_POSTED,
@@ -424,23 +422,21 @@ func TestHandleGChatEventMessagePostedOnHoldTypesAreQueued(t *testing.T) {
 			gc.handleGChatEvent(context.Background(), evt)
 
 			if len(*queued) != 1 {
-				t.Fatalf("len(queued) = %d, want 1 (event type %v carries message_posted and is not MESSAGE_UPDATED, so Python's else branch bridges it as a new message)", len(*queued), et)
+				t.Fatalf("len(queued) = %d, want 1 (event type %v carries message_posted and is not MESSAGE_UPDATED, so the else branch bridges it as a new message)", len(*queued), et)
 			}
 		})
 	}
 }
 
-// --- MESSAGE_DELETED (M4 Task 2): message_deleted body ->
-// bridgev2.RemoteMessageRemove. Ports handle_googlechat_redaction's own
-// extraction (portal.py:1210-1226): evt.message_id.message_id identifies
-// the message to redact; group id comes from the outer Event (same as
-// every other body arm, see this file's top-of-file doc comment), never
-// from anything on MessageDeletedEvent itself (it carries no group id).
-// The framework (bridgev2's handleRemoteMessageRemove) is responsible for
+// --- MESSAGE_DELETED: message_deleted body ->
+// bridgev2.RemoteMessageRemove. evt.message_id.message_id identifies the
+// message to redact; group id comes from the outer Event (same as every
+// other body arm, see this file's top-of-file doc comment), never from
+// anything on MessageDeletedEvent itself (it carries no group id). The
+// framework (bridgev2's handleRemoteMessageRemove) is responsible for
 // looking up the target's existing DB rows and redacting every Matrix part
-// -- mirroring Python's `for msg in target: ... self.main_intent.redact(...)`
-// loop over EVERY stored row for that gcid, so this event only needs to
-// carry the target's own message id, not any per-row detail. ------------
+// over EVERY stored row for that gcid, so this event only needs to carry
+// the target's own message id, not any per-row detail. ------------------
 
 // messageDeletedEvent builds a *pb.Event shaped like a real MESSAGE_DELETED
 // event reaching handleGChatEvent, mirroring messagePostedEvent's shape for
@@ -514,12 +510,11 @@ func TestHandleGChatEventMessageDeletedDMPortalKeyHasReceiver(t *testing.T) {
 // TestHandleGChatEventMessageDeletedThreadedTargetUsesSameMessageID covers
 // a deletion of a message that lives inside a thread: the target id is
 // still just the message's own id (a thread reply and its own topic head
-// have distinct ids; a delete targets the reply specifically), matching
-// Python's evt.message_id.message_id with no topic-id substitution at all
-// -- unlike outbound delete_message (handleredact.go), which DOES need the
-// topic id to route the RPC, inbound deletion only ever needs the plain
-// message id since bridgev2 looks up the existing DB row(s) by that id
-// directly.
+// have distinct ids; a delete targets the reply specifically), using
+// evt.message_id.message_id with no topic-id substitution at all -- unlike
+// outbound delete_message (handleredact.go), which DOES need the topic id
+// to route the RPC, inbound deletion only ever needs the plain message id
+// since bridgev2 looks up the existing DB row(s) by that id directly.
 func TestHandleGChatEventMessageDeletedThreadedTargetUsesSameMessageID(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageDeletedEvent(spaceGroupID("space-1"), "reply-msg-9", 1)
@@ -562,13 +557,12 @@ func TestHandleGChatEventMessageDeletedNoMessageIDSkipped(t *testing.T) {
 	}
 }
 
-// --- MESSAGE_REACTION (M4 Task 3): message_reaction body ->
+// --- MESSAGE_REACTION: message_reaction body ->
 // bridgev2.RemoteReaction / bridgev2.RemoteReactionRemove (both the same
-// simplevent.Reaction type). Ports handle_googlechat_reaction's own
-// extraction (portal.py:1166-1208): evt.message_id.message_id identifies
-// the reacted-to message; group id comes from the outer Event (same as
-// every other body arm, see this file's top-of-file doc comment), never
-// from anything on MessageReactionEvent itself (it carries no group id).
+// simplevent.Reaction type). evt.message_id.message_id identifies the
+// reacted-to message; group id comes from the outer Event (same as every
+// other body arm, see this file's top-of-file doc comment), never from
+// anything on MessageReactionEvent itself (it carries no group id).
 // evt.type (ADD/REMOVE) selects RemoteEventReaction/RemoteEventReactionRemove;
 // evt.emoji.unicode is normalized both ways (variationselector.Remove for
 // EmojiID, .Add for the value handed toward Matrix) -- see handlereaction.go's
@@ -759,9 +753,9 @@ func TestHandleGChatEventMessageReactionNoMessageIDSkipped(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageReactionUnknownTypeSkipped pins portal.py:1207-1208's
-// `else: self.log.debug(...)` branch: a MessageReactionEvent.type outside
-// {ADD, REMOVE} must be logged and ignored, not queued as either kind.
+// TestHandleGChatEventMessageReactionUnknownTypeSkipped pins the unknown-type
+// branch: a MessageReactionEvent.type outside {ADD, REMOVE} must be logged
+// and ignored, not queued as either kind.
 func TestHandleGChatEventMessageReactionUnknownTypeSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-6", "98765", "❤", pb.MessageReactionEvent_ReactionEventType(99), 1)

@@ -1,16 +1,13 @@
 package connector
 
-// handlereceipt_test.go -- read receipts, both directions (M4 Task 4).
+// handlereceipt_test.go -- read receipts, both directions.
 //
-// Outbound: HandleMatrixReadReceipt -> mark_group_readstate RPC, porting
-// user.py:684-691's mark_read (the only caller of the outbound RPC is
-// matrix.py:106-113's handle_read_receipt). Mirrors handleedit_test.go's
-// request-construction / error-path test shape.
+// Outbound: HandleMatrixReadReceipt -> mark_group_readstate RPC. Mirrors
+// handleedit_test.go's request-construction / error-path test shape.
 //
 // Inbound: handleGChatEvent's ReadReceiptChanged and GroupViewed body arms
-// (events.go), porting handle_googlechat_read_receipts (portal.py:1587-1592)
-// and portal.py:556-557's group_viewed handling. Mirrors events_test.go's
-// queueRemoteEventFn capture pattern (newEventTestClient).
+// (events.go). Mirrors events_test.go's queueRemoteEventFn capture pattern
+// (newEventTestClient).
 
 import (
 	"context"
@@ -101,12 +98,12 @@ func TestHandleMatrixReadReceiptNilExactMessageUsesReceiptTimestampMsToMicros(t 
 	}
 	wantMicros := int64(1700000000123) * 1000
 	if got := gotReq.GetLastReadTime(); got != wantMicros {
-		t.Errorf("LastReadTime = %d, want %d (receipt timestamp ms*1000, user.py:689)", got, wantMicros)
+		t.Errorf("LastReadTime = %d, want %d (receipt timestamp ms*1000)", got, wantMicros)
 	}
 }
 
 // TestHandleMatrixReadReceiptExactMessageWithoutMetadataFallsBack covers a
-// target with no usable stored TimestampMicro (e.g. a legacy pre-M3-Task-6
+// target with no usable stored TimestampMicro (e.g. a legacy
 // row, or an unexpected Metadata type) -- the defensive fallback path,
 // mirroring buildReplyTarget's identical Metadata-shape check
 // (handlematrix.go).
@@ -137,11 +134,10 @@ func TestHandleMatrixReadReceiptExactMessageWithoutMetadataFallsBack(t *testing.
 	}
 }
 
-// TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow pins user.py:689's
-// `timestamp or (time.time() * 1000)` defensive fallback: a zero-value
-// Receipt.Timestamp (and no ExactMessage) must not produce Go's zero
-// time.Time's large NEGATIVE microsecond value -- it must fall back to
-// "now" instead.
+// TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow pins the
+// `timestamp or now` defensive fallback: a zero-value Receipt.Timestamp
+// (and no ExactMessage) must not produce Go's zero time.Time's large
+// NEGATIVE microsecond value -- it must fall back to "now" instead.
 func TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.MarkGroupReadstateRequest
@@ -352,10 +348,10 @@ func TestHandleGChatEventReadReceiptChangedOwnUserSetsIsFromMe(t *testing.T) {
 }
 
 // TestHandleGChatEventReadReceiptChangedMultipleReceiptsQueuesOnePerUser
-// pins portal.py:1590-1592's `for rr in evt.read_receipt_set.read_receipts:`
-// loop: a ReadReceiptSet announcing several users' read states at once must
-// queue one bridgev2.RemoteReadReceipt per user, since simplevent.Receipt
-// only carries a single Sender.
+// pins the per-user fan-out over evt.read_receipt_set.read_receipts: a
+// ReadReceiptSet announcing several users' read states at once must queue
+// one bridgev2.RemoteReadReceipt per user, since simplevent.Receipt only
+// carries a single Sender.
 func TestHandleGChatEventReadReceiptChangedMultipleReceiptsQueuesOnePerUser(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := readReceiptChangedEvent(spaceGroupID("space-1"),
@@ -448,7 +444,7 @@ func TestHandleGChatEventReadReceiptChangedNoGroupIDSkipped(t *testing.T) {
 }
 
 // TestHandleGChatEventReadReceiptChangedEmptyUserIDSkipped pins the
-// whole-branch-review fix guarding against a bogus bot-intent read receipt:
+// fix guarding against a bogus bot-intent read receipt:
 // an rr entry with no user.user_id.id (gaiaID == "") must be skipped
 // entirely, exactly like queueMembershipChanged's identical empty-gaia-id
 // guard for MEMBERSHIP_CHANGED members (systemmessage.go) -- otherwise it

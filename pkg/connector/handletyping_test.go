@@ -1,21 +1,18 @@
 package connector
 
-// handletyping_test.go -- typing notifications, both directions (M4 Task 5).
+// handletyping_test.go -- typing notifications, both directions.
 //
-// Outbound: HandleMatrixTyping -> set_typing_state RPC, porting
-// portal.py:1133-1146's handle_matrix_typing / client.py:477-497's
-// mark_typing. Mirrors handlereceipt_test.go's request-construction /
-// error-path test shape.
+// Outbound: HandleMatrixTyping -> set_typing_state RPC. Mirrors
+// handlereceipt_test.go's request-construction / error-path test shape.
 //
-// Inbound: handleGChatEvent's TypingStateChanged body arm (events.go),
-// porting handle_googlechat_typing (portal.py:1600-1610). Mirrors
-// events_test.go's queueRemoteEventFn capture pattern (newEventTestClient).
+// Inbound: handleGChatEvent's TypingStateChanged body arm (events.go).
+// Mirrors events_test.go's queueRemoteEventFn capture pattern
+// (newEventTestClient).
 // TestHandleGChatEventTypingStateChangedRoutesViaBodyContextNotOuterGroupID
 // is the regression guard for the routing trap documented on
 // queueTypingStateChanged (events.go): TYPING_STATE_CHANGED is the ONLY
-// event type where Python overrides group_id from the body
-// (user.py:674-682) instead of reading the outer Event.group_id every other
-// handler in this package uses.
+// event type where group_id must be taken from the body instead of the
+// outer Event.group_id every other handler in this package uses.
 
 import (
 	"context"
@@ -53,9 +50,9 @@ func TestTypingContextDMGroupOnlyBuildsDmIdArm(t *testing.T) {
 
 // TestTypingContextTopicScopedBuildsTopicIdArm covers the topic (threaded)
 // oneof arm directly -- see handletyping.go's top-of-file doc comment on why
-// HandleMatrixTyping itself never reaches this branch in practice (Python's
-// own mark_typing is never called with a truthy thread_id either), but the
-// proto shape client.py defines still gets full coverage here.
+// HandleMatrixTyping itself never reaches this branch in practice (typing is
+// never signalled with a truthy thread_id), but the proto shape still gets
+// full coverage here.
 func TestTypingContextTopicScopedBuildsTopicIdArm(t *testing.T) {
 	tc := typingContext(gcid.GroupID{ID: "space1", IsDM: false}, "topic-99")
 	if tc.GetGroupId() != nil {
@@ -142,8 +139,7 @@ func TestHandleMatrixTypingDMPortalStopSendsGroupContextStopped(t *testing.T) {
 // bridgev2's own framework calls HandleMatrixTyping once per user that
 // started typing AND once per user that stopped (mautrix-go
 // bridgev2/portal.go:1006-1071's sendTypings, called for both
-// stoppedTyping and startedTyping), exactly matching Python's own
-// stopped_typing/started_typing gather (portal.py:1135-1146).
+// stoppedTyping and startedTyping).
 func TestHandleMatrixTypingBothStartAndStopAreSent(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var states []pb.TypingState
@@ -314,7 +310,7 @@ func TestHandleGChatEventTypingStateChangedStartedQueuesTimeout(t *testing.T) {
 		t.Fatalf("queued event does not implement bridgev2.RemoteTyping: %T", (*queued)[0])
 	}
 	if got := typing.GetTimeout(); got != 6*time.Second {
-		t.Errorf("GetTimeout() = %v, want 6s (portal.py:1609's timeout=6000)", got)
+		t.Errorf("GetTimeout() = %v, want 6s (6000ms)", got)
 	}
 	typed := (*queued)[0].(bridgev2.RemoteEvent)
 	if got := typed.GetType(); got != bridgev2.RemoteEventTyping {
@@ -334,7 +330,7 @@ func TestHandleGChatEventTypingStateChangedStoppedQueuesZeroTimeout(t *testing.T
 
 	typing := (*queued)[0].(bridgev2.RemoteTyping)
 	if got := typing.GetTimeout(); got != 0 {
-		t.Errorf("GetTimeout() = %v, want 0 (portal.py:1610's timeout=0 for a non-TYPING status)", got)
+		t.Errorf("GetTimeout() = %v, want 0 (timeout=0 for a non-TYPING status)", got)
 	}
 }
 

@@ -69,12 +69,12 @@ func TestPlanChatSyncCapsCreatePortalAtInitialChatSync(t *testing.T) {
 }
 
 // TestPlanChatSyncSkippedItemConsumesCapSlot pins the fix for the cap
-// arithmetic bug the gchat-port-auditor caught: user.py's loop
-// (user.py:628-641) enumerates the FULL sorted list and a skipped
-// (blocked/hidden/not-joined) item still advances the index for everything
-// after it -- `continue` doesn't "collapse" the index. Filtering before
-// indexing (an earlier version of planChatSync did this) shifts the cap
-// boundary earlier by one slot per skipped item ahead of the boundary.
+// arithmetic bug the gchat-port-auditor caught: the sync loop enumerates the
+// FULL sorted list and a skipped (blocked/hidden/not-joined) item still
+// advances the index for everything after it -- `continue` doesn't
+// "collapse" the index. Filtering before indexing (an earlier version of
+// planChatSync did this) shifts the cap boundary earlier by one slot per
+// skipped item ahead of the boundary.
 func TestPlanChatSyncSkippedItemConsumesCapSlot(t *testing.T) {
 	blocked := worldItem("blocked", 500) // newest -> absolute sorted position 0
 	blocked.ReadState.Blocked = proto.Bool(true)
@@ -111,7 +111,7 @@ func TestPlanChatSyncZeroCapMarksEverythingNoCreate(t *testing.T) {
 	}
 }
 
-// --- planChatSync: skip conditions (user.py:630-635) ----------------------
+// --- planChatSync: skip conditions ----------------------------------------
 
 func TestPlanChatSyncSkipsBlockedHiddenAndNotJoined(t *testing.T) {
 	blocked := worldItem("blocked", 100)

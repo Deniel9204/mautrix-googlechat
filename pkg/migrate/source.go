@@ -1,14 +1,13 @@
 // Package migrate implements the Python mautrix-googlechat -> Go bridgev2
-// database migration tool (M7 Task 4). It is a standalone CLI-facing
-// package, not part of the bridge's runtime: unlike pkg/gchatmeow (never
-// imports bridgev2) and pkg/connector (never does HTTP), pkg/migrate is
-// explicitly allowed to import bridgev2/dbutil/gcid, since it is a one-shot
-// operator tool, not the live client or connector.
+// database migration tool. It is a standalone CLI-facing package, not part
+// of the bridge's runtime: unlike pkg/gchatmeow (never imports bridgev2) and
+// pkg/connector (never does HTTP), pkg/migrate is explicitly allowed to
+// import bridgev2/dbutil/gcid, since it is a one-shot operator tool, not the
+// live client or connector.
 //
-// See .superpowers/sdd/m7-migration-schema-map.md for the full field-by-field
-// mapping this package implements, and .superpowers/sdd/m7-migration-preflight.md
-// for the four pre-flight decisions (cookie key casing, sender_mxid,
-// double-puppet token, ms-vs-µs timestamps) baked into this and later tasks.
+// This package implements the source schema's mapping field-by-field. Four
+// pre-flight decisions are baked in throughout: cookie key casing,
+// sender_mxid, double-puppet token, and ms-vs-µs timestamps.
 //
 // source.go reads the SOURCE Python bridge's database. It NEVER writes to
 // it -- opening it is always read-only (see OpenSource) regardless of

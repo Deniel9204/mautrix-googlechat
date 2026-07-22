@@ -16,10 +16,9 @@ import (
 
 // --- AttachmentURL -----------------------------------------------------
 
-// TestAttachmentURLImage verifies the FIFE_URL branch, mirroring
-// portal.py:1475-1479: an image content_type gets url_type=FIFE_URL,
-// sz=w10000-h10000, and content_type echoed back, all against the
-// get_attachment_url endpoint.
+// TestAttachmentURLImage verifies the FIFE_URL branch: an image content_type
+// gets url_type=FIFE_URL, sz=w10000-h10000, and content_type echoed back,
+// all against the get_attachment_url endpoint.
 func TestAttachmentURLImage(t *testing.T) {
 	meta := &pb.UploadMetadata{
 		Payload:     &pb.UploadMetadata_AttachmentToken{AttachmentToken: "TOK123"},
@@ -57,9 +56,9 @@ func TestAttachmentURLImage(t *testing.T) {
 	}
 }
 
-// TestAttachmentURLNonImage verifies the DOWNLOAD_URL branch (default query
-// in portal.py:1471-1474), and that NEITHER sz NOR content_type are present
-// -- those are only added inside the image branch.
+// TestAttachmentURLNonImage verifies the DOWNLOAD_URL branch (the default
+// query), and that NEITHER sz NOR content_type are present -- those are only
+// added inside the image branch.
 func TestAttachmentURLNonImage(t *testing.T) {
 	meta := &pb.UploadMetadata{
 		Payload:     &pb.UploadMetadata_AttachmentToken{AttachmentToken: "TOK456"},
@@ -94,8 +93,7 @@ func TestAttachmentURLNonImage(t *testing.T) {
 }
 
 // TestAttachmentURLNilMeta verifies a nil UploadMetadata errors rather than
-// panicking (Python's equivalent would raise AttributeError on None.attachment_token,
-// which isn't a defensible Go behavior to replicate).
+// panicking on a nil dereference.
 func TestAttachmentURLNilMeta(t *testing.T) {
 	if _, _, err := (&Client{}).AttachmentURL(nil); err == nil {
 		t.Fatal("AttachmentURL(nil) = nil error, want an error")
@@ -120,8 +118,7 @@ func newTestDownloadClient(t *testing.T, cookies map[string]string, allowedHost 
 
 // TestDownloadAttachmentRedirectChain verifies a multi-hop 302 chain is
 // followed to its final 200 response, and mime/filename/data are extracted
-// correctly -- mirrors client.py:182-236, "Usually there are 4 redirects for
-// files".
+// correctly (usually there are 4 redirects for files).
 func TestDownloadAttachmentRedirectChain(t *testing.T) {
 	const body = "hello attachment bytes"
 	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,8 +159,7 @@ func TestDownloadAttachmentRedirectChain(t *testing.T) {
 
 // TestDownloadAttachmentRedirectCapExceeded verifies a redirect chain that
 // never terminates is capped at maxDownloadRedirects hops and errors
-// instead of looping forever or (as Python's own code would) silently
-// falling off the end of the loop.
+// instead of looping forever or silently falling off the end of the loop.
 func TestDownloadAttachmentRedirectCapExceeded(t *testing.T) {
 	var hits int32
 	var srv *httptest.Server
@@ -185,7 +181,7 @@ func TestDownloadAttachmentRedirectCapExceeded(t *testing.T) {
 
 // TestDownloadAttachmentMaxSizeContentLength verifies a Content-Length that
 // already exceeds maxSize is rejected via ErrFileTooLarge before the body
-// would need to be read -- client.py:241-242.
+// would need to be read.
 func TestDownloadAttachmentMaxSizeContentLength(t *testing.T) {
 	body := strings.Repeat("x", 1000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -204,8 +200,8 @@ func TestDownloadAttachmentMaxSizeContentLength(t *testing.T) {
 
 // TestDownloadAttachmentMaxSizeChunked verifies the read-loop cap catches an
 // oversized body even when Content-Length is unknown (chunked transfer, no
-// upfront length to fast-path reject on) -- client.py:248-255's "read one
-// more byte than the cap, then fail if we got it" safety net.
+// upfront length to fast-path reject on) -- the "read one more byte than the
+// cap, then fail if we got it" safety net.
 func TestDownloadAttachmentMaxSizeChunked(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fl, ok := w.(http.Flusher)
@@ -228,10 +224,8 @@ func TestDownloadAttachmentMaxSizeChunked(t *testing.T) {
 }
 
 // TestDownloadAttachmentMaxSizeZeroMeansUnlimited verifies maxSize <= 0
-// disables the cap entirely -- a deliberate divergence from Python's
-// read_with_max_size, whose read loop does NOT special-case max_size == 0
-// despite the docstring describing 0 as "unlimited" (see download.go's
-// DownloadAttachment doc comment).
+// disables the cap entirely -- the documented "unlimited" contract (see
+// download.go's DownloadAttachment doc comment).
 func TestDownloadAttachmentMaxSizeZeroMeansUnlimited(t *testing.T) {
 	body := strings.Repeat("y", 5000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -252,8 +246,7 @@ func TestDownloadAttachmentMaxSizeZeroMeansUnlimited(t *testing.T) {
 
 // TestDownloadAttachmentCookiesPerHost verifies auth cookies are sent to an
 // allowlisted host but withheld from one outside the allowlist -- the M5
-// download flow's core requirement (client.py:208-215; session.go's
-// hostAllowed).
+// download flow's core requirement (session.go's hostAllowed).
 func TestDownloadAttachmentCookiesPerHost(t *testing.T) {
 	var allowedCookie, outsideCookie string
 	var allowedSeen, outsideSeen bool
@@ -302,11 +295,10 @@ func TestDownloadAttachmentCookiesPerHost(t *testing.T) {
 // allowlisted -> non-allowlisted -> allowlisted hosts must attach cookies on
 // the first and third hops and withhold them on the second, and -- critically
 // -- must RE-attach cookies on the third hop after they were withheld on the
-// second. client.py:217-219's comment names this exact scenario ("Follow
-// redirects manually in order to re-add authorization headers when
-// redirected from googleusercontent.com back to chat.google.com"); Go's
-// default automatic redirect-following would instead permanently strip the
-// Cookie header on the first cross-host hop and never restore it.
+// second. This exact scenario arises when a download is redirected from
+// googleusercontent.com back to chat.google.com; Go's default automatic
+// redirect-following would instead permanently strip the Cookie header on
+// the first cross-host hop and never restore it.
 func TestDownloadAttachmentCookiesAcrossRedirectChain(t *testing.T) {
 	var cookieAtHop1, cookieAtHop2, cookieAtHop3 string
 
@@ -365,10 +357,9 @@ func TestDownloadAttachmentCookiesAcrossRedirectChain(t *testing.T) {
 
 // TestDownloadAttachmentFilenameEmptyPathFallback verifies the
 // Content-Disposition-absent fallback for a URL with NO path segment at all
-// yields an empty filename, matching Python's own edge case exactly:
-// "".split("/")[-1] == "" (client.py:229-230) -- not path.Base's "." for an
-// empty string, which download.go's doc comment explicitly calls out as the
-// reason it uses a manual strings.Split instead of Go's path.Base.
+// yields an empty filename -- not path.Base's "." for an empty string, which
+// download.go's doc comment explicitly calls out as the reason it uses a
+// manual strings.Split instead of Go's path.Base.
 func TestDownloadAttachmentFilenameEmptyPathFallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
@@ -388,8 +379,7 @@ func TestDownloadAttachmentFilenameEmptyPathFallback(t *testing.T) {
 }
 
 // TestDownloadAttachmentFilenameFallback verifies the filename falls back to
-// the URL's last path segment when Content-Disposition is absent --
-// client.py:229-230.
+// the URL's last path segment when Content-Disposition is absent.
 func TestDownloadAttachmentFilenameFallback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
@@ -412,8 +402,7 @@ func TestDownloadAttachmentFilenameFallback(t *testing.T) {
 }
 
 // TestDownloadAttachmentErrorStatus verifies a non-redirect, >=400 response
-// is surfaced as an error rather than being read as a successful body --
-// client.py:225's resp.raise_for_status().
+// is surfaced as an error rather than being read as a successful body.
 func TestDownloadAttachmentErrorStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

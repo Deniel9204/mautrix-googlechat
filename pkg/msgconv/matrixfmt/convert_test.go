@@ -72,7 +72,7 @@ func formatAnnotations(anns []*pb.Annotation) string {
 
 // TestParse is the table-driven core of the behavior inventory: one case
 // per mandatory M3 Task 2 behavior. See html.go/convert.go's doc comments
-// for the Python line references each case ports.
+// for the behavior each case exercises.
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -144,7 +144,7 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			name:     "<tt> is not a monospace trigger in real Python -- no annotation",
+			name:     "<tt> is not a monospace trigger -- no annotation",
 			content:  htmlContent("a <tt>b</tt> c"),
 			wantText: "a b c",
 		},
@@ -191,7 +191,7 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			name:     "font color via style= (beyond Python, this task's explicit ask)",
+			name:     "font color via style=",
 			content:  htmlContent(`<span style="color:#ff0000">red</span>`),
 			wantText: "red",
 			wantAnnotes: []*pb.Annotation{
@@ -300,9 +300,9 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			// from_matrix/__init__.py:30-34's plain-text @room escape hatch:
-			// a message with NO formatted_body at all still gets a
-			// MENTION_ALL annotation if its plain body contains "@room".
+			// Plain-text @room escape hatch: a message with NO
+			// formatted_body at all still gets a MENTION_ALL annotation if
+			// its plain body contains "@room".
 			name: "@room in a PLAIN body (no formatted_body) still becomes MENTION_ALL",
 			content: &event.MessageEventContent{
 				MsgType: event.MsgText,
@@ -391,10 +391,10 @@ func TestParse(t *testing.T) {
 		{
 			// Regression test (gchat-port-auditor finding): a second <p>
 			// sibling must not get its OWN leading blank line on top of
-			// the first paragraph's trailing one -- real Python's
-			// prev_was_block latch (parser.py:283-289) never resets, so
-			// only the very first block-tag child in a run of siblings
-			// gets a leading newline prepended. Matrix clients commonly
+			// the first paragraph's trailing one -- the prev_was_block
+			// latch never resets, so only the very first block-tag child in
+			// a run of siblings gets a leading newline prepended. Matrix
+			// clients commonly
 			// emit exactly this shape (<p>...</p><p>...</p>) for a
 			// blank-line-separated multi-paragraph plain-text message.
 			name:     "two consecutive paragraphs -- exactly one blank line, not two",

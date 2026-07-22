@@ -9,13 +9,11 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// Behavior ported from _reference/googlechat-python/maugclib/parsers.py:
-//   - id_from_group_id / group_id_from_id (lines 26-49): oneof presence check
-//     on dm_id/space_id, "dm:"/"space:" prefixing. GroupIDToParts/PartsToGroupID
-//     split that into (id, isDM) parts -- the "dm:"/"space:" prefixing itself
-//     belongs to pkg/gcid, not here.
-//   - from_timestamp / to_timestamp (lines 12-23): microsecond timestamp <->
-//     UTC datetime, integer (not float) precision.
+// Behavior under test:
+//   - oneof presence check on dm_id/space_id, "dm:"/"space:" prefixing.
+//     GroupIDToParts/PartsToGroupID split that into (id, isDM) parts -- the
+//     "dm:"/"space:" prefixing itself belongs to pkg/gcid, not here.
+//   - microsecond timestamp <-> UTC datetime, integer (not float) precision.
 
 func TestGroupIDToParts_Nil(t *testing.T) {
 	id, isDM, ok := GroupIDToParts(nil)
@@ -25,9 +23,7 @@ func TestGroupIDToParts_Nil(t *testing.T) {
 }
 
 func TestGroupIDToParts_EmptyGroupID(t *testing.T) {
-	// Neither oneof arm set -- mirrors Python's `else: return ""` branch in
-	// id_from_group_id when HasField("dm_id") and HasField("space_id") are
-	// both false.
+	// Neither oneof arm set: dm_id and space_id are both absent.
 	id, isDM, ok := GroupIDToParts(&pb.GroupId{})
 	if id != "" || isDM != false || ok != false {
 		t.Fatalf("GroupIDToParts(empty) = (%q, %v, %v), want (\"\", false, false)", id, isDM, ok)
@@ -63,8 +59,8 @@ func TestGroupIDToParts_Space(t *testing.T) {
 }
 
 func TestGroupIDToParts_DMSetButEmptyInner(t *testing.T) {
-	// dm_id submessage present but its own dm_id string unset: Python's
-	// HasField("dm_id") is still true, and group_id.dm_id.dm_id reads as "".
+	// dm_id submessage present but its own dm_id string unset: presence of
+	// dm_id is still true, and group_id.dm_id.dm_id reads as "".
 	gid := &pb.GroupId{Id: &pb.GroupId_DmId{DmId: &pb.DmId{}}}
 	id, isDM, ok := GroupIDToParts(gid)
 	if !ok || !isDM || id != "" {

@@ -14,38 +14,33 @@ import (
 	"time"
 )
 
-// Constants ported from maugclib/http_utils.py (line numbers per
-// docs/research/01-maugclib-client-library.md, read 2026-07-13).
+// Constants for the authenticated HTTP layer.
 const (
-	// apiConnectTimeout/apiRequestTimeout mirror Python's CONNECT_TIMEOUT
-	// (connect phase) and REQUEST_TIMEOUT (body-read phase),
-	// http_utils.py:18-19. aiohttp applies these as two independent
-	// watchdogs (aiohttp.ClientTimeout(connect=30) plus a separate
-	// async_timeout.timeout(30) around res.read()); Go's http.Client.Timeout
-	// is a single end-to-end budget, so apiClient uses their sum (60s) as a
-	// ceiling. apiClient is ONLY used by Fetch (bounded /api/* calls) --
-	// never for the long-poll channel; see pollClient below.
+	// apiConnectTimeout/apiRequestTimeout separate the connect phase from
+	// the body-read phase: two independent 30s watchdogs (one on connect,
+	// one around the response read). Go's http.Client.Timeout is a single
+	// end-to-end budget, so apiClient uses their sum (60s) as a ceiling.
+	// apiClient is ONLY used by Fetch (bounded /api/* calls) -- never for
+	// the long-poll channel; see pollClient below.
 	apiConnectTimeout = 30 * time.Second
 	apiRequestTimeout = 30 * time.Second
 
-	// maxRetries mirrors MAX_RETRIES, http_utils.py:20 (total attempts, not
-	// "retries after the first try").
+	// maxRetries is the total number of attempts, not "retries after the
+	// first try".
 	maxRetries = 3
 
-	// retryBackoffBase has NO Python equivalent: http_utils.py's retry loop
-	// (fetch, http_utils.py:136-163) has no sleep between attempts at all.
-	// task-3-brief.md explicitly requires exponential backoff between
-	// retries for this port; this constant and backoffDelay's doubling
-	// schedule are this port's own addition (deliberate, not "invented" --
-	// the brief asks for it by name), kept small so retry tests stay fast.
+	// retryBackoffBase drives the exponential backoff between retries.
+	// This constant and backoffDelay's doubling schedule are this port's own
+	// addition, kept small so retry tests stay fast.
 	retryBackoffBase = 50 * time.Millisecond
 
-	// latestChromeVersion/latestFirefoxVersion mirror LATEST_CHROME_VERSION
-	// / LATEST_FIREFOX_VERSION, http_utils.py:23-24.
+	// latestChromeVersion/latestFirefoxVersion pin the User-Agent version
+	// numbers to the latest known-good values.
 	latestChromeVersion  = "114"
 	latestFirefoxVersion = "114"
 
-	// defaultUserAgent mirrors DEFAULT_USER_AGENT, http_utils.py:25-28.
+	// defaultUserAgent is the fallback User-Agent when the caller supplies
+	// none.
 	defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + latestChromeVersion + ".0.0.0 Safari/537.36"
 
 	// maxErrorBodyBytes caps how much of a non-200 response body is kept in
@@ -55,32 +50,28 @@ const (
 )
 
 var (
-	// chromeVersionRegex/firefoxVersionRegex mirror http_utils.py:29-30
-	// exactly, including the unescaped '.' in the Firefox pattern (Python:
-	// r"Firefox/\d+.\d+" -- the bare '.' matches any character, not just a
-	// literal dot). Kept verbatim rather than "fixed", per port-module
-	// fidelity discipline; the difference is not observable for any real
-	// Firefox UA string.
+	// chromeVersionRegex/firefoxVersionRegex include an unescaped '.' in the
+	// Firefox pattern (`Firefox/\d+.\d+` -- the bare '.' matches any
+	// character, not just a literal dot). Kept verbatim from the reference
+	// rather than "fixed", per port-module fidelity discipline; the
+	// difference is not observable for any real Firefox UA string.
 	chromeVersionRegex  = regexp.MustCompile(`Chrome/\d+\.\d+\.\d+\.\d+`)
 	firefoxVersionRegex = regexp.MustCompile(`Firefox/\d+.\d+`)
 
 	// defaultAllowedHostSuffixes: cookies are only ever attached to (and
-	// absorbed from) requests whose host matches one of these suffixes,
-	// mirroring http_utils.py:249-255's "ensure we don't accidentally send
-	// the authorization header/cookies to a non-Google domain" safety rail.
-	// google.com ONLY: googleusercontent.com is deliberately excluded --
-	// doc 01 §5.2: Python routes googleusercontent.com hops through a
-	// separate, cookie-less aiohttp.ClientSession precisely so auth cookies
-	// never reach it. The M5 download flow must make cookie-less requests
-	// for non-allowlisted hosts (this Session simply won't attach cookies
-	// to them).
+	// absorbed from) requests whose host matches one of these suffixes -- a
+	// safety rail so auth cookies never accidentally reach a non-Google
+	// domain. google.com ONLY: googleusercontent.com is deliberately
+	// excluded -- googleusercontent.com hops must be made cookie-less
+	// precisely so auth cookies never reach them. The download flow must
+	// make cookie-less requests for non-allowlisted hosts (this Session
+	// simply won't attach cookies to them).
 	defaultAllowedHostSuffixes = []string{"google.com"}
 )
 
-// Response is a fully-read HTTP response, as returned by Fetch. It mirrors
-// Python's FetchResponse NamedTuple (http_utils.py:33-36: code, headers,
-// body), with header stored as the idiomatic Go http.Header rather than
-// Python's collapsed dict[str, str].
+// Response is a fully-read HTTP response, as returned by Fetch: status
+// code, headers, and body, with headers stored as the idiomatic Go
+// http.Header.
 type Response struct {
 	StatusCode int
 	Header     http.Header
@@ -92,8 +83,6 @@ type Response struct {
 // Fetch (bounded, retried, body-buffering -- for plain /api/* RPCs) and
 // FetchRaw (unbounded, caller-cancelled, raw *http.Response -- for the
 // BrowserChannel long-poll). Both share one cookie jar.
-//
-// Ported from maugclib/http_utils.py's Session class.
 type Session struct {
 	mu        sync.RWMutex
 	userAgent string
@@ -106,38 +95,35 @@ type Session struct {
 
 	// pollClient is used by FetchRaw. Its Timeout MUST stay 0: the
 	// BrowserChannel long-poll holds this connection open for up to ~1 hour
-	// (doc 01 §2.2) and the caller (Task 7's channel) owns cancellation via
-	// ctx/context deadline instead. googlechat-megabridge's session.go set
-	// a blanket 90s http.Client.Timeout on the client shared with the
-	// long-poll path; Go's Timeout covers the *entire* request including
-	// body read, so every long poll there is aborted after 90s regardless
-	// of heartbeats, eventually killing the channel for good
-	// (docs/research/08c-megabridge-clientlib.md §1.4). Do not reintroduce
-	// that here.
+	// and the caller (the channel) owns cancellation via ctx/context
+	// deadline instead. googlechat-megabridge's session.go set a blanket 90s
+	// http.Client.Timeout on the client shared with the long-poll path; Go's
+	// Timeout covers the *entire* request including body read, so every long
+	// poll there is aborted after 90s regardless of heartbeats, eventually
+	// killing the channel for good. Do not reintroduce that here.
 	pollClient *http.Client
 
 	// allowedHostSuffixes gates both directions: cookies are only attached
 	// to outgoing requests whose target host matches one of these suffixes
 	// (buildRequest), and only absorbed from responses whose FINAL,
-	// post-redirect origin matches (absorbCookies) -- see http_utils.py:
-	// 249-255 for the Python safety rail this ports. Defaults to
+	// post-redirect origin matches (absorbCookies) -- the safety rail that
+	// keeps auth off non-Google hosts. Defaults to
 	// defaultAllowedHostSuffixes; unexported so only this package's own
 	// tests can override it.
 	allowedHostSuffixes []string
 
 	// moleWorldBaseURL overrides the base URL FetchXSRFToken (auth.go) uses
 	// for its GET to /mole/world. Empty means production
-	// (defaultMoleWorldBaseURL, mirroring GC_BASE_URL, client.py:31).
-	// Unexported so only this package's own tests can point it at an
-	// httptest server, same pattern as allowedHostSuffixes above.
+	// (defaultMoleWorldBaseURL). Unexported so only this package's own tests
+	// can point it at an httptest server, same pattern as
+	// allowedHostSuffixes above.
 	moleWorldBaseURL string
 }
 
 // NewSession builds a Session preloaded with the given cookies (keys are
-// upper-cased, matching http_utils.py:64-66's cookie[key.upper()] = value)
-// and a User-Agent. An empty userAgent falls back to defaultUserAgent
-// (http_utils.py:76-77); a non-empty one has its Chrome/Firefox version
-// pinned to the latest known-good values (http_utils.py:69-77).
+// upper-cased) and a User-Agent. An empty userAgent falls back to
+// defaultUserAgent; a non-empty one has its Chrome/Firefox version pinned
+// to the latest known-good values.
 func NewSession(cookies map[string]string, userAgent string) (*Session, error) {
 	jar := newCookieJar()
 	for name, value := range cookies {
@@ -145,25 +131,20 @@ func NewSession(cookies map[string]string, userAgent string) (*Session, error) {
 	}
 
 	transport := &http.Transport{
-		// Mirrors aiohttp's trust_env=True (http_utils.py:83), which honors
-		// HTTP_PROXY/HTTPS_PROXY/NO_PROXY (doc 01 §7: "honors HTTP_PROXY env
-		// var ... plus aiohttp trust_env=True").
+		// Honors HTTP_PROXY/HTTPS_PROXY/NO_PROXY env vars.
 		Proxy: http.ProxyFromEnvironment,
 		// TLSClientConfig intentionally left at its zero value (nil): normal
-		// certificate verification stays ON. Python passes ssl=False to
-		// aiohttp (http_utils.py:264), disabling verification entirely;
-		// doc 01 §7 explicitly says a Go port must NOT replicate that.
+		// certificate verification stays ON. A Go port must NOT disable
+		// certificate verification.
 
 		// DialContext/TLSHandshakeTimeout bound only the CONNECT phase (TCP
-		// dial + TLS handshake), mirroring http_utils.py:79-85's
-		// aiohttp.ClientTimeout(connect=CONNECT_TIMEOUT) -- set once at the
-		// session level and, unlike REQUEST_TIMEOUT, applied to *every*
-		// request through that session, including fetch_raw's long poll
-		// (aiohttp has no separate "poll" session in Python). Deliberately
-		// does NOT bound the total request/response lifetime: that's exactly
-		// pollClient's Timeout staying 0 (see its doc comment) -- a black-holed
-		// TCP handshake still can't hang FetchRaw forever, but an
-		// already-established long poll is bounded only by the caller's ctx.
+		// dial + TLS handshake): the connect timeout is applied to *every*
+		// request through this session, including FetchRaw's long poll.
+		// Deliberately does NOT bound the total request/response lifetime:
+		// that's exactly pollClient's Timeout staying 0 (see its doc comment)
+		// -- a black-holed TCP handshake still can't hang FetchRaw forever,
+		// but an already-established long poll is bounded only by the
+		// caller's ctx.
 		DialContext:         (&net.Dialer{Timeout: apiConnectTimeout}).DialContext,
 		TLSHandshakeTimeout: apiConnectTimeout,
 	}
@@ -196,9 +177,8 @@ func normalizeUserAgent(userAgent string) string {
 }
 
 // Cookies returns the CURRENT value of each of RequiredCookies, reflecting
-// any rotation absorbed from Set-Cookie responses so far. Mirrors
-// Session.get_auth_cookies, http_utils.py:87-92; used to persist rotated
-// cookies into UserLoginMetadata.
+// any rotation absorbed from Set-Cookie responses so far. Used to persist
+// rotated cookies into UserLoginMetadata.
 func (s *Session) Cookies() map[string]string {
 	return s.jar.snapshot(RequiredCookies)
 }
@@ -213,16 +193,13 @@ func (s *Session) UserAgent() string {
 }
 
 // hostAllowed reports whether u's host matches one of allowedHostSuffixes:
-// either exactly, or as a dotted suffix (host ends in "."+suffix). Python's
-// equivalent check (http_utils.py:251) is dot-suffix-only
-// (`host.endswith(".google.com")`), which would reject a bare apex
-// "google.com" -- moot in production since every real target here is a
-// subdomain (chat.google.com, accounts.google.com, ...). The exact-match
-// branch is intentionally broader and exists so tests can inject a bare
-// httptest host/IP (e.g. "127.0.0.1") into allowedHostSuffixes, per
-// task-3-brief.md's requirement that the allowlist be "injectable for
-// tests via unexported field" -- an IP-literal test host has no meaningful
-// "subdomain of itself" to suffix-match against.
+// either exactly, or as a dotted suffix (host ends in "."+suffix). A
+// dot-suffix-only check would reject a bare apex "google.com" -- moot in
+// production since every real target here is a subdomain (chat.google.com,
+// accounts.google.com, ...). The exact-match branch is intentionally
+// broader and exists so tests can inject a bare httptest host/IP (e.g.
+// "127.0.0.1") into allowedHostSuffixes -- an IP-literal test host has
+// no meaningful "subdomain of itself" to suffix-match against.
 func (s *Session) hostAllowed(u *url.URL) bool {
 	host := u.Hostname()
 	s.mu.RLock()
@@ -238,11 +215,10 @@ func (s *Session) hostAllowed(u *url.URL) bool {
 
 // buildRequest constructs an *http.Request with Session-level defaults
 // applied: a User-Agent (unless the caller already set one), a forced
-// "Connection: Keep-Alive" (http_utils.py:254-255, unconditionally
-// overwritten same as Python), and -- only if the target host matches
-// allowedHostSuffixes -- a hand-built, unquoted Cookie header
-// (http_utils.py:61-62; see cookieJar's doc comment). This gates only the
-// SEND direction; the absorb direction is gated separately, against the
+// "Connection: Keep-Alive" (unconditionally overwritten), and -- only if
+// the target host matches allowedHostSuffixes -- a hand-built, unquoted
+// Cookie header (see cookieJar's doc comment). This gates only the SEND
+// direction; the absorb direction is gated separately, against the
 // post-redirect response origin, in absorbCookies.
 func (s *Session) buildRequest(ctx context.Context, method, rawURL string, headers http.Header, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
@@ -260,7 +236,7 @@ func (s *Session) buildRequest(ctx context.Context, method, rawURL string, heade
 		s.mu.RUnlock()
 		req.Header.Set("User-Agent", ua)
 	}
-	// Forced unconditionally, matching http_utils.py:254-255 (headers["Connection"] = "Keep-Alive").
+	// Forced unconditionally (Connection: Keep-Alive).
 	req.Header.Set("Connection", "Keep-Alive")
 
 	if s.hostAllowed(req.URL) {
@@ -280,11 +256,10 @@ func (s *Session) buildRequest(ctx context.Context, method, rawURL string, heade
 // non-allowlisted host whose Set-Cookie would then be absorbed into the
 // shared flat jar (e.g. an attachment redirect chain poisoning SID, which
 // Cookies() would then persist and every later request replay to Google).
-// Python needed no explicit check here because aiohttp's cookie jar is
-// RFC 6265 domain-scoped -- a Set-Cookie from evil.example can never be
-// attached to a chat.google.com request; this port's deliberately-flat jar
-// (see cookieJar's doc comment) moves that protection to this gate
-// instead.
+// An RFC 6265 domain-scoped cookie jar would need no explicit check here --
+// a Set-Cookie from evil.example could never attach to a chat.google.com
+// request -- but this port's deliberately-flat jar (see cookieJar's doc
+// comment) moves that protection to this gate instead.
 func (s *Session) absorbCookies(resp *http.Response) {
 	if resp.Request == nil || !s.hostAllowed(resp.Request.URL) {
 		return
@@ -295,17 +270,14 @@ func (s *Session) absorbCookies(resp *http.Response) {
 // Fetch performs a request with auth cookies, retrying transient failures
 // (maxRetries=3 total attempts, exponential backoff -- see
 // retryBackoffBase) before giving up with a *NetworkError. A response is
-// only ever treated as success on exact status 200, matching
-// http_utils.py:165-172's `res.status != 200` check verbatim (not a
-// generic 2xx range): Google Chat's /api/* endpoints always answer 200 on
-// success, so anything else is an error path. A retryable 5xx status is
-// retried like a transport error; anything else (including 2xx-non-200,
-// and all 4xx) is returned immediately as an *UnexpectedStatusError
-// carrying the status code -- an explicit improvement over Python, which
-// collapses every non-200 into a bare NetworkError with no status (see
-// errors.go's UnexpectedStatusError doc comment and doc 01 §6: "plain API
-// calls via Session.fetch collapse non-200 into NetworkError without
-// status").
+// only ever treated as success on exact status 200 (not a generic 2xx
+// range): Google Chat's /api/* endpoints always answer 200 on success, so
+// anything else is an error path. A retryable 5xx status is retried like a
+// transport error; anything else (including 2xx-non-200, and all 4xx) is
+// returned immediately as an *UnexpectedStatusError carrying the status
+// code -- an explicit improvement that preserves the status instead of
+// collapsing every non-200 into a bare status-less NetworkError (see
+// errors.go's UnexpectedStatusError doc comment).
 func (s *Session) Fetch(ctx context.Context, method, urlStr string, headers http.Header, body []byte) (*Response, error) {
 	var lastErr error
 
@@ -327,14 +299,9 @@ func (s *Session) Fetch(ctx context.Context, method, urlStr string, headers http
 		if err != nil {
 			// Request construction (e.g. a malformed method/URL) fails the
 			// same way on every attempt, so unlike a transport error it is
-			// not retried -- but it's still wrapped as *NetworkError,
-			// matching Python's fetch(), whose docstring promises
-			// NetworkError for any failure to complete the request
-			// (http_utils.py:126-127) and which -- less deliberately --
-			// achieves that here by catching ValueError from URL(url)
-			// inside the same retry loop (http_utils.py:156-157) and
-			// burning all MAX_RETRIES attempts on a deterministically
-			// unfixable input before raising.
+			// not retried -- but it's still wrapped as *NetworkError, keeping
+			// the contract that any failure to complete the request surfaces
+			// as NetworkError.
 			return nil, &NetworkError{Err: err}
 		}
 
@@ -376,16 +343,14 @@ func (s *Session) Fetch(ctx context.Context, method, urlStr string, headers http
 // FetchRaw performs a request and returns the raw *http.Response without
 // reading the body and WITHOUT any client-level timeout -- the caller owns
 // cancellation via ctx (see pollClient's doc comment). Used by the
-// BrowserChannel long-poll (Task 7). No retry loop and no status-code
-// mapping happen here; the caller inspects resp.StatusCode itself (doc 01
-// §2.6 documents the channel's own, more elaborate error ladder on top of
-// this).
+// BrowserChannel long-poll. No retry loop and no status-code mapping
+// happen here; the caller inspects resp.StatusCode itself (the channel
+// has its own, more elaborate error ladder on top of this).
 //
 // form, if non-empty, is URL-encoded as the request body with a
-// application/x-www-form-urlencoded Content-Type (mirrors the
-// forward-channel POST body in maugclib/channel.py:303-341); most
-// FetchRaw callers are plain GETs with form == nil, since the long-poll's
-// query parameters are baked into urlStr already.
+// application/x-www-form-urlencoded Content-Type (the forward-channel POST
+// body shape); most FetchRaw callers are plain GETs with form == nil, since
+// the long-poll's query parameters are baked into urlStr already.
 func (s *Session) FetchRaw(ctx context.Context, method, urlStr string, headers http.Header, form url.Values) (*http.Response, error) {
 	var bodyReader io.Reader
 	if len(form) > 0 {
@@ -418,9 +383,8 @@ func cloneHeaders(headers http.Header) http.Header {
 }
 
 // backoffDelay returns the exponential backoff for the retryIndex-th sleep
-// (0-based): retryBackoffBase * 2^retryIndex. Not present in Python (see
-// retryBackoffBase's doc comment); this port's own addition, explicitly
-// requested by task-3-brief.md.
+// (0-based): retryBackoffBase * 2^retryIndex. This port's own addition
+// (see retryBackoffBase's doc comment).
 func backoffDelay(retryIndex int) time.Duration {
 	return retryBackoffBase * time.Duration(1<<uint(retryIndex))
 }
@@ -445,27 +409,24 @@ func sleepOrDone(ctx context.Context, d time.Duration) error {
 // like a transport error rather than surfaced immediately. Deliberately
 // narrow (5xx only): googlechat-megabridge's session.go retried every
 // non-200 status including 401, hammering a dead session 3x and losing the
-// status code in the final error
-// (docs/research/08c-megabridge-clientlib.md §3, "Retries" paragraph) --
-// not replicated here.
+// status code in the final error -- not replicated here.
 //
-// WARNING (double-send risk, for Task 5's API layer): all 5xx are retried
+// WARNING (double-send risk, for the API layer): all 5xx are retried
 // uniformly, but a 500/502 can be returned AFTER the origin already
 // processed the request -- so retrying a non-idempotent POST (create_topic,
-// create_message, ...) through Fetch may double-send the message. This
-// matches the brief's mandate (502 must be retried) and is acceptable for
-// idempotent/safe RPCs, but send-path callers may eventually need a way to
-// opt out of 5xx retry (or supply an idempotency signal, like the protocol's
-// local_id echo-dedup) rather than relying on this blanket policy.
+// create_message, ...) through Fetch may double-send the message. 502 must
+// be retried, so this is acceptable for idempotent/safe RPCs, but send-path
+// callers may eventually need a way to opt out of 5xx retry (or supply an
+// idempotency signal, like the protocol's local_id echo-dedup) rather than
+// relying on this blanket policy.
 func isRetryableStatus(status int) bool {
 	return status >= 500 && status <= 599
 }
 
 // parseErrorCode extracts the top-level JSON "error" field from a response
-// body, if present, mirroring exceptions.py's ResponseError /
-// UnexpectedStatusError parsing ("error"/"error_description" into
-// .error_code/.error_desc -- only .error_code has a Go home so far, in
-// errors.go's UnexpectedStatusError). Malformed/non-JSON bodies yield "".
+// body, if present (the error response carries "error"/"error_description";
+// only "error" has a Go home so far, in errors.go's UnexpectedStatusError).
+// Malformed/non-JSON bodies yield "".
 func parseErrorCode(body []byte) string {
 	var parsed struct {
 		Error string `json:"error"`

@@ -1,12 +1,10 @@
 package migrate
 
-// migrateUsers/migrateUserLogins implement M7 Task 7's User + UserLogin
-// migrator -- see .superpowers/sdd/m7-migration-schema-map.md §5 for the
-// full mapping this replicates, and .superpowers/sdd/m7-migration-preflight.md
-// items 1 (cookie key casing) and 3 (double-puppet token ->
-// user.access_token) for the two corrections layered on top of the schema
-// map. Same raw-INSERT-through-ctx approach as portal.go/ghost.go/message.go
-// -- see portal.go's package doc comment.
+// migrateUsers/migrateUserLogins implement the User + UserLogin migrator,
+// replicating the source schema's user mapping with two corrections layered
+// on top: cookie key casing, and the double-puppet token ->
+// user.access_token. Same raw-INSERT-through-ctx approach as
+// portal.go/ghost.go/message.go -- see portal.go's package doc comment.
 //
 // Every Python `user` row always gets a Go `user` row (migrateUsers;
 // management_room is a nullable identity copy of notice_room; access_token

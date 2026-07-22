@@ -15,18 +15,17 @@ type GChatConnector struct {
 	Bridge *bridgev2.Bridge
 	Config Config
 	// MsgConv converts Google Chat proto messages into bridgev2's Matrix
-	// event shape (events.go's inbound MESSAGE_POSTED handling, M2 Task 4).
-	// Populated here rather than per-GChatClient: it holds no per-login
-	// state (msgconv.go: "conversion configuration only"), so one shared
-	// instance is enough for every UserLogin this connector serves, same as
+	// event shape (events.go's inbound MESSAGE_POSTED handling). Populated
+	// here rather than per-GChatClient: it holds no per-login state
+	// (msgconv.go: "conversion configuration only"), so one shared instance
+	// is enough for every UserLogin this connector serves, same as
 	// mautrix-meta's MetaConnector.MsgConv (_reference/meta/pkg/connector/connector.go).
 	MsgConv *msgconv.MessageConverter
 
 	// MaxFileSize caps how large an inbound attachment download may be
 	// (media.go's GChatClient.maxFileSize, threaded into
-	// gchatmeow.Client.DownloadAttachment) -- the Go equivalent of Python's
-	// `max_size = self.matrix.media_config.upload_size` (portal.py:1534),
-	// the running homeserver's own configured max upload size. bridgev2
+	// gchatmeow.Client.DownloadAttachment) -- the running homeserver's own
+	// configured max upload size. bridgev2
 	// calls SetMaxFileSize below "asynchronously soon after startup"
 	// (bridgev2/networkinterface.go's MaxFileSizeingNetwork doc comment);
 	// until that first call lands, MaxFileSize stays at its zero value,
@@ -41,7 +40,7 @@ type GChatConnector struct {
 var _ bridgev2.NetworkConnector = (*GChatConnector)(nil)
 var _ bridgev2.MaxFileSizeingNetwork = (*GChatConnector)(nil)
 
-// SetMaxFileSize implements bridgev2.MaxFileSizeingNetwork (M5 Task 3).
+// SetMaxFileSize implements bridgev2.MaxFileSizeingNetwork.
 func (gc *GChatConnector) SetMaxFileSize(maxSize int64) {
 	gc.MaxFileSize = maxSize
 }
@@ -84,13 +83,13 @@ func (gc *GChatConnector) GetDBMetaTypes() database.MetaTypes {
 // message" (networkinterface.go:365-368's own doc comment) only needs to be
 // true when the network requires each message to be marked read
 // independently and does NOT automatically do so when the same account
-// sends a message. Google Chat is not that network: user.py's own
-// handle_matrix_message (matrix.py) never calls User.mark_read after
-// sending, and NOTHING else in portal.py calls it either except the one
-// genuine-read-receipt path this connector already wires (handlereceipt.go,
-// M4 Task 4) -- if Google Chat's own server needed an explicit nudge to
-// treat a self-authored message as already read, the Python bridge would
-// have needed one too, and it has none. This matches
+// sends a message. Google Chat is not that network: sending a message
+// never requires a follow-up mark-read, so nothing marks a self-authored
+// message read except the one genuine-read-receipt path this connector
+// already wires (handlereceipt.go) -- if Google Chat's own
+// server needed an explicit nudge to treat a self-authored message as
+// already read, that path would have surfaced it, and none is required.
+// This matches
 // _reference/googlechat-megabridge/pkg/connector/connector.go's own
 // GetCapabilities, which returns the same empty struct.
 func (gc *GChatConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
@@ -106,9 +105,9 @@ func (gc *GChatConnector) GetConfig() (string, any, configupgrade.Upgrader) {
 }
 
 // LoadUserLogin fills login.Client with a fresh *GChatClient shell -- no
-// network I/O here (docs/research/04 §8: "LoadUserLogin runs under the global
-// cache lock -- construct the client from login.Metadata only; do network I/O
-// in Connect"); GChatClient.Connect builds the actual gchatmeow.Client from
+// network I/O here (LoadUserLogin runs under the global cache lock, so the
+// client is constructed from login.Metadata only, with network I/O deferred
+// to Connect); GChatClient.Connect builds the actual gchatmeow.Client from
 // login.Metadata lazily, whether this is the very first load after a restart
 // or the login command resubmitting cookies for an existing row.
 //
@@ -118,8 +117,7 @@ func (gc *GChatConnector) GetConfig() (string, any, configupgrade.Upgrader) {
 // recreateClient. Either way, login.Client may already hold a *GChatClient
 // whose gchatmeow.Client is mid-connection; disconnecting it before
 // overwriting login.Client is required, or its Connect goroutine (and live
-// webchannel session) leaks forever -- the exact goroutine leak an earlier
-// Task 10 review caught.
+// webchannel session) leaks forever.
 func (gc *GChatConnector) LoadUserLogin(_ context.Context, login *bridgev2.UserLogin) error {
 	if old, ok := login.Client.(*GChatClient); ok && old != nil {
 		old.Disconnect()

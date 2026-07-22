@@ -1,52 +1,45 @@
 package connector
 
 // handlereaction.go -- Matrix <-> Google Chat reactions, both directions (M4
-// Task 3). Ports mautrix_googlechat/portal.py's handle_matrix_reaction
-// (portal.py:763-798) and the reaction-target branch of
-// handle_matrix_redaction (portal.py:816-834) for the outbound side, plus
-// handle_googlechat_reaction (portal.py:1166-1208) for the inbound side
-// (events.go's queueMessageReaction), together with maugclib/client.py's
-// react (client.py:338-365).
+// Task 3): the outbound side (a Matrix reaction, plus the reaction-target
+// branch of a Matrix redaction) and the inbound side (events.go's
+// queueMessageReaction), driving Google Chat's react RPC (update_reaction).
 //
 // Google Chat reactions are PER-EMOJI, not one-per-user: a single sender may
 // react to the same message with any number of DISTINCT emoji
-// simultaneously (each is its own row, keyed by (emoji, sender, message) --
-// portal.py:774-776's `DBReaction.get_by_gcid(reaction, sender.gcid,
-// target.gcid, ...)`), and reacting again with an emoji already applied is a
-// silent no-op duplicate (portal.py:777-779), not a toggle/replace. bridgev2
-// models this generically via [bridgev2.MatrixReactionPreResponse.EmojiID]:
-// when EmojiID is set (as it always is here), portal.handleMatrixReaction's
-// own dedup check (mautrix-go bridgev2/portal.go:1651-1663) keys off
-// (message, part, sender, EmojiID) rather than (message, part, sender)
-// alone, so two different emoji from the same sender are never treated as
-// duplicates of each other -- exactly Python's per-emoji semantics. This is
-// why PreHandleMatrixReaction below always sets EmojiID (unlike
-// mautrix-meta's own PreHandleMatrixReaction, which leaves EmojiID blank for
-// Messenger/WhatsApp's one-reaction-per-user model, MaxReactions: 1) and why
-// MaxReactions is left at its zero value (0 = unlimited): Google Chat has no
-// per-sender reaction-count cap for this bridge to enforce.
+// simultaneously (each is its own row, keyed by (emoji, sender, message)),
+// and reacting again with an emoji already applied is a silent no-op
+// duplicate, not a toggle/replace. bridgev2 models this generically via
+// [bridgev2.MatrixReactionPreResponse.EmojiID]: when EmojiID is set (as it
+// always is here), portal.handleMatrixReaction's own dedup check (mautrix-go
+// bridgev2/portal.go:1651-1663) keys off (message, part, sender, EmojiID)
+// rather than (message, part, sender) alone, so two different emoji from the
+// same sender are never treated as duplicates of each other -- exactly Google
+// Chat's per-emoji semantics. This is why PreHandleMatrixReaction below always
+// sets EmojiID (unlike mautrix-meta's own PreHandleMatrixReaction, which
+// leaves EmojiID blank for Messenger/WhatsApp's one-reaction-per-user model,
+// MaxReactions: 1) and why MaxReactions is left at its zero value
+// (0 = unlimited): Google Chat has no per-sender reaction-count cap for this
+// bridge to enforce.
 //
 // variation selectors: Google Chat's own wire protocol (Emoji.unicode, the
-// proto field maugclib's Emoji message carries) never includes U+FE0F
+// proto field carrying the reaction emoji) never includes U+FE0F
 // (VARIATION SELECTOR-16); Matrix's spec-recommended reaction key form
 // always does. Every value that crosses the direction boundary is
-// normalized accordingly, exactly like Python's variation_selector module:
+// normalized accordingly:
 //   - PreHandleMatrixReaction strips the selector off the Matrix-supplied
-//     key (variationselector.Remove, portal.py:766's
-//     `reaction = variation_selector.remove(reaction)`) before it becomes
-//     both the EmojiID (the per-emoji dedup key) and the Emoji sent to GC.
+//     key (variationselector.Remove) before it becomes both the EmojiID (the
+//     per-emoji dedup key) and the Emoji sent to GC.
 //   - queueMessageReaction (events.go) adds the selector back
-//     (variationselector.Add) for the value handed to Matrix, mirroring
-//     portal.py:1183's `matrix_reaction = variation_selector.add(evt.emoji.unicode)`,
-//     while EmojiID stays the bare form so an inbound echo of a
-//     Matrix-initiated reaction dedups against the same key
-//     PreHandleMatrixReaction would have produced for the identical emoji.
-//     bridgev2's own handleRemoteReaction (portal.go:3527) applies Add()
-//     again unconditionally when building the actual Matrix event content;
-//     variationselector.Add is idempotent (it strips every existing
-//     selector before re-adding, per go.mau.fi/util/variationselector's own
-//     doc comment), so pre-applying it here is redundant but harmless, and
-//     keeps this file's own construction traceable 1:1 against Python's.
+//     (variationselector.Add) for the value handed to Matrix, while EmojiID
+//     stays the bare form so an inbound echo of a Matrix-initiated reaction
+//     dedups against the same key PreHandleMatrixReaction would have produced
+//     for the identical emoji. bridgev2's own handleRemoteReaction
+//     (portal.go:3527) applies Add() again unconditionally when building the
+//     actual Matrix event content; variationselector.Add is idempotent (it
+//     strips every existing selector before re-adding, per
+//     go.mau.fi/util/variationselector's own doc comment), so pre-applying it
+//     here is redundant but harmless.
 import (
 	"context"
 	"fmt"
@@ -66,15 +59,14 @@ import (
 var _ bridgev2.ReactionHandlingNetworkAPI = (*GChatClient)(nil)
 
 // PreHandleMatrixReaction resolves the emoji this login's own reaction
-// should be keyed and sent by, porting portal.py:766's
-// `reaction = variation_selector.remove(reaction)` -- the very first thing
-// handle_matrix_reaction does, before even looking up the target message.
-// EmojiID and Emoji are always the SAME bare (variation-selector-stripped)
-// string: EmojiID becomes the per-emoji dedup key bridgev2's own
-// handleMatrixReaction uses (see this file's top-of-file doc comment), and
-// Emoji is what HandleMatrixReaction below sends to Google Chat's
-// update_reaction RPC -- GC's own wire form never carries the selector
-// either, so no separate normalization is needed between the two.
+// should be keyed and sent by, stripping the variation selector off the
+// Matrix-supplied key before even looking up the target message. EmojiID and
+// Emoji are always the SAME bare (variation-selector-stripped) string:
+// EmojiID becomes the per-emoji dedup key bridgev2's own handleMatrixReaction
+// uses (see this file's top-of-file doc comment), and Emoji is what
+// HandleMatrixReaction below sends to Google Chat's update_reaction RPC --
+// GC's own wire form never carries the selector either, so no separate
+// normalization is needed between the two.
 func (c *GChatClient) PreHandleMatrixReaction(_ context.Context, msg *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
 	emoji := variationselector.Remove(msg.Content.RelatesTo.Key)
 	return bridgev2.MatrixReactionPreResponse{
@@ -85,29 +77,24 @@ func (c *GChatClient) PreHandleMatrixReaction(_ context.Context, msg *bridgev2.M
 }
 
 // HandleMatrixReaction issues update_reaction (type ADD) for a Matrix
-// reaction on a previously-bridged message, matching handle_matrix_reaction's
-// body (portal.py:793-798) and react's own request construction
-// (client.py:346-365) field-by-field:
+// reaction on a previously-bridged message, building the request
+// field-by-field:
 //
 //   - message_id.parent_id.topic_id.{group_id,topic_id}: group_id is
 //     gcid.ParsePortalID(msg.Portal.ID), the same derivation every other
 //     outbound call uses (handlematrix.go); topic_id reuses
 //     threadRootTopicID(msg.TargetMessage) (handlematrix.go, M3 Task 6) --
 //     the target's own stored MessageMetadata.TopicID, falling back to the
-//     target's own message id when that's empty. This is exactly Python's
-//     `thread_id or message_id` (client.py:354), where Python's thread_id
-//     argument IS target.gc_parent_id (portal.py:794).
-//   - message_id.message_id: gcid.ParseMessageID(msg.TargetMessage.ID) --
-//     Python's message_id parameter (target.gcid, portal.py:794).
+//     target's own message id when that's empty (a `thread_id or message_id`
+//     fallback, where the thread id is the target's own stored topic id).
+//   - message_id.message_id: gcid.ParseMessageID(msg.TargetMessage.ID).
 //   - emoji.unicode: msg.PreHandleResp.Emoji, the bare
 //     (variation-selector-stripped) form PreHandleMatrixReaction already
-//     computed -- Python's own `reaction` local, reused unchanged from the
-//     top of handle_matrix_reaction (portal.py:766,794).
+//     computed.
 //   - type: ADD, unconditionally -- this method is only ever reached for a
 //     brand new (non-duplicate) reaction; bridgev2's own handleMatrixReaction
 //     (portal.go:1651-1663) already filters out duplicates before calling
-//     this, matching Python's own `existing = await DBReaction.get_by_gcid(...)`
-//     early-return-on-duplicate gate (portal.py:774-779).
+//     this.
 //
 // The returned *database.Reaction carries a *ReactionMetadata caching the
 // resolved topic id (see ReactionMetadata's own doc comment, dbmeta.go, for
@@ -163,32 +150,26 @@ func (c *GChatClient) HandleMatrixReaction(ctx context.Context, msg *bridgev2.Ma
 }
 
 // HandleMatrixReactionRemove issues update_reaction (type REMOVE) for a
-// Matrix redaction of a previously-bridged reaction, matching
-// handle_matrix_redaction's reaction-target branch (portal.py:821-829) and
-// react's own request construction (client.py:346-365, remove=True) the same
-// way HandleMatrixReaction above does, except:
+// Matrix redaction of a previously-bridged reaction, the same way
+// HandleMatrixReaction above does, except:
 //
 //   - message_id.message_id: gcid.ParseMessageID(msg.TargetReaction.MessageID)
-//     -- Python's `reaction_target.gcid` (portal.py:826), the reacted-to
-//     message's own id (NOT the reaction's own Matrix event id).
+//     -- the reacted-to message's own id (NOT the reaction's own Matrix event
+//     id).
 //   - message_id.parent_id.topic_id.topic_id: c.reactionTopicID(ctx, msg.TargetReaction),
 //     which prefers the *ReactionMetadata a Matrix-initiated HandleMatrixReaction
 //     call already cached (the fast path -- no lookup needed, see
 //     ReactionMetadata's doc comment, dbmeta.go) and otherwise falls back to
-//     a fresh DB.Message lookup, exactly like Python's own unconditional
-//     `DBMessage.get_by_gcid(reaction.gc_msgid, ...)` at portal.py:818-819 --
-//     see reactionTopicID's own doc comment for why the fallback is required
-//     (a reaction added from the Google Chat side, queueMessageReaction in
-//     events.go, has nothing to cache a topic id from at add-time).
+//     a fresh DB.Message lookup -- see reactionTopicID's own doc comment for
+//     why the fallback is required (a reaction added from the Google Chat
+//     side, queueMessageReaction in events.go, has nothing to cache a topic
+//     id from at add-time).
 //   - emoji.unicode: string(msg.TargetReaction.EmojiID) -- the SAME bare
 //     emoji this reaction's own PreHandleMatrixReaction/HandleMatrixReaction
 //     pair stored as the per-emoji dedup key (EmojiID, not the DB row's
 //     separate Emoji field, which bridgev2 only populates when EmojiID is
 //     left blank -- see this file's top-of-file doc comment on why EmojiID
-//     is always set here). Python's equivalent is `reaction.emoji`
-//     (portal.py:827), the bare emoji its own DBReaction row stores
-//     unconditionally (portal.py:1190/786) since Python has no separate
-//     EmojiID/Emoji split.
+//     is always set here).
 //   - type: REMOVE, unconditionally.
 func (c *GChatClient) HandleMatrixReactionRemove(ctx context.Context, msg *bridgev2.MatrixReactionRemove) error {
 	group, err := gcid.ParsePortalID(msg.Portal.ID)
@@ -260,8 +241,7 @@ func (c *GChatClient) HandleMatrixReactionRemove(ctx context.Context, msg *bridg
 //     c.UserLogin.Bridge.DB.Message.GetFirstPartByID) for the reaction's
 //     own target message, reading that message's OWN stored
 //     MessageMetadata.TopicID via threadRootTopicID (handlematrix.go) --
-//     exactly Python's own unconditional `DBMessage.get_by_gcid(reaction.gc_msgid, ...)`
-//     lookup (portal.py:818-819), which never caches and always re-fetches
+//     an unconditional lookup that never caches and always re-fetches
 //     regardless of which side originally created the reaction. Every
 //     bridged message (both directions) already stamps its own
 //     MessageMetadata.TopicID at ingest time (msgconv_adapter.go /

@@ -65,12 +65,9 @@ type ReactionMetadata struct {
 	// inbound MessageReactionEvent that carries no per-message payload to
 	// read a topic id off directly) never populates this field, so
 	// HandleMatrixReactionRemove's own reactionTopicID helper always falls
-	// back to a fresh DB.Message lookup when it's empty -- exactly
-	// portal.py's own handle_matrix_redaction reaction branch
-	// (portal.py:816-829), which unconditionally re-fetches the target
-	// DBMessage row on every removal
-	// (`DBMessage.get_by_gcid(reaction.gc_msgid, ...)`) regardless of which
-	// side created the reaction. See reactionTopicID's own doc comment
+	// back to a fresh DB.Message lookup when it's empty, unconditionally
+	// re-fetching the target message row on every removal regardless of
+	// which side created the reaction. See reactionTopicID's own doc comment
 	// (handlereaction.go) for the full two-source resolution order; a Google
 	// Chat message's topic membership is immutable once posted, so caching
 	// this value here for the reactions that CAN cache it is always safe

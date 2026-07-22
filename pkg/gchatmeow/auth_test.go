@@ -9,11 +9,10 @@ import (
 	"testing"
 )
 
-// Minimal WIZ blobs using the exact key patterns from client.py's
-// refresh_tokens (client.py:499-539): "qwAQke" (login-state key) and
-// "SMqcke" (xsrf token key), embedded in the same
-// `>window.WIZ_global_data = {...};</script>` shape the wiz_pattern regex
-// (client.py:34) expects, inside a plausible surrounding HTML page.
+// Minimal WIZ blobs using the exact keys the token fetch reads: "qwAQke"
+// (login-state key) and "SMqcke" (xsrf token key), embedded in the same
+// `>window.WIZ_global_data = {...};</script>` shape wizGlobalDataPattern
+// expects, inside a plausible surrounding HTML page.
 
 const loggedInWizHTML = `<!doctype html><html><head><script>
 window._wizdata = {};
@@ -70,7 +69,7 @@ func TestFetchXSRFToken_Success(t *testing.T) {
 	if gotPath != "/mole/world" {
 		t.Errorf("request path = %q, want %q", gotPath, "/mole/world")
 	}
-	// Query params mirror client.py:506-514 exactly.
+	// Query params required by the /mole/world endpoint.
 	for _, want := range []string{
 		"origin=https%3A%2F%2Fmail.google.com",
 		"shell=9",
@@ -82,7 +81,7 @@ func TestFetchXSRFToken_Success(t *testing.T) {
 			t.Errorf("request query = %q, want it to contain %q", gotQuery, want)
 		}
 	}
-	// Headers mirror client.py:515-518, including the misspelled "refer".
+	// Headers for the request, including the misspelled "refer".
 	if gotAuthority != "chat.google.com" {
 		t.Errorf("authority header = %q, want %q", gotAuthority, "chat.google.com")
 	}
@@ -147,8 +146,8 @@ func TestFetchXSRFToken_GarbageMalformedJSON(t *testing.T) {
 
 func TestFetchXSRFToken_MissingSMqckeKey(t *testing.T) {
 	// qwAQke present and not the sign-in sentinel, but SMqcke absent entirely
-	// -- mirrors Python's `wiz_data["SMqcke"]` raising KeyError
-	// (client.py:538) rather than silently yielding an empty token.
+	// -- a missing SMqcke is a descriptive error rather than silently
+	// yielding an empty token.
 	const html = `<!doctype html><html><head>
 <script>window.WIZ_global_data = {"qwAQke":"SomeOtherUi"};</script>
 </head><body>ok</body></html>`

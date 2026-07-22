@@ -1,9 +1,8 @@
-# mautrix-googlechat (Go rewrite)
+# mautrix-googlechat
 
-Go reimplementation of the Python mautrix-googlechat bridge on mautrix-go bridgev2.
-Spec: `docs/superpowers/specs/2026-07-14-googlechat-go-bridge-design.md` (approved).
-Protocol/framework truth: `docs/research/01`–`08` — READ THE RELEVANT REPORT BEFORE
-IMPLEMENTING; do not re-derive protocol facts from memory.
+A Matrix–Google Chat puppeting bridge in Go, built on mautrix-go bridgev2.
+Architecture, protocol notes, and key decisions: `docs/ARCHITECTURE.md` — read it
+before making protocol changes; do not re-derive protocol facts from memory.
 
 ## Hard rules (violations are always bugs)
 
@@ -24,17 +23,17 @@ Never add Co-Authored-By, AI attribution, or session-link trailers.
 
 - Build: `./build.sh` · Test: `go test -tags goolm ./...` · Vet: `go vet -tags goolm ./...`
 - Proto regen: `pkg/gchatmeow/proto/gen.sh` (needs buf + protoc-gen-go@v1.36.11)
-- Milestone check: `/verify-milestone`
+- Live protocol probe: `go test -tags 'goolm live' -run TestLive ./pkg/gchatmeow/`
+  (needs real cookies in `GCHAT_LIVE_*`; never runs in CI)
 
-## Reference code (read-only, at ../_reference/)
+## Protocol references (read-only, at ../_reference/, re-clone if missing)
 
-- `googlechat-python/` — the Python bridge; maugclib is the protocol spec
-- `googlechat-megabridge/` — upstream's unfinished Go rewrite (adopt leaves, not spine;
-  see docs/research/08-megabridge-assessment.md before copying anything)
-- `mautrix-go/` — bridgev2 framework source · `meta/` — the blueprint bridge
-- `purple-googlechat/` — actively-maintained C client; protocol-drift reference
+- `mautrix-go/` — the bridgev2 framework source
+- `purple-googlechat/` — actively-maintained client; the protocol-drift reference
+  when Google changes the wire format
 
-## Workflow
+## Migration
 
-Roadmap M0–M7 in spec §8. One milestone at a time; `/port-module` for porting tasks;
-`gchat-port-auditor` agent reviews every ported module before merge.
+Existing deployments can import their old database via `--migrate-from-python`
+(`pkg/migrate`); see `docs/migration.md`. `pkg/gcid` formats are frozen to keep
+migrated ids identical to freshly-synced ones.

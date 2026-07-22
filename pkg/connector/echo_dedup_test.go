@@ -1,19 +1,17 @@
 package connector
 
-// echo_dedup_test.go -- M2 Task 6: own-echo dedup via the local_id
-// transaction-id round-trip. Ports portal.py's `_local_dedup` mechanism
-// (portal.py:908-909,931,1341-1343) onto bridgev2's pending-transaction
-// primitives: HandleMatrixMessage (handlematrix.go) registers the local_id
-// it puts on the outgoing create_topic RPC as a pending-to-ignore
-// transaction BEFORE issuing the RPC (closing the race window Python closes
-// by adding to _local_dedup before dispatching -- see handlematrix.go's doc
-// comment and docs/research/07 §"Echo dedup"/08b row 61 for the megabridge
-// defect this fixes: AddPendingToIgnore called only AFTER the RPC returns,
-// with no LocalId on CreateTopicRequest at all); queueMessagePosted
-// (events.go) exposes the inbound MESSAGE_POSTED echo's own local_id
-// (Message.LocalId, proto field 14) as the queued simplevent.Message's
-// TransactionID, which is what bridgev2's checkPendingMessage (portal.go)
-// matches against the pending map to recognize + drop the echo.
+// echo_dedup_test.go -- own-echo dedup via the local_id transaction-id
+// round-trip, built on bridgev2's pending-transaction primitives:
+// HandleMatrixMessage (handlematrix.go) registers the local_id it puts on
+// the outgoing create_topic RPC as a pending-to-ignore transaction BEFORE
+// issuing the RPC (closing the race window by registering before dispatching
+// -- see handlematrix.go's doc comment for the megabridge defect this fixes:
+// AddPendingToIgnore called only AFTER the RPC returns, with no LocalId on
+// CreateTopicRequest at all); queueMessagePosted (events.go) exposes the
+// inbound MESSAGE_POSTED echo's own local_id (Message.LocalId, proto field
+// 14) as the queued simplevent.Message's TransactionID, which is what
+// bridgev2's checkPendingMessage (portal.go) matches against the pending map
+// to recognize + drop the echo.
 //
 // These tests exercise the two halves in isolation (send-side registration,
 // receive-side transaction-id exposure) via this package's existing
@@ -24,7 +22,7 @@ package connector
 // is not itself under test here; that machinery is bridgev2's own and is
 // exercised by mautrix-go's own test suite. What IS under test is that this
 // connector wires the same local_id value into both halves of the
-// round-trip, in the right order, matching Python's local_id fidelity.
+// round-trip, in the right order.
 import (
 	"context"
 	"testing"
@@ -39,12 +37,11 @@ import (
 // --- Send side: local_id becomes the pending-to-ignore transaction id -----
 
 // TestHandleMatrixMessageRegistersLocalIDAsPendingBeforeSend pins the fix
-// for the megabridge defect (docs/research/08b row 61 / 07 §"Echo dedup"):
-// AddPendingToIgnore must be called with the SAME local_id that ends up on
-// the wire in CreateTopicRequest, and it must happen BEFORE the RPC is
-// issued -- not after the response comes back -- so a fast echo arriving on
-// the event stream while the RPC is still in flight is already covered by
-// the pending entry the instant it arrives.
+// for the megabridge defect: AddPendingToIgnore must be called with the SAME
+// local_id that ends up on the wire in CreateTopicRequest, and it must
+// happen BEFORE the RPC is issued -- not after the response comes back -- so
+// a fast echo arriving on the event stream while the RPC is still in flight
+// is already covered by the pending entry the instant it arrives.
 func TestHandleMatrixMessageRegistersLocalIDAsPendingBeforeSend(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.CreateTopicRequest
@@ -78,13 +75,12 @@ func TestHandleMatrixMessageRegistersLocalIDAsPendingBeforeSend(t *testing.T) {
 		t.Errorf("pending txn id = %q, want it to equal the request's LocalId %q (same local_id both ways)", pendingTxnID, gotReq.GetLocalId())
 	}
 	if !pendingRegisteredBeforeSend {
-		t.Error("addPendingToIgnoreFn was called after createTopicFn (the RPC), want before -- this reopens the echo race window Task 6 exists to close")
+		t.Error("addPendingToIgnoreFn was called after createTopicFn (the RPC), want before -- this reopens the echo race window the dedup exists to close")
 	}
 }
 
-// TestHandleMatrixMessageSuccessRemovesLocalIDFromPending mirrors
-// portal.py:931's `self._local_dedup.remove(local_id)` on the success path:
-// once create_topic succeeds and the DB message would be saved, the
+// TestHandleMatrixMessageSuccessRemovesLocalIDFromPending covers the success
+// path: once create_topic succeeds and the DB message would be saved, the
 // response must ask the framework to remove the same local_id from its
 // pending-transaction table (MatrixMessageResponse.RemovePending), so it
 // doesn't leak forever once the echo has already been (or never needs to
@@ -114,22 +110,18 @@ func TestHandleMatrixMessageSuccessRemovesLocalIDFromPending(t *testing.T) {
 }
 
 // TestHandleMatrixMessageFailureRemovesPendingRegistration covers the
-// gchat-port-auditor Task 6 finding: a failed create_topic RPC must undo the
+// failure-cleanup requirement: a failed create_topic RPC must undo the
 // addPendingToIgnore registration made just before it, via
 // MatrixMessage.RemovePending -- bridgev2's own purpose-built hook for
 // exactly this ("should only be called if sending the message fails," per
-// its doc comment, $REF/mautrix-go bridgev2/portal.go). Python's original
-// leaves local_id in self._local_dedup forever on this path
-// (portal.py:925-931's except branch never reaches the portal.py:931
-// remove() call), but that is an accidental limitation of Python's plain
-// set() (no equivalent "undo" hook existed to call), not a behavior worth
-// reproducing: both bridges are equally long-running daemons, so porting the
-// leak forward would be unbounded growth in bridgev2.Portal.outgoingMessages
-// across every failed send for the life of the process. This test also
-// pins the ordering: registration (before the RPC) must still happen even
-// though it is immediately undone on failure -- Task 6's race-window fix
-// (registering before the RPC, not after) is unconditional, independent of
-// whether the RPC then succeeds or fails.
+// its doc comment, $REF/mautrix-go bridgev2/portal.go). Leaving local_id
+// registered forever on this path would be unbounded growth in
+// bridgev2.Portal.outgoingMessages across every failed send for the life of
+// this long-running daemon, so the failure path cleans up explicitly. This
+// test also pins the ordering: registration (before the RPC) must still
+// happen even though it is immediately undone on failure -- the race-window
+// fix (registering before the RPC, not after) is unconditional, independent
+// of whether the RPC then succeeds or fails.
 func TestHandleMatrixMessageFailureRemovesPendingRegistration(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var registeredTxnID, removedTxnID networkid.TransactionID
@@ -154,7 +146,7 @@ func TestHandleMatrixMessageFailureRemovesPendingRegistration(t *testing.T) {
 		t.Errorf("HandleMatrixMessage() response = %+v, want nil on error", resp)
 	}
 	if registeredTxnID == "" {
-		t.Fatal("addPendingToIgnoreFn was never called -- local_id must still be registered before the failed RPC (Task 6 ordering)")
+		t.Fatal("addPendingToIgnoreFn was never called -- local_id must still be registered before the failed RPC")
 	}
 	if removedTxnID != registeredTxnID {
 		t.Errorf("removePendingFn txn id = %q, want it to match the registered txn id %q (RemovePending must undo the exact registration the failed send made)", removedTxnID, registeredTxnID)
@@ -192,8 +184,7 @@ func TestHandleMatrixMessagePropagatesRPCErrorRemovesPendingRegistration(t *test
 // generated must surface that same value from
 // RemoteMessageWithTransactionID.GetTransactionID(), which is what lets
 // bridgev2's own pending-transaction matching (portal.go's
-// checkPendingMessage) recognize and drop the echo -- mirrors
-// portal.py:1341's `if evt.local_id in self._local_dedup`.
+// checkPendingMessage) recognize and drop the echo.
 func TestHandleGChatEventMessagePostedEchoExposesLocalIDAsTransactionID(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-echo-1", "112233", "hello", 1)

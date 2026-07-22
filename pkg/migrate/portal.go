@@ -1,13 +1,11 @@
 package migrate
 
-// migratePortals implements M7 Task 5's portal half. See
-// .superpowers/sdd/m7-migration-schema-map.md §1 for the full field-by-field
-// mapping this replicates exactly, and .superpowers/sdd/task-5-brief.md for
-// scope. Every write goes through a raw INSERT against ctx (Run's single
-// transaction, per Deps.Target's doc comment) using the EXACT column list
-// §1 specifies -- no ORM/QueryHelper involved, since pkg/migrate is a
-// standalone tool operating on rows the live bridge's own Portal struct
-// never sees.
+// migratePortals implements the portal half of the migration, replicating
+// the source schema's portal mapping field-by-field. Every write goes
+// through a raw INSERT against ctx (Run's single transaction, per
+// Deps.Target's doc comment) using the exact source column list -- no
+// ORM/QueryHelper involved, since pkg/migrate is a standalone tool operating
+// on rows the live bridge's own Portal struct never sees.
 
 import (
 	"context"

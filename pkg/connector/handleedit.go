@@ -1,28 +1,21 @@
 package connector
 
 // handleedit.go -- Matrix -> Google Chat outbound message edit
-// (HandleMatrixEdit, M4 Task 1). Ports mautrix_googlechat/portal.py's
-// handle_matrix_edit (portal.py:840-878) together with maugclib/client.py's
-// edit_message (client.py:385-411).
+// (HandleMatrixEdit, M4 Task 1). Issues the edit_message RPC for a message
+// edited in a portal room.
 //
 // bridgev2's own handleMatrixEdit (mautrix-go bridgev2/portal.go:1494-1573)
-// already does everything portal.py's OWN Python-side gating does BEFORE
-// calling into the network connector:
+// already does all the gating BEFORE calling into the network connector:
 //
-//   - fetches EditTarget from the DB (portal.py:843's
-//     `DBMessage.get_by_mxid(message.get_edit(), self.mxid)`, and drops the
-//     edit with no call to this method at all if it's not found -- Python's
-//     `if not target: ... return`, portal.py:844-852);
+//   - fetches EditTarget from the DB, and drops the edit with no call to
+//     this method at all if it's not found;
 //   - checks the edit against checkMessageContentCaps (mautrix-go
 //     bridgev2/portal.go:1108-1146) -- but that check whitelists
-//     MsgText/MsgNotice/MsgEmote ALL THREE with "no checks for now",
-//     unlike Python's handle_matrix_edit, which is STRICTER than its own
-//     handle_matrix_message: an edit's new content must be literal TEXT
-//     (portal.py:853-862's `# We don't support non-text edits yet / if
-//     message.msgtype != MessageType.TEXT: ... return`), even though a
-//     brand new send accepts TEXT or NOTICE (portal.py:915,
-//     HandleMatrixMessage above). bridgev2's generic cap check does NOT
-//     enforce this asymmetry, so this method re-checks edit.Content.MsgType
+//     MsgText/MsgNotice/MsgEmote ALL THREE with "no checks for now". This
+//     connector is STRICTER for edits than for brand new sends: an edit's
+//     new content must be literal TEXT, even though a brand new send accepts
+//     TEXT or NOTICE (HandleMatrixMessage). bridgev2's generic cap check does
+//     NOT enforce this asymmetry, so this method re-checks edit.Content.MsgType
 //     itself, below, rather than relying on checkMessageContentCaps (a
 //     gchat-port-auditor finding on an earlier revision of this file, which
 //     had incorrectly assumed the generic cap check already covered this);
@@ -44,8 +37,7 @@ package connector
 // ever reached here (mautrix-go bridgev2/portal.go:1530-1532).
 //
 // This method therefore only needs to reject non-TEXT edits, then build+send
-// the edit_message RPC and record the new last_edit_time -- matching
-// Python's handle_matrix_edit body (portal.py:853-878).
+// the edit_message RPC and record the new last_edit_time.
 import (
 	"context"
 	"fmt"
@@ -62,49 +54,39 @@ import (
 var _ bridgev2.EditHandlingNetworkAPI = (*GChatClient)(nil)
 
 // HandleMatrixEdit issues edit_message for a previously-bridged message
-// edited in a portal room, matching handle_matrix_edit's body
-// (portal.py:864-878) and edit_message's own request construction
-// (client.py:385-411) field-by-field:
+// edited in a portal room, building the request field-by-field:
 //
 //   - message_id.parent_id.topic_id.{group_id,topic_id}: group_id is
 //     gcid.ParsePortalID(edit.Portal.ID), the same derivation every other
 //     outbound call uses (handlematrix.go); topic_id reuses
 //     threadRootTopicID(edit.EditTarget) (handlematrix.go, M3 Task 6) --
 //     the target's own stored MessageMetadata.TopicID, falling back to the
-//     target's own message id when that's empty. This is exactly Python's
-//     `thread_id or message_id` (client.py:400), where Python's thread_id
-//     argument IS target.gc_parent_id (portal.py:868) -- the same value
-//     this bridge keeps in MessageMetadata.TopicID.
-//   - message_id.message_id: gcid.ParseMessageID(edit.EditTarget.ID) --
-//     Python's message_id parameter (target.gcid, portal.py:870).
+//     target's own message id when that's empty (a `thread_id or message_id`
+//     fallback, where the thread id is the target's own stored topic id --
+//     the same value this bridge keeps in MessageMetadata.TopicID).
+//   - message_id.message_id: gcid.ParseMessageID(edit.EditTarget.ID).
 //   - text_body + annotations: c.msgConverter().FromMatrix(ctx,
 //     edit.Content, resolve), the SAME M3 outbound formatting path
 //     (matrixfmt.Parse via the real newOutboundMentionResolver)
-//     HandleMatrixMessage uses (handlematrix.go) -- Python's `text,
-//     annotations = await fmt.matrix_to_googlechat(message)`
-//     (portal.py:864).
-//   - message_info.accept_format_annotations=true, unconditionally -- the
-//     SAME field edit_message always sets (client.py:407-409); unlike
-//     send_message, edit_message never sets message_info.reply_to at all
-//     (client.py:394-410 has no reply_to key), so it stays nil here too --
-//     an edit cannot change what a message is a reply to.
+//     HandleMatrixMessage uses (handlematrix.go).
+//   - message_info.accept_format_annotations=true, unconditionally (required
+//     for outgoing formatting to render); unlike a brand new send,
+//     edit_message never sets message_info.reply_to at all, so it stays nil
+//     here too -- an edit cannot change what a message is a reply to.
 //
 // On success, edit.EditTarget.Metadata's LastEditTime is bumped to the
-// server's own resp.message.last_edit_time -- Python's
-// `self._edit_dedup[target.gcid] = resp.message.last_edit_time`
-// (portal.py:874), just persisted on the message row (dbmeta.go's
-// MessageMetadata) instead of a process-local dict, so a later inbound echo
-// of this exact edit (queueMessageEdit, events.go) correctly dedups against
-// it even across a bridge restart. A failed RPC leaves LastEditTime
-// untouched (matching Python: the assignment at portal.py:874 is inside the
-// `try` block, never reached on an exception).
+// server's own resp.message.last_edit_time, persisted on the message row
+// (dbmeta.go's MessageMetadata) so a later inbound echo of this exact edit
+// (queueMessageEdit, events.go) correctly dedups against it even across a
+// bridge restart. A failed RPC leaves LastEditTime untouched (there is
+// nothing to dedup against since the edit never reached the server).
 func (c *GChatClient) HandleMatrixEdit(ctx context.Context, edit *bridgev2.MatrixEdit) error {
-	// portal.py:853-862's "# We don't support non-text edits yet" gate --
-	// stricter than HandleMatrixMessage's own TEXT-or-NOTICE acceptance for
-	// brand new sends (portal.py:915). bridgev2.ErrUnsupportedMessageType is
-	// the same sentinel HandleMatrixMessage already uses for its own
-	// msgtype gate (handlematrix.go), so this reports identically to Matrix
-	// (a failed-to-send status on the edit event) rather than silently
+	// The "we don't support non-text edits yet" gate -- stricter than
+	// HandleMatrixMessage's own TEXT-or-NOTICE acceptance for brand new
+	// sends. bridgev2.ErrUnsupportedMessageType is the same sentinel
+	// HandleMatrixMessage already uses for its own msgtype gate
+	// (handlematrix.go), so this reports identically to Matrix (a
+	// failed-to-send status on the edit event) rather than silently
 	// no-op'ing.
 	if edit.Content.MsgType != event.MsgText {
 		return bridgev2.ErrUnsupportedMessageType

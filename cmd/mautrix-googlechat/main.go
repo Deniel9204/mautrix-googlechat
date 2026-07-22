@@ -32,7 +32,7 @@ var m = mxmain.BridgeMain{
 // instead of starting the bridge, it reads a Python mautrix-googlechat
 // database and writes its data into this bridge's own configured (target)
 // database, then exits without starting the event loop. See pkg/migrate for
-// the engine and .superpowers/sdd/task-4-brief.md for the task this wires up.
+// the engine.
 var (
 	migrateFromPython = flag.Make().LongKey("migrate-from-python").
 				Usage("Migrate data from a Python mautrix-googlechat database (SQLite path or postgres:// DSN), then exit").
@@ -98,9 +98,9 @@ func runMigrationIfRequested() {
 	deps := migrate.Deps{
 		Source: source,
 		Target: m.DB,
-		// FormatGhostMXID is the bridge's own, already-configured method --
-		// see m7-migration-preflight.md item 2 -- so migrated sender_mxid
-		// values are byte-identical to what a live bridge would generate.
+		// FormatGhostMXID is the bridge's own, already-configured method,
+		// so migrated sender_mxid values are byte-identical to what a live
+		// bridge would generate.
 		FormatGhostMXID: m.Matrix.FormatGhostMXID,
 		Log:             &log,
 	}

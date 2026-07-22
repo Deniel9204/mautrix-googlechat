@@ -3,8 +3,8 @@ package connector
 // handleredact_test.go -- HandleMatrixMessageRemove (M4 Task 2): outbound
 // Matrix redaction -> delete_message RPC. Mirrors handleedit_test.go's
 // request-construction / error-path test shape for HandleMatrixEdit, since
-// delete_message (client.py:367-383) builds its MessageId the exact same
-// "thread_id or message_id" way edit_message (client.py:385-411) does.
+// delete_message builds its MessageId the exact same "thread_id or
+// message_id" way edit_message does.
 
 import (
 	"context"
@@ -106,8 +106,7 @@ func TestHandleMatrixMessageRemoveDMPortalBuildsDmGroupID(t *testing.T) {
 // TestHandleMatrixMessageRemoveUsesStoredTopicIDForThreadReply covers a
 // reply-in-thread target: the target's own stored MessageMetadata.TopicID
 // (the thread's topic, distinct from the target's own message id) must be
-// used, mirroring client.py's delete_message(conversation_id,
-// thread_id=target.gc_parent_id, message_id=target.gcid).
+// used as the delete_message topic_id, not the target's own message id.
 func TestHandleMatrixMessageRemoveUsesStoredTopicIDForThreadReply(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.DeleteMessageRequest
@@ -136,11 +135,11 @@ func TestHandleMatrixMessageRemoveUsesStoredTopicIDForThreadReply(t *testing.T) 
 	}
 }
 
-// TestHandleMatrixMessageRemoveFallsBackToOwnIDWhenTopicIDMissing pins
-// Python's `thread_id or message_id` fallback (client.py:377): a target
-// with no stored TopicID (e.g. a pre-M3-Task-6 legacy row, or any head-of-
-// topic message) must fall back to its own message id, exactly like
-// threadRootTopicID (handlematrix.go), which this method reuses.
+// TestHandleMatrixMessageRemoveFallsBackToOwnIDWhenTopicIDMissing pins the
+// `thread_id or message_id` fallback: a target with no stored TopicID (e.g.
+// a pre-M3-Task-6 legacy row, or any head-of-topic message) must fall back
+// to its own message id, exactly like threadRootTopicID (handlematrix.go),
+// which this method reuses.
 func TestHandleMatrixMessageRemoveFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.DeleteMessageRequest

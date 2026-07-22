@@ -44,9 +44,8 @@ func newLoopbackServer(t *testing.T, ip string, handler http.Handler) *httptest.
 // TestCookiesSentUnquoted verifies a cookie value containing a space and a
 // comma is sent to the server VERBATIM, unquoted -- Go's default
 // http.Client.Jar machinery double-quotes such values (net/http's
-// sanitizeCookieValue), which the Google Chat server does not accept
-// (maugclib/http_utils.py:61-62 -- aiohttp.CookieJar(quote_cookie=False),
-// referencing hangups issue #498).
+// sanitizeCookieValue), which the Google Chat server does not accept, so
+// the cookie header is hand-built unquoted instead.
 func TestCookiesSentUnquoted(t *testing.T) {
 	var gotCookie string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,10 +78,8 @@ func TestCookiesSentUnquoted(t *testing.T) {
 }
 
 // TestCookieRotationReadback verifies a rotated Set-Cookie from the server
-// is absorbed into the jar and visible via Cookies() (maugclib
-// Session.get_auth_cookies, http_utils.py:87-92; doc 01 §1.2: "the Go
-// bridge must round-trip rotated cookie values to the DB or sessions die
-// early").
+// is absorbed into the jar and visible via Cookies() -- the Go bridge must
+// round-trip rotated cookie values to the DB or sessions die early.
 func TestCookieRotationReadback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "rotated2", Path: "/"})
@@ -114,10 +111,10 @@ func TestCookieRotationReadback(t *testing.T) {
 
 // TestCookiesNotSentCrossDomain verifies cookies are attached only to
 // requests whose host matches Session.allowedHostSuffixes -- a second
-// server outside the allowlist must receive no Cookie header at all
-// (maugclib http_utils.py:249-255's "don't accidentally send the auth
-// cookie to a non-Google domain" safety rail, reimplemented here as
-// conditional attachment rather than a hard request rejection).
+// server outside the allowlist must receive no Cookie header at all (the
+// "don't accidentally send the auth cookie to a non-Google domain" safety
+// rail, implemented here as conditional attachment rather than a hard
+// request rejection).
 func TestCookiesNotSentCrossDomain(t *testing.T) {
 	var allowedCookie, outsideCookie string
 	var allowedSeen, outsideSeen bool
@@ -162,9 +159,8 @@ func TestCookiesNotSentCrossDomain(t *testing.T) {
 
 // TestFetchRetries verifies Fetch retries transient (5xx) failures up to
 // maxRetries=3 total attempts with exponential backoff, succeeding once the
-// server recovers (task-3-brief.md mandatory behavior; MAX_RETRIES=3 is
-// http_utils.py:20 -- the exponential backoff itself has no Python
-// equivalent, see retryBackoffBase's doc comment).
+// server recovers (the exponential backoff is this port's own addition, see
+// retryBackoffBase's doc comment).
 func TestFetchRetries(t *testing.T) {
 	var mu sync.Mutex
 	requests := 0
@@ -204,8 +200,7 @@ func TestFetchRetries(t *testing.T) {
 }
 
 // TestFetchRetriesExhaustedReturnsNetworkError verifies that once all
-// maxRetries attempts fail, Fetch surfaces a *NetworkError (task-3-brief.md:
-// "returning *NetworkError after exhaustion").
+// maxRetries attempts fail, Fetch surfaces a *NetworkError after exhaustion.
 func TestFetchRetriesExhaustedReturnsNetworkError(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,8 +239,7 @@ func TestFetchRetriesExhaustedReturnsNetworkError(t *testing.T) {
 // *UnexpectedStatusError with the status code AND parsed error code
 // preserved, and is NOT retried -- unlike googlechat-megabridge's
 // session.go, which retries every non-200 status and hammers a dead
-// session 3x while losing the status code
-// (docs/research/08c-megabridge-clientlib.md §3).
+// session 3x while losing the status code.
 func TestFetchNonRetryableStatusReturnsUnexpectedStatusError(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -278,9 +272,7 @@ func TestFetchNonRetryableStatusReturnsUnexpectedStatusError(t *testing.T) {
 }
 
 // TestConnectionKeepAliveForced verifies Connection: Keep-Alive is forced
-// on every request, overriding any caller-supplied value (maugclib
-// http_utils.py:254-255 unconditionally sets headers["Connection"] =
-// "Keep-Alive").
+// on every request, overriding any caller-supplied value.
 func TestConnectionKeepAliveForced(t *testing.T) {
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -305,9 +297,7 @@ func TestConnectionKeepAliveForced(t *testing.T) {
 }
 
 // TestTLSVerificationEnabled verifies TLS certificate verification stays
-// ON. Python passes ssl=False to aiohttp (http_utils.py:264), disabling
-// verification entirely; docs/research/01 §7 explicitly says a Go port
-// must NOT replicate that.
+// ON: a Go port must NOT disable certificate verification.
 func TestTLSVerificationEnabled(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -335,26 +325,24 @@ func TestTLSVerificationEnabled(t *testing.T) {
 // TestNoClientTimeout guards against megabridge's fatal defect: a blanket
 // http.Client.Timeout on the client used for long-polling, which covers
 // the entire request including body read and kills every poll after a
-// fixed duration regardless of heartbeats
-// (docs/research/08c-megabridge-clientlib.md §1.4: "the shared http.Client
-// has Timeout: 90 * time.Second ... every long poll is aborted after 90
-// seconds"). pollClient.Timeout must stay the zero value: FetchRaw callers
-// own cancellation via ctx instead.
+// fixed duration regardless of heartbeats (a shared http.Client with
+// Timeout: 90 * time.Second aborts every long poll after 90 seconds).
+// pollClient.Timeout must stay the zero value: FetchRaw callers own
+// cancellation via ctx instead.
 func TestNoClientTimeout(t *testing.T) {
 	sess, err := NewSession(nil, "")
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 	if sess.pollClient.Timeout != 0 {
-		t.Errorf("pollClient.Timeout = %v, want 0 (see docs/research/08c §1.4)", sess.pollClient.Timeout)
+		t.Errorf("pollClient.Timeout = %v, want 0", sess.pollClient.Timeout)
 	}
 }
 
 // TestFetchRawReturnsRawResponseNoRetry verifies FetchRaw performs exactly
 // one attempt and returns the raw, unread *http.Response regardless of
 // status -- no retry loop and no status-code mapping, which are Fetch-only
-// behaviors. Task 7's channel does its own status/error mapping on top of
-// this.
+// behaviors. The channel does its own status/error mapping on top of this.
 func TestFetchRawReturnsRawResponseNoRetry(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -383,8 +371,7 @@ func TestFetchRawReturnsRawResponseNoRetry(t *testing.T) {
 }
 
 // TestUserAgentVersionRewrite verifies a caller-supplied User-Agent has its
-// Chrome/Firefox version pinned to the latest known-good values
-// (maugclib http_utils.py:69-77).
+// Chrome/Firefox version pinned to the latest known-good values.
 func TestUserAgentVersionRewrite(t *testing.T) {
 	sess, err := NewSession(nil, "Mozilla/5.0 Chrome/100.0.4321.10 Safari/537.36")
 	if err != nil {
@@ -395,21 +382,20 @@ func TestUserAgentVersionRewrite(t *testing.T) {
 	}
 }
 
-// TestDefaultUserAgent verifies an empty User-Agent falls back to
-// maugclib's DEFAULT_USER_AGENT (http_utils.py:25-28).
+// TestDefaultUserAgent verifies an empty User-Agent falls back to the
+// default Windows/Chrome UA.
 func TestDefaultUserAgent(t *testing.T) {
 	sess, err := NewSession(nil, "")
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
 	if !strings.Contains(sess.userAgent, "Chrome/114.0.0.0") || !strings.Contains(sess.userAgent, "Windows NT 10.0") {
-		t.Errorf("userAgent = %q, want maugclib's default Windows/Chrome114 UA", sess.userAgent)
+		t.Errorf("userAgent = %q, want the default Windows/Chrome114 UA", sess.userAgent)
 	}
 }
 
 // TestRequiredCookies pins the exact set of cookies the login UI must
-// collect (maugclib http_utils.py:39-44's Cookies NamedTuple fields,
-// uppercased).
+// collect (uppercased).
 func TestRequiredCookies(t *testing.T) {
 	want := []string{"COMPASS", "SSID", "SID", "OSID", "HSID"}
 	if len(RequiredCookies) != len(want) {
@@ -426,10 +412,9 @@ func TestRequiredCookies(t *testing.T) {
 // Every other test in this file overrides allowedHostSuffixes to point at
 // an httptest server, so without this test a typo/regression in
 // defaultAllowedHostSuffixes itself would go undetected. The allowlist is
-// google.com ONLY: googleusercontent.com is deliberately NOT allowlisted
-// (doc 01 §5.2 -- Python routes googleusercontent.com through a separate,
-// cookie-less ClientSession so auth cookies never reach it; adjudicated
-// over task-3-brief.md's broader wording).
+// google.com ONLY: googleusercontent.com is deliberately NOT allowlisted --
+// googleusercontent.com hops must be cookie-less so auth cookies never
+// reach them.
 func TestDefaultAllowedHostSuffixes(t *testing.T) {
 	sess, err := NewSession(nil, "")
 	if err != nil {
@@ -464,10 +449,10 @@ func TestDefaultAllowedHostSuffixes(t *testing.T) {
 // host must not cause that host's Set-Cookie to be absorbed into the jar.
 // Go's http.Client follows redirects internally and returns only the final
 // response (with resp.Request set to the final request), so gating on the
-// pre-redirect URL would absorb the attacker's cookie. Python was immune
-// without an explicit check because aiohttp's jar is RFC 6265
-// domain-scoped; this port's flat jar needs the explicit origin gate in
-// absorbCookies. Covers both Fetch (apiClient) and FetchRaw (pollClient).
+// pre-redirect URL would absorb the attacker's cookie. An RFC 6265
+// domain-scoped jar would be immune without an explicit check; this port's
+// flat jar needs the explicit origin gate in absorbCookies. Covers both
+// Fetch (apiClient) and FetchRaw (pollClient).
 func TestRedirectSetCookieNotAbsorbed(t *testing.T) {
 	var evilCookieHeader string
 	var evilHits int32
@@ -541,10 +526,9 @@ func TestRedirectSetCookieNotAbsorbed(t *testing.T) {
 // literal googleusercontent.com URL (dial redirected to a local httptest
 // server, DEFAULT allowlist untouched) and asserts both directions of the
 // cookie gate: no Cookie header is sent, and a Set-Cookie in the response
-// is NOT absorbed into Cookies(). Doc 01 §5.2: Python fetches
-// googleusercontent.com hops "through a fresh cookie-less
-// aiohttp.ClientSession" precisely so auth cookies never leak there; the
-// M5 download flow relies on this Session withholding cookies from
+// is NOT absorbed into Cookies(). googleusercontent.com hops must be
+// fetched cookie-less precisely so auth cookies never leak there; the
+// download flow relies on this Session withholding cookies from
 // non-allowlisted hosts.
 func TestGoogleusercontentGetsNoCookies(t *testing.T) {
 	var gotCookie string

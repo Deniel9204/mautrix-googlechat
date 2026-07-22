@@ -1,10 +1,9 @@
 # Authentication
 
 Google Chat has no interactive OAuth-style login for third-party clients.
-This bridge logs in the same way the Python `mautrix/googlechat` bridge and
-most other unofficial Google Chat clients do: by taking a copy of five
-session cookies out of a browser that's already logged into
-`https://chat.google.com`, and handing them to the bridge.
+This bridge logs in the same way most unofficial Google Chat clients do: by
+taking a copy of five session cookies out of a browser that's already logged
+into `https://chat.google.com`, and handing them to the bridge.
 
 > [!WARNING]
 > These five cookies are **full session credentials** for your Google

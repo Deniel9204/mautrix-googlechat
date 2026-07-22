@@ -139,12 +139,11 @@ func TestFromMatrix_UnicodeEmojiPreserved(t *testing.T) {
 }
 
 // TestFromMatrix_NoticeBody: m.notice messages carry the same Body field
-// and must convert identically to m.text -- portal.py's handle_matrix_message
-// routes both MessageType.TEXT and MessageType.NOTICE through the same
-// _handle_matrix_text path (portal.py:915), and FromMatrix itself doesn't
-// even look at MsgType (that gate lives in the connector's routing
-// decision, handlematrix.go), so this just confirms Body extraction doesn't
-// silently depend on MsgType.
+// and must convert identically to m.text -- both m.text and m.notice route
+// through the same text path, and FromMatrix itself doesn't even look at
+// MsgType (that gate lives in the connector's routing decision,
+// handlematrix.go), so this just confirms Body extraction doesn't silently
+// depend on MsgType.
 func TestFromMatrix_NoticeBody(t *testing.T) {
 	mc := msgconv.New()
 	content := &event.MessageEventContent{MsgType: event.MsgNotice, Body: "a notice"}

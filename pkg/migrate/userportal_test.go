@@ -1,9 +1,8 @@
 package migrate
 
-// White-box tests (package migrate) for migrateUserPortals -- M7 Task 7. See
-// .superpowers/sdd/m7-migration-schema-map.md §6 (user_portal) for the
-// DM-only synthesis rule under test, and the task-7 brief's backfill_task
-// decision (documented in userportal.go's backfillTaskSeedingNote).
+// White-box tests (package migrate) for migrateUserPortals, covering the
+// DM-only user_portal synthesis rule and the backfill_task decision
+// (documented in userportal.go's backfillTaskSeedingNote).
 //
 // Like message_test.go, these tests run the real migratePortals/migrateUsers
 // migrators first (against the same Deps) rather than hand-seeding the

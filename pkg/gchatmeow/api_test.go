@@ -16,10 +16,9 @@ import (
 )
 
 // newTestClient builds a Client wired to an httptest server via the
-// unexported baseURL override (task-5-brief.md: "baseURL string for
-// tests"), with session pointed so cookies don't matter for these tests
-// (no cookie assertions here -- session.go's cookie/host-allowlist behavior
-// is covered by session_test.go).
+// unexported baseURL override, with session pointed so cookies don't matter
+// for these tests (no cookie assertions here -- session.go's
+// cookie/host-allowlist behavior is covered by session_test.go).
 func newTestClient(t *testing.T, srv *httptest.Server, xsrfToken string) *Client {
 	t.Helper()
 	sess, err := NewSession(nil, "")
@@ -123,7 +122,7 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 	}
 
 	// -- Request body proto round trip: RequestHeader must be populated by
-	// the wrapper (client.py:103-109's WEB/2440378181258/FULLY_SUPPORTED). --
+	// the wrapper (WEB/2440378181258/FULLY_SUPPORTED). --
 	var gotReq pb.GetSelfUserStatusRequest
 	if err := proto.Unmarshal(gotBody, &gotReq); err != nil {
 		t.Fatalf("unmarshal request body sent to server: %v", err)
@@ -149,8 +148,8 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 }
 
 // TestGetSelfUserStatusRequestCounterIncrements verifies the "c" query
-// param increments per call on the same Client (client.py:123-126's
-// _api_reqid, incremented before every request).
+// param increments per call on the same Client (an incrementing request id,
+// incremented before every request).
 func TestGetSelfUserStatusRequestCounterIncrements(t *testing.T) {
 	var gotCounters []string
 
@@ -182,8 +181,7 @@ func TestGetSelfUserStatusRequestCounterIncrements(t *testing.T) {
 }
 
 // TestGetSelfUserStatusBase64Response covers the dual binary/base64
-// response path (task-5-brief.md: "detect base64-encoded responses -- if
-// the body isn't valid proto, try base64-decode first").
+// response path: if the body isn't valid proto, try base64-decode first.
 func TestGetSelfUserStatusBase64Response(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := &pb.GetSelfUserStatusResponse{
@@ -215,7 +213,7 @@ func TestGetSelfUserStatusBase64Response(t *testing.T) {
 // TestGetSelfUserStatus401IsAuthError verifies a non-200 response surfaces
 // as *UnexpectedStatusError with the status preserved, and that
 // IsAuthError recognizes 401 -- required so the connector can map this to
-// BAD_CREDENTIALS (doc 01 §6).
+// BAD_CREDENTIALS.
 func TestGetSelfUserStatus401IsAuthError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -253,11 +251,10 @@ type hasRequestHeader interface {
 }
 
 // TestAllSixteenRPCsSetEndpointAndRequestHeader is a table-driven smoke
-// test over all 16 /api/* wrappers: each must POST to the endpoint named in
-// docs/research/01 §3.2 / maugclib/client.py's proto_* table, and must
-// stamp request_header on the outgoing request. It does not assert per-RPC
-// response field plumbing beyond "no error" -- GetSelfUserStatus above
-// covers the full wire format (including the response side) in detail.
+// test over all 16 /api/* wrappers: each must POST to its named endpoint,
+// and must stamp request_header on the outgoing request. It does not assert
+// per-RPC response field plumbing beyond "no error" -- GetSelfUserStatus
+// above covers the full wire format (including the response side) in detail.
 func TestAllSixteenRPCsSetEndpointAndRequestHeader(t *testing.T) {
 	tests := []struct {
 		name     string

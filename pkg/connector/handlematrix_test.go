@@ -89,7 +89,7 @@ func replyMatrixMessage(portal *bridgev2.Portal, body, targetID string, targetTi
 
 // noopAddPendingToIgnore is the addPendingToIgnoreFn override every
 // HandleMatrixMessage test that doesn't itself assert on the pending
-// registration needs: the real msg.AddPendingToIgnore (Task 6) writes into
+// registration needs: the real msg.AddPendingToIgnore writes into
 // bridgev2.Portal's unexported outgoingMessages map, which is nil on the
 // bare *bridgev2.Portal built by spacePortal/dmPortal/textMatrixMessage
 // above (only a real bridgev2.Bridge's loadPortal, portal.go, initializes
@@ -130,10 +130,10 @@ func TestHandleMatrixMessageSpacePortalBuildsCreateTopicRequest(t *testing.T) {
 		t.Errorf("TextBody = %q, want %q", got, "hello world")
 	}
 	if !gotReq.GetHistoryV2() {
-		t.Error("HistoryV2 = false, want true (send_message always sets it, client.py:465)")
+		t.Error("HistoryV2 = false, want true")
 	}
 	if !gotReq.GetMessageInfo().GetAcceptFormatAnnotations() {
-		t.Error("MessageInfo.AcceptFormatAnnotations = false, want true (client.py:467-469)")
+		t.Error("MessageInfo.AcceptFormatAnnotations = false, want true")
 	}
 	if gotReq.GetMessageInfo().GetReplyTo() != nil {
 		t.Error("MessageInfo.ReplyTo is set, want nil (msg.ReplyTo is nil -- not a quote-reply)")
@@ -142,7 +142,7 @@ func TestHandleMatrixMessageSpacePortalBuildsCreateTopicRequest(t *testing.T) {
 		t.Error("LocalId is empty, want a generated dedup token")
 	}
 	if !strings.HasPrefix(gotReq.GetLocalId(), "mautrix-googlechat%") {
-		t.Errorf("LocalId = %q, want prefix %q (matching portal.py:908)", gotReq.GetLocalId(), "mautrix-googlechat%")
+		t.Errorf("LocalId = %q, want prefix %q", gotReq.GetLocalId(), "mautrix-googlechat%")
 	}
 }
 
@@ -175,10 +175,10 @@ func TestHandleMatrixMessageDMPortalBuildsDmGroupID(t *testing.T) {
 }
 
 // TestHandleMatrixMessageLocalIDsAreUnique guards against a lazy
-// implementation that reuses a single local_id for every send -- Python
-// generates a fresh random.randint per call (portal.py:908), so two sends
-// must not collide (a collision would break Task 6's dedup-by-local_id
-// mechanism, silently conflating two unrelated messages).
+// implementation that reuses a single local_id for every send -- a fresh
+// random 64-bit id is generated per call, so two sends must not collide (a
+// collision would break Task 6's dedup-by-local_id mechanism, silently
+// conflating two unrelated messages).
 func TestHandleMatrixMessageLocalIDsAreUnique(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var ids []string
@@ -243,7 +243,7 @@ func TestHandleMatrixMessageMapsResponseToDBMessage(t *testing.T) {
 	if meta.TimestampMicro != 1_700_000_000_000_000 {
 		t.Errorf("Metadata.TimestampMicro = %d, want %d", meta.TimestampMicro, 1_700_000_000_000_000)
 	}
-	// M3 Task 6: a create_topic response's own topic id is the new message's
+	// A create_topic response's own topic id is the new message's
 	// own id (message_id == topic_id for the head of a brand new topic) --
 	// stored so a later Matrix thread reply targeting THIS message can be
 	// routed to create_message with the right parent_id.topic_id.
@@ -268,8 +268,7 @@ func TestHandleMatrixMessageUnsupportedMsgTypeRejected(t *testing.T) {
 	// m.location: neither TEXT/NOTICE nor one of the four outbound media
 	// msgtypes M5 Task 5 added (m.image is now accepted -- see
 	// TestHandleMatrixMessageImageBuildsUploadAnnotation below), so this
-	// still exercises handle_matrix_message's final else branch
-	// (portal.py:923-924).
+	// still exercises the final unsupported-msgtype rejection branch.
 	msg := textMatrixMessage(spacePortal("space1"), "a location")
 	msg.Content.MsgType = event.MsgLocation
 
@@ -298,7 +297,7 @@ func TestHandleMatrixMessageNoticeMsgTypeAccepted(t *testing.T) {
 	msg.Content.MsgType = event.MsgNotice
 
 	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
-		t.Fatalf("HandleMatrixMessage() error = %v, want nil (NOTICE must be accepted like TEXT, portal.py:915)", err)
+		t.Fatalf("HandleMatrixMessage() error = %v, want nil (NOTICE must be accepted like TEXT)", err)
 	}
 	if gotReq.GetTextBody() != "a notice" {
 		t.Errorf("TextBody = %q, want %q", gotReq.GetTextBody(), "a notice")
@@ -384,9 +383,7 @@ func TestHandleMatrixMessagePlainTextHasNoAnnotations(t *testing.T) {
 // must produce a request whose TextBody is the annotation-stripped text,
 // whose Annotations carry the HTML-derived formatting, and whose
 // MessageInfo.AcceptFormatAnnotations is (still, unconditionally) true --
-// matching client.py's send_message, which never gates
-// accept_format_annotations on whether annotations is empty
-// (client.py:467-469).
+// accept_format_annotations is never gated on whether annotations is empty.
 func TestHandleMatrixMessageFormattedTextBuildsAnnotations(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.CreateTopicRequest
@@ -497,7 +494,7 @@ func TestHandleMatrixMessageUnresolvableMentionRendersPlainText(t *testing.T) {
 }
 
 // --- mergeAnnotations (B4 fix) ----------------------------------------------
-// docs/research/08d-megabridge-msgconv.md §2.4: megabridge's handlematrix.go
+// megabridge's handlematrix.go
 // built annotations=[UPLOAD_METADATA] for a media message, then did
 // `if entities != nil { annotations = entities }` -- unconditionally
 // REPLACING the file annotation with the caption's own formatting
@@ -552,18 +549,16 @@ func TestMergeAnnotations_BothNilReturnsNil(t *testing.T) {
 	}
 }
 
-// --- HandleMatrixMessage: thread routing (M3 Task 6) ------------------------
+// --- HandleMatrixMessage: thread routing ------------------------------------
 //
-// Ports handle_matrix_message's thread_id computation (portal.py:891-907)
-// restricted to the ThreadRoot half bridgev2 hands this connector directly
-// (bridgev2 has already resolved a Matrix thread reply -- or, in a
-// threads-only room, auto-converted a plain reply into one, mautrix-go
-// bridgev2/portal.go:1259-1268 -- into MatrixMessage.ThreadRoot, a
+// Thread routing is driven by the ThreadRoot half bridgev2 hands this
+// connector directly (bridgev2 has already resolved a Matrix thread reply --
+// or, in a threads-only room, auto-converted a plain reply into one,
+// mautrix-go bridgev2/portal.go:1259-1268 -- into MatrixMessage.ThreadRoot, a
 // pre-fetched *database.Message, before HandleMatrixMessage is ever called):
 // msg.ThreadRoot != nil routes to create_message with parent_id.topic_id
-// set to the root's own stored topic id (client.py's send_message,
-// `if thread_id: CreateMessageRequest(...)`, client.py:441-458); msg.ThreadRoot
-// == nil keeps the existing create_topic path (client.py's else branch).
+// set to the root's own stored topic id; msg.ThreadRoot == nil keeps the
+// existing create_topic path.
 
 // threadCreateTopicResponse and threadCreateMessageResponse below are used
 // together in several tests to assert exactly one of the two RPCs fires.
@@ -606,7 +601,7 @@ func TestHandleMatrixMessageThreadRootRoutesToCreateMessage(t *testing.T) {
 		t.Errorf("TextBody = %q, want %q", got, "a reply")
 	}
 	if !gotReq.GetMessageInfo().GetAcceptFormatAnnotations() {
-		t.Error("MessageInfo.AcceptFormatAnnotations = false, want true (client.py:453-456)")
+		t.Error("MessageInfo.AcceptFormatAnnotations = false, want true")
 	}
 	if gotReq.GetLocalId() == "" {
 		t.Error("LocalId is empty, want a generated dedup token")
@@ -672,11 +667,10 @@ func TestHandleMatrixMessageNoThreadRootRoutesToCreateTopic(t *testing.T) {
 }
 
 // TestHandleMatrixMessageThreadRootFallsBackToRootIDWhenTopicIDMissing pins
-// Python's own fallback (portal.py:895, `thread_id = thread_parent.gc_parent_id
-// or thread_parent.gcid`): if the thread root message's own stored
-// MessageMetadata.TopicID is empty (e.g. a legacy DB row from before this
-// task, or a metadata type mismatch), route using the root message's own id
-// instead -- which is correct anyway, since message_id == topic_id for any
+// the `topic id or message id` fallback: if the thread root message's own
+// stored MessageMetadata.TopicID is empty (e.g. a legacy DB row from before
+// this task, or a metadata type mismatch), route using the root message's own
+// id instead -- which is correct anyway, since message_id == topic_id for any
 // head message.
 func TestHandleMatrixMessageThreadRootFallsBackToRootIDWhenTopicIDMissing(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
@@ -701,8 +695,8 @@ func TestHandleMatrixMessageThreadRootFallsBackToRootIDWhenTopicIDMissing(t *tes
 	}
 }
 
-// TestHandleMatrixMessageThreadedMapsResponseToDBMessage: _get_send_response's
-// CreateMessageResponse arm (portal.py:1049): gcid=resp.message.id.message_id,
+// TestHandleMatrixMessageThreadedMapsResponseToDBMessage: the
+// CreateMessageResponse mapping -- gcid=resp.message.id.message_id,
 // timestamp=resp.message.create_time -- note this is the NEW reply's own
 // message id, never the topic id it was posted into.
 func TestHandleMatrixMessageThreadedMapsResponseToDBMessage(t *testing.T) {
@@ -819,8 +813,7 @@ func TestHandleMatrixMessageThreadedFailureRemovesPendingRegistration(t *testing
 // TestHandleMatrixMessageThreadedUsesSameLocalIDPrefix pins that the
 // threaded path reuses the same newLocalID token format as create_topic --
 // it is the same per-send dedup token regardless of which RPC it ends up
-// used on (portal.py generates local_id once, before branching on
-// thread_id, portal.py:908).
+// used on (local_id is generated once, before branching on thread_id).
 func TestHandleMatrixMessageThreadedUsesSameLocalIDPrefix(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.CreateMessageRequest
@@ -875,28 +868,24 @@ func TestHandleMatrixMessageThreadedFormattingAndMentionsWired(t *testing.T) {
 	}
 }
 
-// --- HandleMatrixMessage: quote-replies (M3 Task 7, SendReplyTarget) -------
+// --- HandleMatrixMessage: quote-replies (SendReplyTarget) -------------------
 //
-// Ports client.py's send_message reply_to_wrapped construction
-// (client.py:423-438): SendReplyTarget{id: MessageId{parent_id.topic_id: {
-// group_id, topic_id: thread_id or reply_to}, message_id: reply_to},
-// create_time: reply_to_ts}, gated on `if reply_to else None`. thread_id is
-// this connector's own topicID local (set when routing into an existing
-// thread, sendThreadedMessage) or "" (sendNewTopic, no thread) -- the "or
-// reply_to" fallback then uses the reply target's OWN message id as its
-// (guessed) topic id, which portal.py's own upstream routing
-// (portal.py:896-900, elif reply_to.gc_parent_id != reply_to.gcid: reroute
-// to a thread post and clear reply_to) guarantees is correct whenever
-// thread_id is empty: a reply_to that survives to this point with no
-// thread_id is always the head of its own topic.
+// The SendReplyTarget proto: SendReplyTarget{id: MessageId{parent_id.topic_id:
+// {group_id, topic_id: thread_id or reply_to}, message_id: reply_to},
+// create_time: reply_to_ts}, built only when there is a reply target.
+// thread_id is this connector's own topicID local (set when routing into an
+// existing thread, sendThreadedMessage) or "" (sendNewTopic, no thread) --
+// the "or reply_to" fallback then uses the reply target's OWN message id as
+// its (guessed) topic id, which is correct whenever thread_id is empty: a
+// reply target that survives to this point with no thread_id is always the
+// head of its own topic.
 
 // TestHandleMatrixMessageReplyBuildsSendReplyTarget covers the plain
 // (non-threaded) quote-reply case: msg.ReplyTo set, msg.ThreadRoot nil ->
 // create_topic with message_info.reply_to populated from the target's own
-// stored id + µs create_time (MessageMetadata.TimestampMicro), and --
-// matching client.py's `thread_id or reply_to` fallback with thread_id ==
-// "" here -- the reply target's own nested topic_id falls back to the
-// target's own message id.
+// stored id + µs create_time (MessageMetadata.TimestampMicro), and -- via the
+// `thread_id or reply_to` fallback with thread_id == "" here -- the reply
+// target's own nested topic_id falls back to the target's own message id.
 func TestHandleMatrixMessageReplyBuildsSendReplyTarget(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.CreateTopicRequest
@@ -925,7 +914,7 @@ func TestHandleMatrixMessageReplyBuildsSendReplyTarget(t *testing.T) {
 		t.Errorf("ReplyTo.CreateTime = %d, want %d (the target's stored µs create_time)", got, 555_000)
 	}
 	if got := replyTarget.GetId().GetParentId().GetTopicId().GetTopicId(); got != "target1" {
-		t.Errorf("ReplyTo.Id.ParentId.TopicId.TopicId = %q, want %q (thread_id empty -> falls back to the target's own id, client.py:429)", got, "target1")
+		t.Errorf("ReplyTo.Id.ParentId.TopicId.TopicId = %q, want %q (thread_id empty -> falls back to the target's own id)", got, "target1")
 	}
 	if got := replyTarget.GetId().GetParentId().GetTopicId().GetGroupId().GetSpaceId().GetSpaceId(); got != "space1" {
 		t.Errorf("ReplyTo.Id.ParentId.TopicId.GroupId.SpaceId = %q, want %q", got, "space1")
@@ -958,18 +947,17 @@ func TestHandleMatrixMessageReplyInDMPortalBuildsDmGroupID(t *testing.T) {
 }
 
 // TestHandleMatrixMessageReplyAndThreadBothSet covers the "reply can also be
-// in a thread" composition case the task brief calls out: bridgev2 can hand
+// in a thread" composition case: bridgev2 can hand
 // HandleMatrixMessage a MatrixMessage with BOTH ThreadRoot and ReplyTo set
 // (an explicit Matrix thread reply that ALSO carries a non-fallback
-// m.in_reply_to to a specific message within that thread, portal.py's own
-// comment at portal.py:893-894: "If there's an additional non-fallback
-// reply, it'll also be used." -- or bridgev2's own reply->thread-root
-// auto-derivation, mautrix-go bridgev2/portal.go:1259-1271, which does NOT
-// clear ReplyTo when the connector supports the Reply capability). Thread
-// ROUTING must stay governed purely by ThreadRoot (create_message, Task 6,
-// unchanged); the reply target's own nested topic_id must use the thread's
-// topic id (client.py's `thread_id or reply_to`, thread_id truthy here),
-// NOT the reply target's own message id.
+// m.in_reply_to to a specific message within that thread -- if there's an
+// additional non-fallback reply, it'll also be used -- or bridgev2's own
+// reply->thread-root auto-derivation, mautrix-go bridgev2/portal.go:1259-1271,
+// which does NOT clear ReplyTo when the connector supports the Reply
+// capability). Thread ROUTING must stay governed purely by ThreadRoot
+// (create_message, Task 6, unchanged); the reply target's own nested topic_id
+// must use the thread's topic id (a `thread_id or reply_to` fallback,
+// thread_id truthy here), NOT the reply target's own message id.
 func TestHandleMatrixMessageReplyAndThreadBothSet(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.CreateMessageRequest
@@ -1014,16 +1002,15 @@ func TestHandleMatrixMessageReplyAndThreadBothSet(t *testing.T) {
 		t.Errorf("ReplyTo.CreateTime = %d, want %d", got, 777_000)
 	}
 	if got := replyTarget.GetId().GetParentId().GetTopicId().GetTopicId(); got != "topic1" {
-		t.Errorf("ReplyTo.Id.ParentId.TopicId.TopicId = %q, want %q (thread_id truthy -> used verbatim, client.py:429, NOT the reply target's own id)", got, "topic1")
+		t.Errorf("ReplyTo.Id.ParentId.TopicId.TopicId = %q, want %q (thread_id truthy -> used verbatim, NOT the reply target's own id)", got, "topic1")
 	}
 }
 
-// TestHandleMatrixMessageReplyMissingTimestampGraceful covers the Go-only
-// defensive case Python never hits (its DBMessage.timestamp column is
-// NOT NULL, mautrix_googlechat/db/message.py:40): a *database.Message handed
-// in via msg.ReplyTo whose stored MessageMetadata.TimestampMicro is
-// unavailable (zero, absent Metadata, or a Metadata value of an unexpected
-// type -- e.g. a pre-Task-7 legacy row). Rather than send a malformed
+// TestHandleMatrixMessageReplyMissingTimestampGraceful covers a Go-only
+// defensive case: a *database.Message handed in via msg.ReplyTo whose stored
+// MessageMetadata.TimestampMicro is unavailable (zero, absent Metadata, or a
+// Metadata value of an unexpected type -- e.g. a pre-Task-7 legacy row).
+// Rather than send a malformed
 // SendReplyTarget (id set, create_time missing/0, risking the WHOLE
 // create_topic/create_message call being rejected server-side), the chosen
 // graceful degradation is to log a warning and send the message with NO
@@ -1064,16 +1051,15 @@ func TestHandleMatrixMessageReplyMissingTimestampGraceful(t *testing.T) {
 	}
 }
 
-// --- HandleMatrixMessage: outbound media (M5 Task 5) ------------------------
+// --- HandleMatrixMessage: outbound media ------------------------------------
 //
-// Ports portal.py's _handle_matrix_media (portal.py:1081-1121) -- see
-// media.go's own "Outbound (Matrix -> Google Chat) media" section doc
-// comment for the full field-by-field port and the deliberate caption
-// improvement over Python (Python drops any caption text outright,
-// portal.py:1100).
+// See media.go's own "Outbound (Matrix -> Google Chat) media" section doc
+// comment for the full field-by-field construction and the deliberate
+// caption handling (a genuine caption is kept as text_body rather than
+// dropped).
 
 // mediaMatrixMessage builds an outbound *bridgev2.MatrixMessage for one of
-// the four msgtypes M5 Task 5 accepts. body/filename follow Matrix's own
+// the four accepted msgtypes. body/filename follow Matrix's own
 // caption convention (MSC2530): filename == body (or filename == "") means
 // "no caption, body IS the file name"; filename != body means "body is a
 // genuine caption, filename is the file's real name" -- see
@@ -1100,12 +1086,11 @@ func testUploadMetadata(contentName, contentType string) *pb.UploadMetadata {
 	}
 }
 
-// TestHandleMatrixMessageImageBuildsUploadAnnotation is the headline M5 Task
-// 5 outbound behavior: an uncaptioned m.image (Body == FileName, the common
+// TestHandleMatrixMessageImageBuildsUploadAnnotation is the headline
+// outbound behavior: an uncaptioned m.image (Body == FileName, the common
 // case) downloads the Matrix file, uploads it, and attaches the result as
 // an UPLOAD_METADATA/RENDER annotation on the create_topic request -- with
-// NO duplicate text_body (Python never sends one either, portal.py:1113-1120
-// has no text= argument at all).
+// NO duplicate text_body for an uncaptioned file.
 func TestHandleMatrixMessageImageBuildsUploadAnnotation(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	wantMeta := testUploadMetadata("cat.png", "image/png")
@@ -1182,11 +1167,10 @@ func TestHandleMatrixMessageImageBuildsUploadAnnotation(t *testing.T) {
 }
 
 // TestHandleMatrixMessageImageWithCaptionKeepsBothTextAndAnnotation covers
-// the M3 B4 pattern the brief calls out: a genuine caption (FileName set,
+// the B4 pattern: a genuine caption (FileName set,
 // Body holding different text) must produce BOTH the UPLOAD_METADATA
-// annotation AND a populated text_body -- unlike Python, which discards the
-// caption text entirely (portal.py:1100 only ever uses it as the upload's
-// reported file name).
+// annotation AND a populated text_body -- the caption text is kept rather
+// than discarded or used only as the upload's reported file name.
 func TestHandleMatrixMessageImageWithCaptionKeepsBothTextAndAnnotation(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	wantMeta := testUploadMetadata("vacation.jpg", "image/jpeg")
@@ -1220,8 +1204,7 @@ func TestHandleMatrixMessageImageWithCaptionKeepsBothTextAndAnnotation(t *testin
 	}
 
 	// uploadFilename must prefer the real FileName, not the caption in Body
-	// (unlike Python's portal.py:1100, which would upload it as "Look at
-	// this view!").
+	// (it must not be uploaded as "Look at this view!").
 	if gotFilename != "vacation.jpg" {
 		t.Errorf("uploadFileFn filename = %q, want %q (the real FileName, not the caption)", gotFilename, "vacation.jpg")
 	}
@@ -1237,7 +1220,7 @@ func TestHandleMatrixMessageImageWithCaptionKeepsBothTextAndAnnotation(t *testin
 
 // TestHandleMatrixMessageFormattedCaptionKeepsFileAndFormattingAnnotations
 // proves the file annotation survives even when the caption ALSO carries
-// its own HTML formatting -- the exact scenario B4 (docs/research/08d §2.4)
+// its own HTML formatting -- the exact scenario B4
 // describes megabridge silently losing the attached file over.
 func TestHandleMatrixMessageFormattedCaptionKeepsFileAndFormattingAnnotations(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
@@ -1285,7 +1268,7 @@ func TestHandleMatrixMessageFormattedCaptionKeepsFileAndFormattingAnnotations(t 
 }
 
 // TestHandleMatrixMessageMediaReplyKeepsBothUploadAndReplyTarget covers the
-// media+reply composition (M5 whole-branch review Minor): an outbound media
+// media+reply composition: an outbound media
 // message that is ALSO a quote-reply (msg.ReplyTo set) must produce BOTH the
 // UPLOAD_METADATA annotation (the attached file) AND the SendReplyTarget
 // (the reply pointer) on the same create_topic request -- the media path
@@ -1499,9 +1482,9 @@ func TestHandleMatrixMessageDisableOutboundMediaReturnsCleanError(t *testing.T) 
 }
 
 // TestHandleMatrixMessageMediaGroupIDPlainForDMAndSpace pins that
-// UploadFile's group_id parameter is always the PLAIN numeric id (Python's
-// gcid_plain) for BOTH portal kinds, never gchatmeow.PartsToGroupID's oneof
-// wire shape -- covering both DM and space portals, per the brief.
+// UploadFile's group_id parameter is always the PLAIN numeric id for BOTH
+// portal kinds, never gchatmeow.PartsToGroupID's oneof wire shape --
+// covering both DM and space portals, per the brief.
 func TestHandleMatrixMessageMediaGroupIDPlainForDMAndSpace(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -1545,7 +1528,7 @@ func TestHandleMatrixMessageMediaGroupIDPlainForDMAndSpace(t *testing.T) {
 }
 
 // TestHandleMatrixMessageMediaThreadRootRoutesToCreateMessage proves media
-// composes with M3 Task 6's thread routing: a media message replying into
+// composes with thread routing: a media message replying into
 // an existing thread still uploads the file and attaches the annotation,
 // routed through create_message (not create_topic).
 func TestHandleMatrixMessageMediaThreadRootRoutesToCreateMessage(t *testing.T) {
@@ -1594,8 +1577,8 @@ func TestHandleMatrixMessageMediaThreadRootRoutesToCreateMessage(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixMessageMediaMsgTypesAccepted covers all four msgtypes the
-// brief calls out (m.image/m.file/m.video/m.audio) -- each must build an
+// TestHandleMatrixMessageMediaMsgTypesAccepted covers all four msgtypes
+// (m.image/m.file/m.video/m.audio) -- each must build an
 // UPLOAD_METADATA annotation, not be rejected as unsupported.
 func TestHandleMatrixMessageMediaMsgTypesAccepted(t *testing.T) {
 	for _, msgtype := range []event.MessageType{event.MsgImage, event.MsgFile, event.MsgVideo, event.MsgAudio} {

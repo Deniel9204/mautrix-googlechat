@@ -29,15 +29,13 @@ func TestGetCapabilitiesThreadedSpaceAdvertisesThread(t *testing.T) {
 		t.Errorf("Thread = %v, want fully supported", caps.Thread)
 	}
 	// Reply must ALSO stay fully supported in a threaded space: Google
-	// Chat's wire protocol composes reply_to with a thread message
-	// (maugclib/client.py's send_message sets message_info.reply_to on
-	// both the threaded and flat request branches), and Python's own
-	// handle_matrix_message (portal.py:891-907) sends a plain reply to a
-	// standalone (non-thread) message as a genuine cross-topic reply with
-	// no thread at all. Forcing Reply=Unsupported here would make
-	// bridgev2 unconditionally discard every reply pointer and always
-	// start a new thread instead -- see capabilities.go's gchatCapsThreaded
-	// doc comment.
+	// Chat's wire protocol composes reply_to with a thread message (the
+	// send_message RPC sets message_info.reply_to on both the threaded and
+	// flat request branches), and a plain reply to a standalone (non-thread)
+	// message is sent as a genuine cross-topic reply with no thread at all.
+	// Forcing Reply=Unsupported here would make bridgev2 unconditionally
+	// discard every reply pointer and always start a new thread instead --
+	// see capabilities.go's gchatCapsThreaded doc comment.
 	if !caps.Reply.Full() {
 		t.Errorf("Reply = %v, want fully supported (GC composes reply_to with thread messages)", caps.Reply)
 	}
@@ -57,7 +55,7 @@ func TestGetCapabilitiesFlatRoomAdvertisesReply(t *testing.T) {
 }
 
 // TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread
-// pins a fix made during M3 Task 6's own gchat-port-auditor pass: a legacy
+// pins a fix: a legacy
 // topic-threaded space (ThreadsEnabled without the 2023+ ThreadsOnly model)
 // must ALSO advertise Thread -- an earlier revision of roomFeatures keyed
 // purely off ThreadsOnly and routed these rooms exactly like a flat one,
@@ -68,20 +66,13 @@ func TestGetCapabilitiesFlatRoomAdvertisesReply(t *testing.T) {
 // create_message routing (handlematrix.go's sendThreadedMessage) could
 // never be reached for this room type at all.
 //
-// Python's own handle_matrix_message (portal.py:891-907) confirms these two
-// room types are NOT distinguished at all for outbound routing purposes: the
-// whole thread_id computation is gated on `self.threads_enabled` (`=
-// flat_threads_enabled or threads_only`, portal.py set_group_meta), the
-// SAME boolean for both the 2023+ threads-only model and legacy
-// flat-with-threads-enabled spaces -- ThreadsOnly only matters separately
-// for the INBOUND self-referencing head-message case
-// (_append_event_id's `self.threads_only` check, portal.py:1406, ported
-// unchanged in pkg/msgconv/from-gchat.go's ToMatrix, which is deliberately
-// NOT changed by this fix). docs/research/07-gap-analysis.md row 45
-// ("per-portal GetCapabilities switching Thread/Reply levels" off BOTH
-// `threads_only`/`threads_enabled`) and row 352 ("test matrix covering ...
-// flat+threads DM") independently corroborate this was always the intended
-// design, not a new decision.
+// These two room types are NOT distinguished at all for outbound routing
+// purposes: the whole thread_id computation is gated on threads_enabled (=
+// flat_threads_enabled OR threads_only), the SAME boolean for both the 2023+
+// threads-only model and legacy flat-with-threads-enabled spaces --
+// ThreadsOnly only matters separately for the INBOUND self-referencing
+// head-message case (pkg/msgconv/from-gchat.go's ToMatrix, deliberately NOT
+// changed by this fix).
 func TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread(t *testing.T) {
 	portal := portalWithMeta(&PortalMetadata{ThreadsOnly: false, ThreadsEnabled: true})
 
@@ -91,7 +82,7 @@ func TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread(t
 		t.Errorf("Reply = %v, want fully supported", caps.Reply)
 	}
 	if !caps.Thread.Full() {
-		t.Errorf("Thread = %v, want fully supported (ThreadsEnabled alone is Python's real threads_enabled gate, portal.py:891)", caps.Thread)
+		t.Errorf("Thread = %v, want fully supported (ThreadsEnabled alone is the real threads_enabled gate)", caps.Thread)
 	}
 }
 
@@ -199,8 +190,7 @@ func TestGetCapabilitiesMaxTextLength(t *testing.T) {
 }
 
 // TestGetCapabilitiesFormattingSupportedKeys asserts every formatting
-// feature M3's gchatfmt/matrixfmt pair actually implements (docs/superpowers/
-// plans/2026-07-15-m3-formatting-threads.md Task 1-4: bold, italic,
+// feature the gchatfmt/matrixfmt pair actually implements (bold, italic,
 // underline, strikethrough, inline code, code block, hyperlink, user
 // mention, @room, foreground color) is advertised as fully supported.
 func TestGetCapabilitiesFormattingSupportedKeys(t *testing.T) {
@@ -259,12 +249,11 @@ func TestGetCapabilitiesFormattingUnsupportedKeysNotClaimed(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesEditFullySupportedNoLimits pins M4 Task 1's capability
+// TestGetCapabilitiesEditFullySupportedNoLimits pins the Edit capability
 // wiring: Edit must be fully supported (otherwise bridgev2's own
 // handleMatrixEdit, mautrix-go bridgev2/portal.go:1530-1532, drops every
 // Matrix edit before ever calling HandleMatrixEdit), with no
-// EditMaxCount/EditMaxAge limit -- handle_matrix_edit (portal.py:840-878)
-// never enforces either.
+// EditMaxCount/EditMaxAge limit -- neither is ever enforced.
 func TestGetCapabilitiesEditFullySupportedNoLimits(t *testing.T) {
 	for _, threadsOnly := range []bool{true, false} {
 		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
@@ -273,7 +262,7 @@ func TestGetCapabilitiesEditFullySupportedNoLimits(t *testing.T) {
 			t.Errorf("ThreadsOnly=%v: Edit = %v, want fully supported", threadsOnly, caps.Edit)
 		}
 		if caps.EditMaxCount != 0 {
-			t.Errorf("EditMaxCount = %d, want 0 (unlimited, Python never enforces one)", caps.EditMaxCount)
+			t.Errorf("EditMaxCount = %d, want 0 (unlimited, never enforced)", caps.EditMaxCount)
 		}
 		if caps.EditMaxAge != nil {
 			t.Errorf("EditMaxAge = %v, want nil (unlimited)", caps.EditMaxAge)
@@ -281,11 +270,11 @@ func TestGetCapabilitiesEditFullySupportedNoLimits(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesM4FeaturesFullySupported pins the whole-branch-review
+// TestGetCapabilitiesM4FeaturesFullySupported pins the
 // fix for gchatCapsFlat (inherited by gchatCapsThreaded via Clone()): every
-// M4 capability -- delete (Task 2), reaction (Task 3), read receipts (Task
-// 4), and typing notifications (Task 5) -- must be advertised as supported
-// in BOTH threaded and flat portals, exactly like Edit (Task 1) already was.
+// capability -- delete, reaction, read receipts, and typing notifications --
+// must be advertised as supported
+// in BOTH threaded and flat portals, exactly like Edit already was.
 // Before this fix, capability-honoring Matrix clients that read
 // com.beeper.room_features would hide reaction/redact/receipt/typing UI in
 // every Google Chat room even though all four are fully implemented.
@@ -325,14 +314,14 @@ func TestGetCapabilitiesReactionUnrestricted(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesFileMediaTypesFullySupported pins M5 Task 5's outbound
+// TestGetCapabilitiesFileMediaTypesFullySupported pins the outbound
 // media capability wiring: without a File map entry for a given msgtype,
 // bridgev2's own checkMessageContentCaps (mautrix-go bridgev2/portal.go)
 // rejects the message with ErrUnsupportedMessageType BEFORE
 // HandleMatrixMessage is ever called -- so this map must advertise exactly
 // the four msgtypes isOutboundMediaMsgType (media.go) accepts, with
-// captions fully supported (the M3 B4 pattern: this bridge keeps both the
-// file and a genuine caption, never drops either).
+// captions fully supported (this bridge keeps both the file and a genuine
+// caption, never drops either).
 func TestGetCapabilitiesFileMediaTypesFullySupported(t *testing.T) {
 	for _, threadsOnly := range []bool{true, false} {
 		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
@@ -353,7 +342,7 @@ func TestGetCapabilitiesFileMediaTypesFullySupported(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesFileVoiceAndGIFSupported pins the M5 whole-branch fix:
+// TestGetCapabilitiesFileVoiceAndGIFSupported pins the voice/GIF fix:
 // bridgev2's checkMessageContentCaps keys caps.File lookups on
 // content.GetCapMsgType() (mautrix-go event/message.go:155-176), which
 // promotes an m.audio MSC3245 voice message to CapMsgVoice and an m.video
@@ -378,7 +367,7 @@ func TestGetCapabilitiesFileVoiceAndGIFSupported(t *testing.T) {
 // TestGetCapabilitiesFileDoesNotClaimSticker pins that event.CapMsgSticker
 // is deliberately absent -- see isOutboundMediaMsgType's doc comment
 // (media.go) for why: Google Chat's upload pipeline has no sticker concept,
-// and neither Python nor this bridge's inbound half ever produces one.
+// and this bridge's inbound half never produces one either.
 func TestGetCapabilitiesFileDoesNotClaimSticker(t *testing.T) {
 	caps := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{}))
 

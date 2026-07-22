@@ -47,16 +47,15 @@ mautrix bridges.
 
 ## [26.07] - 2026-07-16
 
-First tagged release: a complete Go rewrite of the `mautrix/googlechat`
-bridge on top of the mautrix-go bridgev2 framework (v0.29.0), replacing the
-original Python implementation.
+First tagged release: a Matrix–Google Chat puppeting bridge on top of the
+mautrix-go bridgev2 framework (v0.29.0).
 
 ### Added
 
 - Cookie-based login flow: paste the 5 required `chat.google.com` session
   cookies (`COMPASS`, `SSID`, `SID`, `OSID`, `HSID`) via the bridge's `login`
-  command, matching the Python bridge's manual cookie-extraction approach
-  (Google Chat has no interactive OAuth login for third-party clients).
+  command (Google Chat has no interactive OAuth login for third-party
+  clients, so cookies are extracted manually from a logged-in browser).
 - Real-time messaging: text messages with rich formatting, threads, replies,
   edits, and deletes, bridged bidirectionally between Matrix and Google Chat.
 - Reactions, read receipts, and typing notifications, bridged
@@ -65,9 +64,9 @@ original Python implementation.
   bridged to Matrix as native media events.
 - Outbound media support (Matrix → Google Chat uploads) is implemented using
   the purple-googlechat request shape and verified working against Google's
-  live endpoint. The Python bridge's upload 500s
-  ([mautrix/googlechat#114](https://github.com/mautrix/googlechat/issues/114))
-  are a client request-shape bug this port doesn't share; uploads can still be
+  live endpoint. The upload 500s tracked in
+  [mautrix/googlechat#114](https://github.com/mautrix/googlechat/issues/114)
+  are a client request-shape bug this bridge doesn't share; uploads can still be
   disabled via `network.disable_outbound_media`.
 - Room metadata sync: room renames, topic/description changes, and
   membership changes (joins, invites, leaves, kicks) are bridged as they

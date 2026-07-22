@@ -5,8 +5,8 @@ displayname_template: '{{ or .Name .Email "Unknown user" }} (Google Chat)'
 initial_chat_sync: 20
 # Disable sending Matrix media (images/files/video/audio) to Google Chat.
 # Outbound uploads are verified working against Google's live endpoint (the
-# Python bridge's upload 500s, https://github.com/mautrix/googlechat/issues/114,
-# are its own request-shape bug, not shared by this bridge). Enable this only
+# upload 500s in https://github.com/mautrix/googlechat/issues/114 are a
+# client request-shape bug, not shared by this bridge). Enable this only
 # if uploads start failing against your account and you'd rather get an
 # immediate, clear rejection than a failed send attempt every time.
 disable_outbound_media: false

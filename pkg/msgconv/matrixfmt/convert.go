@@ -27,19 +27,15 @@ type MentionResolver func(mxid id.UserID) (gaiaID string, ok bool)
 
 // Parse converts Matrix message content (HTML formatted_body, or plain
 // body for the @room special case below) into a Google Chat text_body plus
-// the list of annotations describing its formatting. Ports
-// mautrix_googlechat/formatter/from_matrix/__init__.py's
-// matrix_to_googlechat (:27-39) and parser.py's parse_html (:27-29)
-// together.
+// the list of annotations describing its formatting.
 func Parse(ctx context.Context, content *event.MessageEventContent, mention MentionResolver) (string, []*pb.Annotation) {
 	formattedBody := content.FormattedBody
-	// from_matrix/__init__.py:30-34: a message with no HTML formatting (or
-	// an HTML format flag but an empty formatted_body) is returned
-	// completely unformatted -- UNLESS its plain body contains a literal
-	// "@room", in which case Python synthesizes an HTML body (the plain
-	// body, HTML-escaped) purely so the @room -> MENTION_ALL substitution
-	// below still fires. This is the only way a plain-text-only message
-	// can gain an annotation.
+	// A message with no HTML formatting (or an HTML format flag but an empty
+	// formatted_body) is returned completely unformatted -- UNLESS its plain
+	// body contains a literal "@room", in which case an HTML body (the plain
+	// body, HTML-escaped) is synthesized purely so the @room -> MENTION_ALL
+	// substitution below still fires. This is the only way a plain-text-only
+	// message can gain an annotation.
 	if content.Format != event.FormatHTML || formattedBody == "" {
 		if !strings.Contains(content.Body, mxRoomMention) {
 			return content.Body, nil

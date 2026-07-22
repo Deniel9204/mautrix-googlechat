@@ -9,15 +9,14 @@ import (
 
 // utf16Encode re-encodes a UTF-8 Go string into UTF-16 code units, matching
 // JavaScript's String indexing / .length semantics -- the same space Google
-// Chat's annotation start_index/length fields are measured in (from_googlechat.py
-// implicitly relies on Python's str already being indexed this way after
-// add_surrogate(); Go strings are UTF-8 byte sequences, so this explicit
-// re-encode step is Go's equivalent of that surrogate-padding trick). Astral
-// characters (outside the Basic Multilingual Plane, e.g. most emoji) encode
-// to a surrogate PAIR here -- two code units -- exactly as they would in
-// JS/Python's UTF-16 string model. This function is called exactly once per
-// Parse call; all annotation offset arithmetic downstream operates on the
-// resulting []uint16, never on Go byte or rune indices.
+// Chat's annotation start_index/length fields are measured in. Go strings are
+// UTF-8 byte sequences, so this explicit re-encode step is needed to index by
+// UTF-16 code unit. Astral characters (outside the Basic Multilingual Plane,
+// e.g. most emoji) encode to a surrogate PAIR here -- two code units --
+// exactly as they would in the JS UTF-16 string model. This function is
+// called exactly once per Parse call; all annotation offset arithmetic
+// downstream operates on the resulting []uint16, never on Go byte or rune
+// indices.
 func utf16Encode(s string) []uint16 {
 	return utf16.Encode([]rune(s))
 }
@@ -30,17 +29,15 @@ func utf16Decode(units []uint16) string {
 }
 
 // escapeUnits HTML-escapes a UTF-16 code-unit slice as plain text content
-// (not an attribute value -- see escapeAttr for that). Mirrors Python's
-// html.escape(text[...]) calls in from_googlechat.py.
+// (not an attribute value -- see escapeAttr for that).
 func escapeUnits(units []uint16) string {
 	return html.EscapeString(utf16Decode(units))
 }
 
 // escapeAttr HTML-escapes a string for safe use inside a double-quoted HTML
-// attribute value (href="..."). This is the fix for megabridge bug B1
-// (docs/research/08d-megabridge-msgconv.md §1.8): the megabridge port built
-// hrefs with fmt.Fprintf("<a href='%s'>", url) using the raw, unescaped
-// Google Chat-controlled URL/mxid string, so a URL like
+// attribute value (href="..."). This is the fix for a megabridge bug: the
+// megabridge port built hrefs with fmt.Fprintf("<a href='%s'>", url) using
+// the raw, unescaped Google Chat-controlled URL/mxid string, so a URL like
 // `https://x.com/'><script>` breaks out of the attribute and injects
 // markup into the Matrix event. Go's html.EscapeString escapes all five of
 // < > & ' " , so it is safe to use as an attribute escaper regardless of
@@ -96,8 +93,7 @@ func MakeFontColorAnnotation(start, length, rgb int32) *pb.Annotation {
 
 // MakeURLAnnotation builds a URL annotation with the given href and
 // chip_render_type (DO_NOT_RENDER for an inline-formatted hyperlink;
-// RENDER/RENDER_IF_POSSIBLE for a link-preview chip that gchatfmt must skip
-// and leave for M5).
+// RENDER/RENDER_IF_POSSIBLE for a link-preview chip that gchatfmt must skip).
 func MakeURLAnnotation(start, length int32, href string, chipRenderType pb.Annotation_ChipRenderType) *pb.Annotation {
 	return &pb.Annotation{
 		Type:           pb.AnnotationType_URL.Enum(),

@@ -36,13 +36,12 @@ func newTestUploadClient(t *testing.T, srv *httptest.Server, cookies map[string]
 // -> base64(binary UploadMetadata) response body decoded back into a
 // *pb.UploadMetadata.
 //
-// It also asserts the ONE concrete divergence this task's diff turned up
-// (see upload.go's package doc comment): Python's client.py:295's
-// _base_request unconditionally tacks "alt=" and "key=<API_KEY>" onto BOTH
-// requests' query string (client.py:658-666), but purple-googlechat's
+// It also asserts the ONE concrete requirement this task's diff turned up
+// (see upload.go's package doc comment): purple-googlechat's
 // actively-maintained upload path (googlechat_conversation.c:1839,
-// 1792-1806) sends neither. This port matches purple: neither "alt" nor
-// "key" should appear on either request.
+// 1792-1806) sends neither an "alt=" nor a "key=<API_KEY>" query param on
+// either request. This port matches purple: neither "alt" nor "key" should
+// appear on either request.
 func TestUploadFileRoundTrip(t *testing.T) {
 	const (
 		groupID  = "space/AAAAgroup123"
@@ -126,16 +125,16 @@ func TestUploadFileRoundTrip(t *testing.T) {
 		t.Errorf("start path = %q, want /uploads", startPath)
 	}
 	if len(startBody) != 0 {
-		t.Errorf("start body = %q, want empty (Python passes data=None for the start request)", startBody)
+		t.Errorf("start body = %q, want empty (the start request carries no body; the data goes in the finalize PUT)", startBody)
 	}
 	if got := startQuery["group_id"]; len(got) != 1 || got[0] != groupID {
 		t.Errorf("start group_id = %v, want [%q]", got, groupID)
 	}
 	if _, present := startQuery["alt"]; present {
-		t.Errorf(`start query has "alt" param %v -- purple-googlechat's current upload path does not send one (Python's _base_request does; this is the #114-relevant divergence)`, startQuery["alt"])
+		t.Errorf(`start query has "alt" param %v -- purple-googlechat's current upload path does not send one (this is the #114-relevant divergence)`, startQuery["alt"])
 	}
 	if _, present := startQuery["key"]; present {
-		t.Errorf(`start query has "key" param %v -- purple-googlechat's current upload path does not send one (Python's _base_request does; this is the #114-relevant divergence)`, startQuery["key"])
+		t.Errorf(`start query has "key" param %v -- purple-googlechat's current upload path does not send one (this is the #114-relevant divergence)`, startQuery["key"])
 	}
 	wantStartHeaders := map[string]string{
 		"X-Goog-Upload-Protocol":       "resumable",
@@ -295,8 +294,7 @@ func TestUploadFileFinalizeServerError(t *testing.T) {
 
 // TestUploadFileMissingUploadURLHeader verifies a 200 start response that
 // omits x-goog-upload-url (the only way the client learns where to PUT the
-// bytes) is a clear error rather than a panic on an empty PUT target,
-// mirroring client.py:297-300's explicit KeyError->NetworkError translation.
+// bytes) is a clear error rather than a panic on an empty PUT target.
 func TestUploadFileMissingUploadURLHeader(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -311,8 +309,7 @@ func TestUploadFileMissingUploadURLHeader(t *testing.T) {
 }
 
 // TestUploadFileBadBase64 verifies a finalize response body that isn't
-// valid base64 is a clear decode error, mirroring client.py:313-315's
-// binascii.Error -> NetworkError translation.
+// valid base64 surfaces as a clear decode error.
 func TestUploadFileBadBase64(t *testing.T) {
 	mux := http.NewServeMux()
 	var srv *httptest.Server
@@ -335,16 +332,13 @@ func TestUploadFileBadBase64(t *testing.T) {
 }
 
 // TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace is the item-6
-// regression test (M7 Task 3): Python's client.py:311-319 decodes the
-// finalize response via base64.b64decode, which (validate=False, the
-// default) discards any whitespace/non-alphabet character wherever it
-// appears in the string, not just at the ends -- so a response body with an
-// embedded newline (e.g. base64 wrapped at a fixed line length, or CRLF
-// mangled by an intermediary) still decodes successfully in Python. Go's
-// encoding/base64 has no equivalent tolerance: StdEncoding.DecodeString
-// errors on ANY embedded whitespace. This pins the fix: UploadFile must
-// strip embedded whitespace (not just leading/trailing, which
-// bytes.TrimSpace already handled) before decoding.
+// regression test (M7 Task 3): a finalize response body's base64 can carry
+// embedded whitespace -- e.g. base64 wrapped at a fixed line length, or CRLF
+// mangled by an intermediary -- anywhere in the string, not just at the
+// ends. Go's encoding/base64 has no tolerance for this: StdEncoding.
+// DecodeString errors on ANY embedded whitespace. This pins the fix:
+// UploadFile must strip embedded whitespace (not just leading/trailing,
+// which bytes.TrimSpace already handled) before decoding.
 func TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace(t *testing.T) {
 	wantMeta := &pb.UploadMetadata{
 		Payload:     &pb.UploadMetadata_AttachmentToken{AttachmentToken: "TOK-whitespace"},
@@ -356,8 +350,8 @@ func TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace(t *testing.T) {
 	}
 	b64 := base64.StdEncoding.EncodeToString(wantMetaBytes)
 	// Wrap the base64 payload with embedded newlines (MIME-style line
-	// wrapping) plus a stray embedded space -- all of which Python's
-	// b64decode would silently ignore, but Go's strict decoder rejects.
+	// wrapping) plus a stray embedded space -- all of which a lenient base64
+	// decoder would silently ignore, but Go's strict decoder rejects.
 	wrapped := b64[:len(b64)/2] + "\n" + b64[len(b64)/2:len(b64)-2] + " " + b64[len(b64)-2:] + "\n"
 
 	mux := http.NewServeMux()
@@ -376,7 +370,7 @@ func TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace(t *testing.T) {
 	c := newTestUploadClient(t, srv, nil)
 	got, err := c.UploadFile(context.Background(), "group1", []byte("data"), "f.jpg", "image/jpeg")
 	if err != nil {
-		t.Fatalf("UploadFile: %v, want the embedded whitespace tolerated like Python's b64decode", err)
+		t.Fatalf("UploadFile: %v, want the embedded whitespace tolerated in base64 decoding", err)
 	}
 	if got.GetAttachmentToken() != "TOK-whitespace" {
 		t.Errorf("AttachmentToken = %q, want %q", got.GetAttachmentToken(), "TOK-whitespace")
@@ -384,8 +378,7 @@ func TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace(t *testing.T) {
 }
 
 // TestUploadFileBadProto verifies a base64-valid but non-protobuf payload
-// is a clear decode error, mirroring client.py:316-319's
-// proto.DecodeError -> NetworkError translation.
+// surfaces as a clear decode error.
 func TestUploadFileBadProto(t *testing.T) {
 	// A single 0x00 byte is tag=0 (field number 0), which golang/protobuf
 	// deterministically rejects ("illegal tag 0 (wire type 0)") -- protobuf's
@@ -416,8 +409,7 @@ func TestUploadFileBadProto(t *testing.T) {
 
 // TestUploadFileContextCanceled verifies a canceled context aborts the
 // upload with a wrapped context error rather than hanging or panicking --
-// no direct Python equivalent (aiohttp has no first-class context
-// cancellation), but table stakes for a Go network call.
+// table stakes for a Go network call.
 func TestUploadFileContextCanceled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

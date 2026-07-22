@@ -18,18 +18,17 @@ import (
 // The underlying byte stream is UTF-8 and may be split at an arbitrary byte
 // boundary between Feed calls -- including in the middle of a multi-byte
 // rune. ChunkParser buffers any undecodable/incomplete tail and resumes
-// decoding it on the next Feed call, exactly like Python's ChunkParser
-// (maugclib/channel.py:67-121), which keeps its buffer as raw bytes and only
-// best-effort-decodes a *view* of it via a UTF-8 incremental decoder.
+// decoding it on the next Feed call: the buffer is kept as raw bytes and only
+// a best-effort-decoded *view* of it is scanned, via a UTF-8 incremental
+// decode that holds back any truncated trailing sequence.
 //
 // Do NOT convert the whole buffer to a Go string up front: Go's []byte->string
 // conversion silently replaces an incomplete trailing UTF-8 sequence with
 // U+FFFD replacement runes, which permanently corrupts the data once it's
 // written back into the buffer. That is the exact bug in megabridge's
-// gchatmeow/channel.go GetChunks (docs/research/08c-megabridge-clientlib.md
-// section 1.3): a rune split across two reads gets mangled into U+FFFD,
-// which then miscounts against the UTF-16 length and desynchronizes the
-// frame boundary for everything after it.
+// gchatmeow/channel.go GetChunks: a rune split across two reads gets mangled
+// into U+FFFD, which then miscounts against the UTF-16 length and
+// desynchronizes the frame boundary for everything after it.
 type ChunkParser struct {
 	buf []byte
 }
@@ -44,8 +43,6 @@ func (p *ChunkParser) Feed(data []byte) []string {
 	for {
 		// Decode as much of the buffer as possible as UTF-8, tolerating (and
 		// leaving behind) an incomplete multi-byte sequence at the very end.
-		// This mirrors Python's incremental UTF-8 decoder
-		// (_best_effort_decode, channel.py:61-64).
 		decoded := decodeUTF8Prefix(p.buf)
 
 		lengthStr, rest, res := cutFirstLine(decoded)
@@ -61,19 +58,16 @@ func (p *ChunkParser) Feed(data []byte) []string {
 			// Google traffic (TLS-delivered, always well-formed), but
 			// dropping one byte and resynchronizing guarantees the parser
 			// always makes forward progress instead of silently stalling
-			// forever with an unbounded buffer -- Python's equivalent
-			// failure mode is a decode exception that tears down and
-			// replaces the whole ChunkParser (channel.py:230).
+			// forever with an unbounded buffer.
 			p.buf = p.buf[1:]
 			continue
 		}
 
 		length, err := strconv.Atoi(lengthStr)
 		if err != nil {
-			// Python's LEN_REGEX (`([0-9]+)\n`) only matches if the text up
-			// to the newline is all digits; if it's not, re.match returns
-			// None and get_chunks stops yielding (waits for more data, same
-			// as "no newline yet"). Mirror that rather than erroring.
+			// Length prefix isn't a valid integer (e.g. too large to fit):
+			// stop yielding and wait for more data rather than erroring, the
+			// same as when the newline hasn't arrived yet.
 			break
 		}
 
@@ -130,9 +124,7 @@ func decodeUTF8Prefix(buf []byte) string {
 			if !utf8.FullRune(buf[i:]) {
 				break
 			}
-			// Genuinely invalid byte (not a truncation issue): Python's
-			// codecs incremental UTF-8 decoder would raise here in strict
-			// mode, but get_chunks doesn't catch that -- in practice
+			// Genuinely invalid byte (not a truncation issue): in practice
 			// Google's channel never sends invalid UTF-8. Advance past it so
 			// the truncation scan doesn't stop here; the byte itself is
 			// still included verbatim in the string returned below
@@ -169,12 +161,10 @@ const (
 	linePoisoned
 )
 
-// cutFirstLine mirrors Python's LEN_REGEX = re.compile(r"([0-9]+)\n",
-// re.MULTILINE) matched at the start of the decoded buffer: it looks for a
-// run of ASCII digits immediately followed by '\n' at position 0. Unlike a
-// plain strings.Cut on the first '\n', this does not treat a line as a
-// length unless it is anchored at the very start of the buffer, matching
-// re.match (not re.search) semantics.
+// cutFirstLine looks for a run of ASCII digits immediately followed by '\n'
+// at the very start of the decoded buffer. Unlike a plain strings.Cut on the
+// first '\n', this does not treat a line as a length unless it is anchored at
+// position 0 (a start-anchored match, not a search).
 func cutFirstLine(decoded string) (lengthStr string, rest string, res lineResult) {
 	i := 0
 	for i < len(decoded) && decoded[i] >= '0' && decoded[i] <= '9' {
@@ -186,9 +176,9 @@ func cutFirstLine(decoded string) (lengthStr string, rest string, res lineResult
 		return "", "", lineIncomplete
 	}
 	if i == 0 || decoded[i] != '\n' {
-		// Either the very first byte isn't a digit at all (LEN_REGEX
-		// requires `[0-9]+`, i.e. at least one), or 1+ digits were followed
-		// by something other than '\n'. This can only happen with
+		// Either the very first byte isn't a digit at all (at least one is
+		// required), or 1+ digits were followed by something other than
+		// '\n'. This can only happen with
 		// genuinely invalid/misdirected bytes (see decodeUTF8Prefix), which
 		// real Google traffic (delivered over TLS) never produces.
 		return "", "", linePoisoned

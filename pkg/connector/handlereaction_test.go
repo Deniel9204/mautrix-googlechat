@@ -4,8 +4,8 @@ package connector
 // (M4 Task 3): PreHandleMatrixReaction, HandleMatrixReaction (ADD),
 // HandleMatrixReactionRemove (REMOVE). Mirrors handleedit_test.go's
 // request-construction / error-path test shape, since update_reaction
-// (client.py:346-365) builds its MessageId the exact same "thread_id or
-// message_id" way edit_message/delete_message do.
+// builds its MessageId the exact same "thread_id or message_id" way
+// edit_message/delete_message do.
 
 import (
 	"context"
@@ -218,8 +218,7 @@ func TestHandleMatrixReactionDMPortalBuildsDmGroupID(t *testing.T) {
 // TestHandleMatrixReactionUsesStoredTopicIDForThreadReply covers a
 // reply-in-thread target: the target's own stored MessageMetadata.TopicID
 // (the thread's topic, distinct from the target's own message id) must be
-// used, mirroring client.py's react(conversation_id,
-// thread_id=target.gc_parent_id, message_id=target.gcid, reaction).
+// used as the reaction's topic_id, not the target's own message id.
 func TestHandleMatrixReactionUsesStoredTopicIDForThreadReply(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.UpdateReactionRequest
@@ -248,10 +247,10 @@ func TestHandleMatrixReactionUsesStoredTopicIDForThreadReply(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixReactionFallsBackToOwnIDWhenTopicIDMissing pins Python's
-// `thread_id or message_id` fallback (client.py:354): a target with no
-// stored TopicID must fall back to its own message id, exactly like
-// threadRootTopicID (handlematrix.go), which this method reuses.
+// TestHandleMatrixReactionFallsBackToOwnIDWhenTopicIDMissing pins the
+// `thread_id or message_id` fallback: a target with no stored TopicID must
+// fall back to its own message id, exactly like threadRootTopicID
+// (handlematrix.go), which this method reuses.
 func TestHandleMatrixReactionFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.UpdateReactionRequest
@@ -446,10 +445,8 @@ func TestHandleMatrixReactionRemoveFallsBackToMessageIDWhenNoTopicIDMetadata(t *
 // message id is NOT its topic id) must resolve the real topic id via a fresh
 // DB.Message lookup (getMessageFn) -- not silently substitute the reply's
 // own message id as if it were the topic, which would send update_reaction
-// at the wrong thread entirely. Mirrors Python's own unconditional
-// `DBMessage.get_by_gcid(reaction.gc_msgid, ...)` lookup at
-// portal.py:818-819, which never has this gap because it always re-fetches
-// regardless of which side created the reaction.
+// at the wrong thread entirely. An unconditional DB re-fetch avoids this gap
+// entirely, since it does not depend on which side created the reaction.
 func TestHandleMatrixReactionRemoveLooksUpTopicIDForGCOriginatedReaction(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.UpdateReactionRequest
@@ -532,10 +529,9 @@ func TestHandleMatrixReactionRemoveLookupFallsBackToMessagesOwnIDWhenHeadOfTopic
 
 // TestHandleMatrixReactionRemoveLookupErrorFallsBackGracefully proves a
 // failed DB lookup does not abort the whole removal (the un-reaction RPC
-// still proceeds, matching Python's own behavior of never conditioning the
-// react() call on the lookup succeeding) -- it just falls back to the
-// reaction's own target message id as a last resort, same as having no
-// lookup capability at all.
+// still proceeds -- the RPC is never conditioned on the lookup succeeding)
+// -- it just falls back to the reaction's own target message id as a last
+// resort, same as having no lookup capability at all.
 func TestHandleMatrixReactionRemoveLookupErrorFallsBackGracefully(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.UpdateReactionRequest

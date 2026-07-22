@@ -1,33 +1,24 @@
 package connector
 
-// backfill.go -- reconnect gap-recovery via catch_up_user (M2 Task 7,
-// M1-review Important #2 / M2-entry blocker #2): a webchannel re-register
-// after a SID-expiring reconnect resets the channel's AID to 0
+// backfill.go -- reconnect gap-recovery via catch_up_user: a webchannel
+// re-register after a SID-expiring reconnect resets the channel's AID to 0
 // (pkg/gchatmeow/client.go's wireChannel doc comment already flags this),
 // so the server never replays whatever happened on the account between
 // disconnect and the new channel's registration on its own -- without this
 // file, those events are silently lost the moment handleGChatEvent
-// (events.go) starts actually bridging them (M2 Task 4+).
+// (events.go) starts actually bridging them.
 //
-// Deliberate divergence from user.py/portal.py: the Python bridge never
-// calls catch_up_user at all. Its own reconnect-gap handling is a small
-// `sync(limit=3)` world re-fetch on a SIDInvalidError (user.py:326-345),
-// and its actual catch-up RPC is catch_up_group (portal.py:450-490's
-// _catchup_backfill), called PER PORTAL from inside sync() once a fresh
-// paginated_world response reveals that portal's server-side revision has
-// moved past the locally stored one (portal.py:654-657). That design needs
-// a fresh world listing on every reconnect to learn each portal's target
-// revision -- exactly the "resync on every reconnect" this bridge's
+// Deliberate choice of catch_up_user over catch_up_group: catch_up_group is
+// a PER-PORTAL catch-up RPC that needs a fresh world listing on every
+// reconnect to learn each portal's target server-side revision before it can
+// run -- exactly the "resync on every reconnect" this bridge's
 // shouldSyncOnConnect latch (client.go) was deliberately built to avoid
 // (see its doc comment). catch_up_user has no such prerequisite: it is a
 // single whole-account RPC keyed on one account-level watermark
 // (UserLoginMetadata.Revision), so it can run on every reconnect without a
-// world re-listing. M6's full per-portal backfill can still add
-// catch_up_group's per-portal-revision path later without this file
-// changing; for M2's "just don't lose messages" scope, catch_up_user is the
-// minimal correct mechanism, and it is the one M1's review + the M2 plan
-// (docs/superpowers/plans/2026-07-14-m2-text-messaging.md, Task 7) both
-// name explicitly.
+// world re-listing. A full per-portal backfill can still add catch_up_group's
+// per-portal-revision path later without this file changing; for the "just
+// don't lose messages" scope, catch_up_user is the minimal correct mechanism.
 import (
 	"cmp"
 	"context"
@@ -47,8 +38,8 @@ import (
 // catchUpMaxPages defensively bounds catchUp's PAGINATED drain loop: a
 // misbehaving (or buggy) server that keeps returning PAGINATED forever must
 // not spin this goroutine indefinitely. 100 pages at the server's default
-// page size is far more than any real reconnect gap M2 needs to recover
-// (a gap that large is M6 full-backfill territory, not "catch up since the
+// page size is far more than any real reconnect gap needs to recover
+// (a gap that large is full-backfill territory, not "catch up since the
 // last event"); if it is ever hit, catchUp logs and stops rather than
 // looping -- the watermark still advanced page by page (via
 // advanceUserRevision as each event was handled), so the next reconnect
@@ -58,16 +49,15 @@ const catchUpMaxPages = 100
 // catchUp replays whatever happened on this account between the last
 // successfully processed revision (UserLoginMetadata.Revision) and now, via
 // catch_up_user, and dispatches every returned event through the SAME
-// handleGChatEvent path a live stream event takes (events.go) -- so M4's
+// handleGChatEvent path a live stream event takes (events.go) -- so
 // later edit/reaction/delete handlers apply to gap-replayed events
 // automatically, with no separate backfill-specific event handling to keep
 // in sync, AND so the watermark advance itself (advanceUserRevision, run by
 // handleGChatEvent after each successfully handled event, live or replayed)
 // applies identically here: each returned event's user_revision is persisted
-// right after that event is delivered, not once in bulk at the end --
-// mirroring portal.py:502-503's `_handle_backfill_events`, which calls
-// set_revision PER multi_evt inside its loop, so a crash partway through a
-// catch-up page never has to redo work it already committed. Idempotency (a
+// right after that event is delivered, not once in bulk at the end, so a
+// crash partway through a catch-up page never has to redo work it already
+// committed. Idempotency (a
 // caught-up event that also arrives live, or is replayed again by an
 // overlapping window on a later reconnect) is left to bridgev2's own
 // message-id-keyed dedup on the RemoteMessage path (portal.go's
@@ -76,18 +66,14 @@ const catchUpMaxPages = 100
 //
 // PAGINATION -- drain ALL pages in this single invocation, do not defer the
 // rest to the next reconnect. CatchUpResponse carries no explicit cursor
-// field (only events/status/group_data); like portal.py's _catchup_backfill
-// (portal.py:455-490), the de-facto cursor IS the request's
-// from_revision_timestamp, and each page advances it to the max USER
-// revision seen so far (user_revision -- the field that orders the
+// field (only events/status/group_data); the de-facto cursor IS the
+// request's from_revision_timestamp, and each page advances it to the max
+// USER revision seen so far (user_revision -- the field that orders the
 // catch_up_user stream; see the per-event comment in the loop for why
-// group_revision must not seed it). Python re-reads self.revision (which
-// set_revision moved) for the next page; this uses a LOCAL cursor variable
-// instead of re-reading the shared UserLoginMetadata.Revision watermark --
-// and that difference is load-bearing here in a way it is not in Python.
-// Python's backfill holds a lock and its single asyncio loop means no live
-// event can advance the watermark mid-drain; this bridge's catchUp runs on
-// its own goroutine while LIVE events keep flowing on the conn's supervision
+// group_revision must not seed it). This uses a LOCAL cursor variable rather
+// than re-reading the shared UserLoginMetadata.Revision watermark for the
+// next page -- and that difference is load-bearing: catchUp runs on its own
+// goroutine while LIVE events keep flowing on the conn's supervision
 // goroutine, each advancing the shared watermark (advanceUserRevision). A
 // live event with a revision higher than the whole gap would push the shared
 // watermark PAST the un-drained backlog; if the next page re-read that
@@ -104,12 +90,12 @@ const catchUpMaxPages = 100
 // current conn (client.go's handleConnState, gated by the SAME
 // shouldSyncOnConnect latch syncChats uses for the first-connect case --
 // see handleConnState's doc comment for why reusing that latch, rather than
-// adding a second one, is both correct and required by this task). Also
+// adding a second one, is both correct and required). Also
 // bails out (no RPC call at all) while this conn's first-ever syncChats is
 // still running (isSyncInProgress, set synchronously by handleConnState
 // before spawning syncChats): a second Connected transition landing while
 // the first sync is unfinished would otherwise call catch_up_user with a
-// meaningless (still probably 0) watermark -- gchat-port-auditor P1 finding.
+// meaningless (still probably 0) watermark.
 // Skipping here is safe: it only means this one reconnect's catch-up
 // opportunity is deferred, not lost -- once the first sync finishes,
 // advanceUserRevision picks up tracking from the very next live event, same
@@ -146,13 +132,12 @@ func (c *GChatClient) catchUp(ctx context.Context) {
 		req := &pb.CatchUpUserRequest{
 			Range: &pb.CatchUpRange{
 				FromRevisionTimestamp: proto.Int64(cursor),
-				// ToRevisionTimestamp is deliberately left unset: unlike
-				// catch_up_group's portal.py caller (which always knows a
-				// freshly-fetched target revision from the paginated_world
-				// response that triggered it), a reconnect here has no such
-				// upper bound to supply -- an unset optional field asks the
-				// server for everything since cursor, i.e. "catch me up to
-				// now".
+				// ToRevisionTimestamp is deliberately left unset: unlike a
+				// catch_up_group caller (which always knows a freshly-fetched
+				// target revision from the paginated_world response that
+				// triggered it), a reconnect here has no such upper bound to
+				// supply -- an unset optional field asks the server for
+				// everything since cursor, i.e. "catch me up to now".
 			},
 		}
 
@@ -163,8 +148,7 @@ func (c *GChatClient) catchUp(ctx context.Context) {
 		}
 		status := resp.GetStatus()
 		if status != pb.CatchUpResponse_COMPLETED && status != pb.CatchUpResponse_PAGINATED {
-			// Mirrors portal.py:474-480's status check for catch_up_group:
-			// any ABORTED_* status means the server could not honor the
+			// Any ABORTED_* status means the server could not honor the
 			// requested range at all (cutoff exceeded, cache invalidated, or
 			// the requested from-revision has aged out server-side) -- there
 			// is nothing safe to replay in this page, and nowhere further
@@ -196,7 +180,7 @@ func (c *GChatClient) catchUp(ctx context.Context) {
 					// bridgev2 queue rejected it) must not let the drain
 					// advance the persisted watermark past it: stop here so
 					// the next reconnect re-fetches from the last successfully
-					// handled revision (M2-review Important #3). Events already
+					// handled revision. Events already
 					// handled earlier in this page advanced the watermark in
 					// order; this one did not (handleGChatEvent gates the
 					// advance on res.Success), so stopping now keeps the
@@ -233,21 +217,19 @@ func (c *GChatClient) catchUp(ctx context.Context) {
 // catch_up_user watermark (UserLoginMetadata.Revision) if it is greater than
 // what is already stored. Called from handleGChatEvent (events.go) for every
 // SUCCESSFULLY HANDLED event this login processes -- live stream or catchUp
-// replay alike -- porting user.py:674-682's on_stream_event, which advances
-// the USER-level watermark ONLY from evt.user_revision
-// (`if evt.HasField("user_revision"): await self.set_revision(...)`).
+// replay alike -- advancing the USER-level watermark ONLY from
+// evt.user_revision.
 //
 // Critically, it reads user_revision ONLY, never group_revision. The two are
 // separate revision spaces: user_revision orders the whole-account
 // user/catch_up_user stream (this watermark seeds catch_up_user's
 // from_revision_timestamp), while group_revision is a per-group counter that
-// Python routes to a DIFFERENT, per-portal watermark
-// (portal.py:502-503/519-531's set_revision on the Portal, feeding
-// catch_up_group -- see advancePortalRevision below). Folding group_revision
+// routes to a DIFFERENT, per-portal watermark (feeding catch_up_group -- see
+// advancePortalRevision below). Folding group_revision
 // into this user watermark could over-advance it past not-yet-delivered
 // user-stream events, so a later disconnect would make the next
 // catch_up_user skip them -> permanent message loss (the exact failure this
-// whole file exists to prevent; M2-review Important #2). A no-op (no lock,
+// whole file exists to prevent). A no-op (no lock,
 // no I/O) when evt carries no user_revision, which -- since RevisionType is a
 // proto oneof -- includes every event that instead carries group_revision.
 func (c *GChatClient) advanceUserRevision(ctx context.Context, evt *pb.Event) {
@@ -267,15 +249,14 @@ func (c *GChatClient) advanceUserRevision(ctx context.Context, evt *pb.Event) {
 }
 
 // advancePortalRevision parks evt's group_revision timestamp on the
-// PER-PORTAL watermark (PortalMetadata.Revision) -- the field M6's
+// PER-PORTAL watermark (PortalMetadata.Revision) -- the field a future
 // catch_up_group backfill will seed its own from_revision from -- if it is
 // greater than what is already stored there. Called from handleGChatEvent
 // (events.go) alongside advanceUserRevision, so exactly one of the two
-// actually fires per event (RevisionType is a oneof). Ports the OTHER half
-// of Python's revision tracking: portal.py:502-503 / user.py:678's
-// group-scoped set_revision on the Portal, kept entirely separate from the
-// user watermark (user.py:681-682). This does NOT wire catch_up_group itself
-// (that is M6) -- it only stores the value so that when M6 lands, the portal
+// actually fires per event (RevisionType is a oneof). This is the OTHER half
+// of revision tracking: the group-scoped watermark, kept entirely separate
+// from the user watermark. This does NOT wire catch_up_group itself -- it
+// only stores the value so that when that backfill lands, the portal
 // watermark is already being maintained instead of starting from zero. A
 // no-op when evt carries no group_revision, or when its group id is
 // unusable, or (in tests without a savePortalRevisionFn seam) when there is
@@ -348,7 +329,7 @@ func (c *GChatClient) getRevision() int64 {
 // returns 0. Safe on an already-split (flattened) event -- splitEventBodies
 // (pkg/gchatmeow/client.go) proto.Clones the whole parent, RevisionType
 // included, onto every copy, so reading it per flattened body is equivalent
-// to Python's once-per-raw-multi-event read (user.py:681-682).
+// to a once-per-raw-multi-event read.
 func userRevision(evt *pb.Event) int64 {
 	return evt.GetUserRevision().GetTimestamp()
 }
@@ -356,44 +337,40 @@ func userRevision(evt *pb.Event) int64 {
 // groupRevision returns evt's group_revision timestamp (Event.RevisionType
 // oneof arm field 7), or 0 when the event carries user_revision / no
 // revision instead. Same nil-safe accessor + split-safety notes as
-// userRevision; the Python analog is portal.py:502-503's
-// `multi_evt.group_revision`.
+// userRevision.
 func groupRevision(evt *pb.Event) int64 {
 	return evt.GetGroupRevision().GetTimestamp()
 }
 
-// region M6 Task 1: initial/history backfill for FLAT rooms
+// region initial/history backfill for FLAT rooms
 //
-// This is a DIFFERENT path from catchUp above: catchUp (M2 Task 7) replays a
+// This is a DIFFERENT path from catchUp above: catchUp replays a
 // reconnect GAP on an already-bridged portal via catch_up_user/group; this
 // implements bridgev2.BackfillingNetworkAPI.FetchMessages, which populates a
 // portal's Matrix room with HISTORY -- messages that predate the portal ever
-// being bridged at all -- porting portal.py's _initial_backfill (portal.py:406-448).
+// being bridged at all.
 //
-// RPC CHOICE -- deliberate divergence from the task brief's literal wording
-// ("ListMessages RPC with the group id + a page cursor"): the actual proto
-// (pkg/gchatmeow/proto/googlechat.pb.go) makes that impossible as stated.
+// RPC CHOICE -- listing a group's flat history via a single "ListMessages
+// RPC with the group id + a page cursor" is impossible: the actual proto
+// (pkg/gchatmeow/proto/googlechat.pb.go) does not allow it.
 // ListMessagesRequest.ParentId is a *MessageParentId whose oneof has exactly
 // one arm, MessageParentId_TopicId (a concrete *TopicId, itself GroupId +
 // topic_id) -- there is no group-only/topic-less arm, so ListMessages can
 // only ever list the replies WITHIN one already-known topic, never a group's
 // flat message history. This repo's own api.go already documents the two
 // RPCs accordingly ("ListTopics pages through topics of a group (backfill)"
-// vs "ListMessages pages through messages of a topic (backfill)"), and
-// portal.py's _initial_backfill agrees: it drives a FLAT room's entire
-// initial fetch off ListTopicsRequest{group_id, page_size_for_topics}, taking
-// each topic's FIRST reply (topic.replies[0]) as the flat message, and only
-// ever issues ListMessagesRequest for the rare topic that ALSO has a real
-// thread (topic_read_state.thread_created_usec > 0, portal.py:432-441) --
-// see docs/research/02-wire-protocol.md:217-219,258 for the same conclusion
-// from an independent reading of the wire protocol. So: this file's flat
-// strategy pages ListTopics, exactly like Python; the per-topic
-// ListMessages-for-real-threads sub-case is deliberately NOT ported here (see
-// the ShouldBackfillThread scope note on fetchFlatMessages below) since it
-// belongs naturally with Task 2's ThreadRoot-scoped ListMessages dispatch.
+// vs "ListMessages pages through messages of a topic (backfill)"): a FLAT
+// room's entire initial fetch is driven off
+// ListTopicsRequest{group_id, page_size_for_topics}, taking each topic's
+// FIRST reply (topic.replies[0]) as the flat message, and only ever issuing
+// ListMessagesRequest for the rare topic that ALSO has a real thread
+// (topic_read_state.thread_created_usec > 0). So: this file's flat strategy
+// pages ListTopics; the per-topic ListMessages-for-real-threads sub-case is
+// deliberately NOT ported here (see the ShouldBackfillThread scope note on
+// fetchFlatMessages below) since it belongs naturally with the
+// ThreadRoot-scoped ListMessages dispatch.
 //
-// SINGLE-SHOT, NOT PAGED -- matching portal.py:_initial_backfill exactly
-// (portal.py:406-448): that method makes exactly ONE ListTopicsRequest, never
+// SINGLE-SHOT, NOT PAGED: this makes exactly ONE ListTopicsRequest, never
 // loops, and never re-fetches. Neither ListTopicsRequest nor
 // ListTopicsResponse carries anything resembling a continuation/page token
 // (grepped the whole proto file: the only page_token/next_page_token pair in
@@ -402,11 +379,10 @@ func groupRevision(evt *pb.Event) int64 {
 // ListTopicsRequest's user_not_older_than / group_not_older_than
 // (ReferenceRevision{Timestamp}) look tempting but are a consistency FLOOR
 // ("don't serve me anything staler than this revision"), not a backward
-// filter ("give me topics before this point") -- and portal.py's own
-// ListTopicsRequest construction never sets either field, so there is no
-// reference behavior to confirm that reading; a silently-wrong guess here
-// would corrupt backfilled history with no test able to catch it against a
-// real server.
+// filter ("give me topics before this point") -- and no reference behavior
+// sets either field, so there is nothing to confirm that reading; a
+// silently-wrong guess here would corrupt backfilled history with no test
+// able to catch it against a real server.
 //
 // An earlier version of this file built a cumulative count-offset cursor on
 // top of PageSizeForTopics (request delivered+Count each call, take the
@@ -417,11 +393,11 @@ func groupRevision(evt *pb.Event) int64 {
 // topic could land in NEITHER page's slice -- a dropped history message that
 // nothing downstream would catch (the duplicate half of a tie is caught by
 // the anchor filter / framework cutoffMessages; the DROP half is not).
-// Matching Python's actual single-shot behavior removes the boundary
-// entirely: one ListTopicsRequest with PageSizeForTopics = params.Count (the
-// full requested backfill depth -- Task 3 wires this to the config's
-// initial_nonthread_limit; beyond-limit history is intentionally not
-// fetched, matching Python), reverse the response into oldest-first order,
+// The single-shot design removes the boundary entirely: one ListTopicsRequest
+// with PageSizeForTopics = params.Count (the full requested backfill depth --
+// Task 3 wires this to the config's initial_nonthread_limit; beyond-limit
+// history is intentionally not fetched), reverse the response into
+// oldest-first order,
 // stable-sort it ascending by SortTime with a topic-id tiebreaker (so ordering
 // is deterministic regardless of the server's tie order -- see the
 // tiebreaker note on the sort call below), and return every topic's head
@@ -429,32 +405,32 @@ func groupRevision(evt *pb.Event) int64 {
 // deletes the O(n^2) cumulative re-fetch the old paged scheme did across a
 // long backfill run.
 //
-// SCOPE (documented, not silent, gaps -- left for later M6 tasks):
+// SCOPE (documented, not silent, gaps -- left for later):
 //   - A topic with a real Google Chat thread even inside an otherwise-flat
 //     room (topic_read_state.thread_created_usec > 0) now ALSO gets
-//     ShouldBackfillThread=true on its head BackfillMessage (M6 Task 2,
-//     closing this file's own documented gap): the framework's own
+//     ShouldBackfillThread=true on its head BackfillMessage (closing this
+//     file's own documented gap): the framework's own
 //     fetchThreadBackfill/doThreadBackfill (portalbackfill.go) then drives a
 //     ThreadRoot-scoped FetchMessages call for that topic's other replies --
-//     see the "M6 Task 2" region below for that dispatch and the
+//     see the threaded-space backfill region below for that dispatch and the
 //     ThreadsOnly-portal top-level case (both share this same per-topic
 //     ShouldBackfillThread computation).
 //   - A topic whose head reply is a SYSTEM_MESSAGE (membership/room-info
 //     change) is converted through the ordinary text path
 //     (convertMessageToMatrix) here, not systemmessage.go's trySystemMessage
 //     (which only runs on the live MESSAGE_POSTED event-dispatch path,
-//     events.go's handleMessagePosted) -- flagged for a follow-up milestone
-//     task's whole-branch review rather than silently gapped.
-//   - Forward=true SPLITS on AnchorMessage (M6 Task 3.5, after this milestone's
-//     Task 3 verification surfaced that the blanket Forward==true stub left
-//     M6 entirely inert on non-Beeper homeservers -- see FetchMessages' own
-//     doc comment below for the full reasoning): AnchorMessage==nil is the
-//     NEW-ROOM bootstrap seed and is served by this same list_topics
-//     strategy; AnchorMessage!=nil is forward CATCH-UP on an existing room
-//     and stays an empty, HasMore=false response, since GC's list_topics only
-//     exposes "the N most recent" (inherently BACKWARD-from-now, with no way
-//     to ask "the N oldest of what's newer than X") and M2's catch_up_user
-//     already owns reconnect-gap recovery for rooms that are already bridged.
+//     events.go's handleMessagePosted) -- a documented gap rather than a
+//     silent one.
+//   - Forward=true SPLITS on AnchorMessage (a blanket Forward==true stub would
+//     leave backfill entirely inert on non-Beeper homeservers -- see
+//     FetchMessages' own doc comment below for the full reasoning):
+//     AnchorMessage==nil is the NEW-ROOM bootstrap seed and is served by this
+//     same list_topics strategy; AnchorMessage!=nil is forward CATCH-UP on an
+//     existing room and stays an empty, HasMore=false response, since GC's
+//     list_topics only exposes "the N most recent" (inherently
+//     BACKWARD-from-now, with no way to ask "the N oldest of what's newer than
+//     X") and catch_up_user already owns reconnect-gap recovery for rooms that
+//     are already bridged.
 //
 // CONVERSION REUSE: every backfilled message is converted via the EXACT SAME
 // convertMessageToMatrix(c.msgConverter(), c) function events.go's live
@@ -468,7 +444,7 @@ func groupRevision(evt *pb.Event) int64 {
 // says it should always be a positive "preferred number of messages",
 // but nothing in the interface contract guarantees that).
 //
-// M6 Task 3 verified (not assumed) where the REAL limit comes from instead:
+// Verified (not assumed) where the REAL limit comes from instead:
 // there is no connector-specific config for this -- and there must not be
 // one, since the framework already drives params.Count end to end and a
 // second, connector-owned knob would just shadow or conflict with it. The
@@ -481,14 +457,11 @@ func groupRevision(evt *pb.Event) int64 {
 //     `backfill.queue.batch_size` -- NOT `backfill.max_initial_messages` as
 //     an earlier draft of this comment assumed.
 //   - fetchTopicHeadMessages, reached via the Forward==true/AnchorMessage==nil
-//     branch (the NEW-ROOM bootstrap seed, M6 Task 3.5): its params.Count is
+//     branch (the NEW-ROOM bootstrap seed): its params.Count is
 //     `backfill.max_initial_messages` (Portal.doForwardBackfill,
-//     portalbackfill.go:46) -- this is the key Task 3's draft of this comment
-//     said never reached the connector; Task 3.5 fixed the dispatcher so it
-//     now does.
+//     portalbackfill.go:46).
 //   - fetchThreadMessages: its params.Count IS `backfill.threads.max_initial_messages`
-//     (Portal.fetchThreadBackfill, portalbackfill.go:203) -- this one matches
-//     what the augment/brief expected.
+//     (Portal.fetchThreadBackfill, portalbackfill.go:203).
 //
 // Operationally: doBackwardsBackfill only ever runs from the bridge's
 // backward backfill QUEUE, which (backfillqueue.go's RunBackfillQueue) only
@@ -497,8 +470,8 @@ func groupRevision(evt *pb.Event) int64 {
 // (mautrix.BeeperFeatureBatchSending) -- a standard self-hosted Synapse/
 // Dendrite homeserver never reports that capability, so on a non-Beeper
 // deployment this queue (and therefore the Forward==false path through
-// fetchTopicHeadMessages) never runs at all. That is NOT the milestone-inert
-// gap it once looked like, though: M6 Task 3.5 confirmed the framework fires
+// fetchTopicHeadMessages) never runs at all. That is NOT the inert
+// gap it once looked like, though: the framework fires
 // a SECOND, independent trigger on room creation regardless of batch-sending
 // support -- Portal.doForwardBackfill(ctx, source, nil, bundle)
 // (portal.go:5404), which calls FetchMessages with Forward==true and
@@ -513,15 +486,15 @@ const defaultFetchMessagesCount = 20
 var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 
 // FetchMessages implements bridgev2.BackfillingNetworkAPI for history
-// backfill (M6 Task 1 flat rooms; M6 Task 2 threaded spaces). Dispatches:
-//   - params.ThreadRoot != "": fetchThreadMessages (Task 2), regardless of
+// backfill (flat rooms; threaded spaces). Dispatches:
+//   - params.ThreadRoot != "": fetchThreadMessages, regardless of
 //     params.Forward -- checked FIRST, before the Forward branch below,
 //     because the framework's own thread-backfill callers
 //     (fetchThreadBackfill/doThreadBackfill, portalbackfill.go) ALWAYS set
 //     Forward=true on a ThreadRoot-scoped call (a thread grows forward in
 //     time from its head, so cutoffMessages' forward-trim semantics are what
 //     apply to it) even though this is conceptually still part of the
-//     backward/initial backfill this milestone targets. Checking Forward
+//     backward/initial backfill. Checking Forward
 //     before ThreadRoot here would misroute every real thread-backfill call
 //     into the Forward stub below and silently never fetch any thread
 //     replies -- verified by reading portalbackfill.go, not assumed.
@@ -532,8 +505,8 @@ var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 //     lastMessage==nil, and the chat-list RESYNC path (portal.go:3874's
 //     handleRemoteChatResync) passes whatever GetLastMessage returns for the
 //     portal. That resync path IS live for this bridge -- sync.go emits a
-//     simplevent.ChatResync with a LatestMessageTS on every chat-list sync
-//     (M1), and simplevent.ChatResync itself implements the framework's
+//     simplevent.ChatResync with a LatestMessageTS on every chat-list sync,
+//     and simplevent.ChatResync itself implements the framework's
 //     RemoteChatResyncBackfill: its default CheckNeedsBackfill returns true
 //     when LatestMessageTS is newer than the last bridged message
 //     (simplevent/chat.go:43-49). When it fires on a portal that ALREADY has
@@ -544,15 +517,15 @@ var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 //     fetchThreadMessages by the ThreadRoot check above, never reaching here.)
 //     For the non-empty-portal case here we return an empty, HasMore=false
 //     response -- documented GC limitation (see the Forward bullet in this
-//     file's region doc comment above); M2's catch_up_user
+//     file's region doc comment above); catch_up_user
 //     already owns this case for existing rooms.
 //   - otherwise (Forward==false, OR Forward==true && AnchorMessage==nil):
 //     fetchTopicHeadMessages, for a flat portal's backward/queue path, a
-//     ThreadsOnly portal's backward/queue path, AND -- as of M6 Task 3.5 --
-//     the Forward==true NEW-ROOM bootstrap seed on EITHER portal shape
+//     ThreadsOnly portal's backward/queue path, AND the Forward==true
+//     NEW-ROOM bootstrap seed on EITHER portal shape
 //     (doForwardBackfill(ctx, source, nil, bundle) on room creation,
-//     portal.go:5404). Task 3's verification found that stubbing every
-//     Forward==true call to empty left M6 entirely inert on non-Beeper
+//     portal.go:5404). Stubbing every Forward==true call to empty would leave
+//     backfill entirely inert on non-Beeper
 //     homeservers like continuwuity: doBackwardsBackfill's queue
 //     (backfillqueue.go's RunBackfillQueue) never starts there
 //     (BatchSending gate), so the bootstrap seed above was the ONLY
@@ -569,9 +542,7 @@ var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 //     has no BatchSending, so the queue never runs there at all and the seed
 //     is the ONLY trigger (see the region doc comment's "Operationally"
 //     paragraph above). Where both CAN fire, overlap is bounded by TIMING,
-//     not by any framework per-message dedup -- verified by reading, not
-//     assumed, correcting an earlier draft of this comment that wrongly
-//     credited id-based dedup here: this connector never sets
+//     not by any framework per-message dedup: this connector never sets
 //     FetchMessagesResponse.AggressiveDeduplication, so cutoffMessages' id-
 //     based GetFirstPartByID pass (portalbackfill.go:286-313) never runs for
 //     these responses, and the seed's own call passes AnchorMessage==nil, so
@@ -593,10 +564,9 @@ var _ bridgev2.BackfillingNetworkAPI = (*GChatClient)(nil)
 //     .MXID, PortalKey, msg.ID, part.ID) (portalbackfill.go:396) -- keyed on
 //     msg.ID, NOT timestamp -- so a re-posted already-seeded message resolves
 //     to the SAME event id and its duplicate DB insert is logged-and-skipped.
-//     This seed+queue overlap is newly REACHABLE via Task 3.5's change (pre-
-//     fix the seed posted nothing), but the deterministic-event-id backstop
-//     makes it idempotent regardless of the anchor filter's same-microsecond
-//     exception.
+//     This seed+queue overlap is reachable, but the deterministic-event-id
+//     backstop makes it idempotent regardless of the anchor filter's
+//     same-microsecond exception.
 func (c *GChatClient) FetchMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	if params.ThreadRoot != "" {
 		return c.fetchThreadMessages(ctx, params)
@@ -605,7 +575,7 @@ func (c *GChatClient) FetchMessages(ctx context.Context, params bridgev2.FetchMe
 		// forward CATCH-UP on an EXISTING room ("new messages since the last
 		// known one"). GC list_topics exposes only the most-recent-N
 		// (backward-from-now); there is no "strictly newer than X" query, and
-		// M2 catch_up_user already owns reconnect-gap recovery for existing
+		// catch_up_user already owns reconnect-gap recovery for existing
 		// rooms. Empty.
 		return &bridgev2.FetchMessagesResponse{HasMore: false}, nil
 	}
@@ -637,7 +607,7 @@ func (c *GChatClient) FetchMessages(ctx context.Context, params bridgev2.FetchMe
 // doc comment above for the full RPC-choice, single-shot, and scope
 // rationale. Serves BOTH a flat portal and a ThreadsOnly portal's top-level
 // (ThreadRoot=="") call: the request/response handling is identical either
-// way (M6 Task 1 vs Task 2 never needed two separate list_topics strategies),
+// way (neither needed two separate list_topics strategies),
 // they differ only in isThread below, which decides whether each topic's head
 // gets ShouldBackfillThread=true so the framework's own
 // fetchThreadBackfill/doThreadBackfill later drives a ThreadRoot-scoped
@@ -645,10 +615,9 @@ func (c *GChatClient) FetchMessages(ctx context.Context, params bridgev2.FetchMe
 // A topic counts as a real thread (isThread) iff the PORTAL is ThreadsOnly
 // (every topic in a threaded space is a thread by construction) OR the topic
 // itself has topic_read_state.thread_created_usec > 0 (a real thread even
-// inside an otherwise-flat room) -- porting portal.py:432's
-// `self.threads_only or topic.topic_read_state.thread_created_usec > 0`
-// exactly, and closing this file's own previously-documented flat-with-
-// real-thread gap (see the SCOPE bullet above).
+// inside an otherwise-flat room). This closes this file's own
+// previously-documented flat-with-real-thread gap (see the SCOPE bullet
+// above).
 func (c *GChatClient) fetchTopicHeadMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	group, err := gcid.ParsePortalID(params.Portal.ID)
 	if err != nil {
@@ -681,18 +650,13 @@ func (c *GChatClient) fetchTopicHeadMessages(ctx context.Context, params bridgev
 		return nil, fmt.Errorf("googlechat: list_topics failed: %w", err)
 	}
 
-	// Server order is newest-first (portal.py:428's own comment: "The
-	// reversed list is probably already sorted properly, but re-sort it just
-	// in case" -- ported literally: reverse first, then a stable sort by
-	// SortTime, exactly like Python's `sorted(reversed(topics), key=...)`).
-	// Unlike Python, ties are broken by topic id (cmp.Compare on the string):
-	// Python's sort key is SortTime alone, so a tie's order is whatever
-	// Python's stable sort leaves it at post-reversal -- i.e. the SERVER's
-	// original relative order, which this bridge has no contract guaranteeing
-	// is itself deterministic. Adding the topic-id tiebreaker makes this
-	// bridge's ordering deterministic regardless of server tie order, at the
-	// minor cost of diverging from Python's tie order in the (rare) case of
-	// an actual SortTime collision.
+	// Server order is newest-first, so reverse first, then a stable sort by
+	// SortTime. Ties are broken by topic id (cmp.Compare on the string): with
+	// SortTime as the sole sort key a tie's order is whatever the stable sort
+	// leaves it at post-reversal -- i.e. the SERVER's original relative order,
+	// which this bridge has no contract guaranteeing is itself deterministic.
+	// Adding the topic-id tiebreaker makes this bridge's ordering
+	// deterministic regardless of server tie order.
 	topics := slices.Clone(resp.GetTopics())
 	slices.Reverse(topics)
 	slices.SortStableFunc(topics, func(a, b *pb.Topic) int {
@@ -766,8 +730,8 @@ func (c *GChatClient) fetchTopicHeadMessages(ctx context.Context, params bridgev
 			log.Err(err).Str("gc_message_id", gcMessageID).Msg("googlechat: failed to convert backfill message, skipping")
 			continue
 		}
-		// Reactions is deliberately left nil/unset here (M6 Task 3 --
-		// verified against the proto and Python, not guessed). msg.Reactions
+		// Reactions is deliberately left nil/unset here (verified against the
+		// proto, not guessed). msg.Reactions
 		// (the GC Message's own `repeated Reaction reactions = 21` field,
 		// pkg/gchatmeow/proto/googlechat.pb.go's `type Reaction struct`) only
 		// carries Emoji, Count, CurrentUserParticipated, and
@@ -781,21 +745,16 @@ func (c *GChatClient) fetchTopicHeadMessages(ctx context.Context, params bridgev
 		// reaction the current user never actually left on this exact
 		// message in isolation (only "participated in the aggregate"), and
 		// there is no way to reconstruct any of the OTHER reactors' identities
-		// from this summary at all. Python has the exact same limitation and
-		// makes the exact same choice: portal.py's _initial_backfill (portal.py:406-448)
-		// calls handle_googlechat_message per topic/reply and never once
-		// reads message.reactions -- reactions are bridged EXCLUSIVELY from
-		// live MessageReactionEvents (portal.py:1166's
-		// handle_googlechat_reaction), which DO carry a real reactor identity
-		// on the wire. So this is parity with upstream, not a regression:
-		// historical (pre-bridge) reaction counts are silently dropped by
-		// both bridges, on purpose. Nothing recoverable is lost either --
-		// any reaction that happens while this bridge is connected arrives
-		// live (M4's reaction handling, events.go) with its real sender, and
-		// a reaction added during a reconnect gap is replayed with identity
-		// intact by M2's catchUp (catch_up_user, this file's top region).
-		// Only reactions left on a message BEFORE this bridge ever connected
-		// are unattributable, and they are unattributable in Python too.
+		// from this summary at all. Reactions are therefore bridged
+		// EXCLUSIVELY from live MessageReactionEvents, which DO carry a real
+		// reactor identity on the wire; historical (pre-bridge) reaction
+		// counts are silently dropped, on purpose. Nothing recoverable is
+		// lost either -- any reaction that happens while this bridge is
+		// connected arrives live (the reaction handling, events.go) with its
+		// real sender, and a reaction added during a reconnect gap is replayed
+		// with identity intact by catchUp (catch_up_user, this file's top
+		// region). Only reactions left on a message BEFORE this bridge ever
+		// connected are unattributable.
 		// TestFetchMessagesFlatOmitsReactionsEvenWhenGCMessageHasThem
 		// (backfill_test.go) pins this: a GC Message carrying
 		// Count>0/CurrentUserParticipated=true reactions must still produce
@@ -881,24 +840,21 @@ func (c *GChatClient) fetchTopicHeadMessages(ctx context.Context, params bridgev
 // or its Metadata isn't a *MessageMetadata, or TopicID is empty, this never
 // guesses: it logs and returns an empty, HasMore=false response.
 //
-// PYTHON PARITY -- portal.py:432-441's thread branch issues exactly ONE
+// ORDERING -- the thread branch issues exactly ONE
 // ListMessagesRequest{parent_id: MessageParentId(topic_id=topic.id),
 // page_size: initial_thread_reply_limit} per topic and iterates
-// resp.messages directly, with NO reordering (unlike list_topics, which
-// portal.py explicitly reverses+re-sorts -- portal.py never does that for
-// list_messages). This file additionally sorts the response ascending by
-// CreateTime (a real per-message timestamp, unlike Topic.SortTime's
-// "most-recently-active" ambiguity) purely as a safety net for
-// FetchMessagesResponse's own documented contract ("Messages should always be
-// sorted in chronological order") -- CreateTime-ascending IS chronological
-// order regardless of whatever order the server actually delivers in, so
-// this never diverges from Python's assumption when Python's assumption
-// (already-chronological) happens to hold, and only helps when it doesn't.
+// resp.messages directly, with NO reordering (unlike list_topics, whose
+// response is explicitly reversed+re-sorted; list_messages needs neither).
+// This file additionally sorts the response ascending by CreateTime (a real
+// per-message timestamp, unlike Topic.SortTime's "most-recently-active"
+// ambiguity) purely as a safety net for FetchMessagesResponse's own
+// documented contract ("Messages should always be sorted in chronological
+// order") -- CreateTime-ascending IS chronological order regardless of
+// whatever order the server actually delivers in, so this holds when the
+// server already delivers chronologically and only helps when it doesn't.
 //
-// HEAD DEDUP -- Python's handle_googlechat_message relies on its own
-// DBMessage.get_by_gcid existence check to silently drop the head reply if
-// list_messages happens to include it again (portal.py:1348-1350); this
-// bridge has no equivalent per-call DB read available here (fetchThreadMessages
+// HEAD DEDUP -- list_messages may re-include the topic's head reply, and this
+// bridge has no per-call DB existence check available here (fetchThreadMessages
 // is a pure connector function with no DB access -- pkg/connector must stay
 // framework-agnostic about persistence), so it applies the SAME anchor filter
 // fetchTopicHeadMessages already uses for the flat/backward case, mirrored for
@@ -916,8 +872,7 @@ func (c *GChatClient) fetchTopicHeadMessages(ctx context.Context, params bridgev
 // with PageSize = params.Count, HasMore=false, Cursor="" always. No cursor
 // exists to build (ListMessagesRequest/Response carry no page token, same
 // grep-verified absence as ListTopicsRequest/Response -- see Task 1's region
-// doc comment above), and single-shot is what the M6 plan and Python both
-// call for.
+// doc comment above), and single-shot is what the M6 plan calls for.
 func (c *GChatClient) fetchThreadMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
 	log := zerolog.Ctx(ctx)
 
@@ -1020,8 +975,8 @@ func (c *GChatClient) fetchThreadMessages(ctx context.Context, params bridgev2.F
 		}
 		// Reactions intentionally left nil here too -- see
 		// fetchTopicHeadMessages' identical construction above for the full
-		// rationale (GC's Reaction proto has no reactor id; Python parity;
-		// live/catchUp already cover recoverable reactions).
+		// rationale (GC's Reaction proto has no reactor id; live/catchUp
+		// already cover recoverable reactions).
 		messages = append(messages, &bridgev2.BackfillMessage{
 			ConvertedMessage: cm,
 			Sender:           sender,

@@ -1,8 +1,8 @@
 package migrate
 
-// White-box tests (package migrate) for migrateReactions -- M7 Task 6. See
-// .superpowers/sdd/m7-migration-schema-map.md §3 (Reaction) for the mapping
-// under test, especially the message_part_id lookup (do NOT hardcode "").
+// White-box tests (package migrate) for migrateReactions, covering the
+// reaction mapping -- especially the message_part_id lookup (do NOT
+// hardcode "").
 //
 // Reuses seedMessageFixtureRows (message_test.go) for the message groups a
 // reaction can resolve against, so both files agree on exactly the same

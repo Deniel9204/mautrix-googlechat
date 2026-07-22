@@ -1,15 +1,11 @@
 package migrate
 
-// migrateMessages implements M7 Task 6's message half -- see
-// .superpowers/sdd/m7-migration-schema-map.md §2 (Message -- THE HARD ONE)
-// for the full field-by-field mapping this replicates exactly, and
-// .superpowers/sdd/task-6-brief.md for scope. Same raw-INSERT-through-ctx
-// approach as portal.go/ghost.go (M7 Task 5) -- see that file's package doc
-// comment.
+// migrateMessages implements the message half of the migration, replicating
+// the field-by-field mapping exactly. Same raw-INSERT-through-ctx approach
+// as portal.go/ghost.go -- see that file's package doc comment.
 //
-// The index->part_id rule (schema map §2, "How Go assigns part_id") is
-// implemented once, in assignPartIDs, and shared with reaction.go's
-// message_part_id lookup (schema map §3) so both entry points agree on
+// The index->part_id rule is implemented once, in assignPartIDs, and shared
+// with reaction.go's message_part_id lookup so both entry points agree on
 // exactly the same numbering for the same group of Python rows.
 
 import (
@@ -27,12 +23,12 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// insertMigratedMessageQuery writes one Go `message` row per schema map §2.
-// Columns with no Python source (double_puppeted, reply_to_id,
-// reply_to_part_id, send_txn_id) are hardcoded NULL; edit_count has no
-// Python source either but MUST be NOT NULL, so it's hardcoded 0 (schema map
-// §2 Risk #4: "no historical count exists ... must default every migrated
-// row to 0"). bridge_id is always ” (see portal.go's identical comment).
+// insertMigratedMessageQuery writes one Go `message` row. Columns with no
+// Python source (double_puppeted, reply_to_id, reply_to_part_id,
+// send_txn_id) are hardcoded NULL; edit_count has no Python source either
+// but MUST be NOT NULL, so it's hardcoded 0 (no historical count exists, so
+// every migrated row defaults to 0). bridge_id is always ” (see portal.go's
+// identical comment).
 const insertMigratedMessageQuery = `
 	INSERT INTO message (
 		bridge_id, id, part_id, mxid,
@@ -49,19 +45,19 @@ const insertMigratedMessageQuery = `
 	)
 `
 
-// messageGroupKey is the composite key the index->part_id rule (schema map
-// §2) groups Python `message` rows by: "(gcid, gc_chat, gc_receiver)". Rows
-// with a NULL/empty gcid have no valid Go message.id to group under at all.
+// messageGroupKey is the composite key the index->part_id rule groups Python
+// `message` rows by: "(gcid, gc_chat, gc_receiver)". Rows with a NULL/empty
+// gcid have no valid Go message.id to group under at all.
 type messageGroupKey struct {
 	gcid     string
 	chat     string
 	receiver string
 }
 
-// groupMessagesByID groups rows the way schema map §2's index->part_id rule
-// requires. Rows with a NULL/empty gcid are returned separately in skipped,
-// rather than silently dropped, so callers that care (migrateMessages) can
-// warn about them; migrateReactions's lookup doesn't need to.
+// groupMessagesByID groups rows the way the index->part_id rule requires.
+// Rows with a NULL/empty gcid are returned separately in skipped, rather
+// than silently dropped, so callers that care (migrateMessages) can warn
+// about them; migrateReactions's lookup doesn't need to.
 func groupMessagesByID(rows []*PythonMessage) (groups map[messageGroupKey][]*PythonMessage, order []messageGroupKey, skipped []*PythonMessage) {
 	groups = make(map[messageGroupKey][]*PythonMessage)
 	for _, m := range rows {
@@ -79,18 +75,17 @@ func groupMessagesByID(rows []*PythonMessage) (groups map[messageGroupKey][]*Pyt
 }
 
 // isTextMsgType reports whether msgtype classifies a Python message row as
-// the text/notice part of a message, per schema map §2's classifier list
-// ("m.text"/"m.notice" -> text; anything else, including NULL -> attachment).
+// the text/notice part of a message ("m.text"/"m.notice" -> text; anything
+// else, including NULL -> attachment).
 func isTextMsgType(msgtype sql.NullString) bool {
 	return msgtype.Valid && (msgtype.String == "m.text" || msgtype.String == "m.notice")
 }
 
-// assignPartIDs implements schema map §2's full index->part_id rule for one
+// assignPartIDs implements the full index->part_id rule for one
 // (gcid, gc_chat, gc_receiver) group of Python rows, keyed by each row's own
 // `index` (unique within the group -- part of Python's composite PK):
 //
-//  1. Group size 1: part_id = "" (gcid.TextPartID), regardless of msgtype --
-//     the plan's resolved single-row decision (map Risk #1 option a).
+//  1. Group size 1: part_id = "" (gcid.TextPartID), regardless of msgtype.
 //  2. Group size >= 2: the lowest-index row is "first".
 //     - If its msgtype is m.text/m.notice: that row -> "", every OTHER row
 //     -> att_0, att_1, ... in ascending index order among the remainder
@@ -129,14 +124,14 @@ func assignPartIDs(rows []*PythonMessage) map[int]networkid.PartID {
 }
 
 // portalExistsInTarget reports whether the Go `portal` row (id, receiver)
-// has already been written to the target -- used to guard message.
-// message_room_fkey (schema map §1/§2). A migrated source can legitimately
-// reference a chat whose portal row migratePortals itself skipped (e.g. an
-// unparseable gcid, portal.go's own warn-and-skip path); without this check,
-// inserting such a message would fail the FK and abort the ENTIRE migration
-// (all entities, not just this row) instead of warning and skipping just
-// this one -- the hard rule every other per-row problem in this package
-// already follows.
+// has already been written to the target -- used to guard
+// message.message_room_fkey. A migrated source can legitimately reference a
+// chat whose portal row migratePortals itself skipped (e.g. an unparseable
+// gcid, portal.go's own warn-and-skip path); without this check, inserting
+// such a message would fail the FK and abort the ENTIRE migration (all
+// entities, not just this row) instead of warning and skipping just this
+// one -- the hard rule every other per-row problem in this package already
+// follows.
 func portalExistsInTarget(ctx context.Context, target *dbutil.Database, id, receiver string) (bool, error) {
 	var exists int
 	err := target.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM portal WHERE id = $1 AND receiver = $2)`, id, receiver).Scan(&exists)
@@ -167,7 +162,7 @@ func ghostExistsInTarget(ctx context.Context, target *dbutil.Database, id string
 // reaction's target message row can have been skipped by migrateMessages
 // for its own reasons (missing sender, missing portal, ...); without this
 // check, inserting the reaction would fail the FK and abort the entire
-// migration instead of being treated as an orphan reaction (schema map §3).
+// migration instead of being treated as an orphan reaction.
 func messagePartExistsInTarget(ctx context.Context, target *dbutil.Database, id, partID, receiver string) (bool, error) {
 	var exists int
 	err := target.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM message WHERE id = $1 AND part_id = $2 AND room_receiver = $3)`, id, partID, receiver).Scan(&exists)
@@ -179,7 +174,7 @@ func messagePartExistsInTarget(ctx context.Context, target *dbutil.Database, id,
 
 // migrateMessages reads every row of the source Python `message` table and
 // writes the corresponding Go `message` row(s) -- one Go row per Python row,
-// since Go's `message` table is per-PART -- per schema map §2.
+// since Go's `message` table is per-PART.
 func migrateMessages(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
 	version, versionKnown, err := ReadSchemaVersion(ctx, deps.Source)
 	if err != nil {
@@ -220,8 +215,8 @@ func migrateMessages(ctx context.Context, deps *Deps, opts Options) (int, []stri
 			// sender_id/sender_mxid have no fallback: Go's message.sender_id
 			// is NOT NULL with an FK to ghost(id), so a row with no known
 			// sender can never be written correctly -- warn and skip just
-			// this row (schema map §2's gc_sender column is nullable; this
-			// happens for pre-v02 rows that predate the column).
+			// this row (the gc_sender column is nullable; this happens for
+			// pre-v02 rows that predate the column).
 			if !m.GCSender.Valid || m.GCSender.String == "" {
 				warnings = append(warnings, fmt.Sprintf("message (gcid=%q, part_id=%q): NULL/empty gc_sender, skipping row (no ghost to attribute sender to)", key.gcid, partID))
 				continue
@@ -239,9 +234,9 @@ func migrateMessages(ctx context.Context, deps *Deps, opts Options) (int, []stri
 				continue
 			}
 
-			// sender_mxid: m7-migration-preflight.md item 2 -- use the
-			// bridge's OWN FormatGhostMXID (wired through Deps by Task 4),
-			// never a reimplementation of its username template.
+			// sender_mxid: use the bridge's OWN FormatGhostMXID (wired
+			// through Deps), never a reimplementation of its username
+			// template.
 			senderMXID := deps.FormatGhostMXID(senderID)
 
 			tsMicros := NormalizeTimestampMicros(m.Timestamp, version, versionKnown)

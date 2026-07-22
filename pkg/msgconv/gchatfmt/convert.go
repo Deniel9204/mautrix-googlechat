@@ -1,9 +1,7 @@
 // Package gchatfmt converts a Google Chat message's text + annotations into
-// Matrix HTML. It is a port of
-// _reference/googlechat-python/mautrix_googlechat/formatter/from_googlechat.py,
-// structurally adopted from
+// Matrix HTML. It is structurally adopted from
 // _reference/googlechat-megabridge/pkg/msgconv/gchatfmt/{convert,utils}.go
-// with two fixes required before adoption (docs/research/08d-megabridge-msgconv.md):
+// with two fixes required before adoption:
 //
 //   - B1 (security): megabridge built <a href='%s'> with the raw,
 //     unescaped Google-Chat-controlled URL/mxid string, so a URL such as
@@ -18,74 +16,63 @@
 //     leaves real gaiaID -> ghost/user MXID resolution to the caller (M3
 //     Task 3); this task only wires the seam and the nil-safe fallback.
 //
-// # Behavior inventory (from_googlechat.py, read in full)
+// # Behavior inventory
 //
-//   - googlechat_to_matrix (:29-57): body = text_body verbatim; iff
-//     evt.annotations is non-empty, format=HTML and formatted_body is
-//     computed from annotations. **Bug NOT ported**: line 45 tests
-//     `if annotations:`, the module-level `from __future__ import
-//     annotations` feature object (always truthy) instead of
-//     `evt.annotations` -- so the Python bridge always takes the
-//     HTML-formatting branch, even for annotation-free messages. Here the
-//     gate is len(annotations) > 0, matching the evidently-intended
-//     behavior (also documented at pkg/msgconv/from-gchat.go and the
-//     test TestToMatrix_NoAnnotationsStaysPlain, pkg/msgconv/from-gchat_test.go).
-//   - Once formatted, Python replaces literal "\n" with "<br/>" in the
-//     final HTML string (:52) -- a blanket string replace done AFTER
-//     rendering, not HTML/context aware (e.g. it would also rewrite a
-//     newline that happened to land inside a <pre><code> block). Ported
-//     verbatim in Parse below for fidelity; not "fixed" because the task
-//     only calls out B1/B2.
-//   - _annotation_key (:69-80) is defined but never called anywhere in the
-//     Python codebase (grep-verified against the full _reference tree) --
-//     dead code, not ported.
-//   - _normalize_annotations (:84-113): sorts by (start_index asc, length
-//     desc), then for each annotation in turn treats it as the "current"
-//     span and walks forward through the remaining (already-sorted)
+//   - body = text_body verbatim; iff annotations is non-empty, format=HTML
+//     and formatted_body is computed from annotations. The gate here is
+//     deliberately len(annotations) > 0: a message with zero annotations
+//     must never get an HTML formatted_body (also documented at
+//     pkg/msgconv/from-gchat.go and the test
+//     TestToMatrix_NoAnnotationsStaysPlain, pkg/msgconv/from-gchat_test.go).
+//   - Once formatted, literal "\n" is replaced with "<br/>" in the final
+//     HTML string -- a blanket string replace done AFTER rendering, not
+//     HTML/context aware (e.g. it would also rewrite a newline that happened
+//     to land inside a <pre><code> block). Done in Parse below; deliberately
+//     not "fixed" here.
+//   - The overlapping-span normalization algorithm: sort by (start_index
+//     asc, length desc), then for each annotation in turn treat it as the
+//     "current" span and walk forward through the remaining (already-sorted)
 //     annotations: any subsequent annotation that starts before the
 //     current span's end but extends past it is split in place -- the
 //     original is truncated to end exactly at the current span's end, and
 //     a copy covering the remainder is queued for insertion once a
-//     non-overlapping annotation (or the end of the list) is reached. This
-//     is the overlapping-span normalization algorithm; ported field-for-
-//     field into normalizeAnnotations below (see its doc comment for the
-//     index arithmetic proof). Unlike both Python and megabridge, this
-//     port never mutates the caller's annotation slice/objects -- Parse
-//     deep-clones every annotation before normalizing (megabridge's
-//     convert.go both sorts AND truncates the caller's own
-//     *proto.Annotation objects in place, flagged in 08d §1.3 as a
-//     "footgun" since msgconv re-iterates the same slice for attachments
-//     in a later milestone).
-//   - _gc_annotations_to_matrix (:116-201): the recursive interval
-//     renderer. Ported as renderAnnotations below with the same recursion
-//     shape: for annotation i (after chip-render + bounds filtering),
-//     emit any plain gap text since last_offset, recurse into the
-//     annotation's own span with annotations[i+1:] as the candidate
-//     nested set (this is what lets BOLD-containing-ITALIC render as
-//     nested tags), then wrap the recursed text per annotation type.
-//     chip_render_type != DO_NOT_RENDER annotations (link/upload preview
-//     chips) are skipped entirely (`continue`) -- they render separately,
-//     M5. relative_offset < last_offset annotations (fully consumed by a
-//     wider sibling already rendered) are also skipped. The
-//     `assert start+length <= offset+length` becomes a returned error here
-//     (Go must not panic on malformed/out-of-bounds server data).
-//   - Annotation type dispatch (:153-197): FormatMetadata HIDDEN (drop
-//     text), BOLD/ITALIC/UNDERLINE/STRIKE/MONOSPACE/MONOSPACE_BLOCK/
+//     non-overlapping annotation (or the end of the list) is reached.
+//     Implemented in normalizeAnnotations below (see its doc comment for the
+//     index arithmetic proof). Unlike megabridge, this code never mutates
+//     the caller's annotation slice/objects -- Parse deep-clones every
+//     annotation before normalizing (megabridge's convert.go both sorts AND
+//     truncates the caller's own *proto.Annotation objects in place, a
+//     "footgun" since msgconv re-iterates the same slice for attachments in
+//     a later milestone).
+//   - renderAnnotations below is the recursive interval renderer: for
+//     annotation i (after chip-render + bounds filtering), emit any plain
+//     gap text since last_offset, recurse into the annotation's own span
+//     with annotations[i+1:] as the candidate nested set (this is what lets
+//     BOLD-containing-ITALIC render as nested tags), then wrap the recursed
+//     text per annotation type. chip_render_type != DO_NOT_RENDER
+//     annotations (link/upload preview chips) are skipped entirely
+//     (`continue`) -- they render separately. relative_offset <
+//     last_offset annotations (fully consumed by a wider sibling already
+//     rendered) are also skipped. The start+length <= offset+length bounds
+//     check returns an error here rather than panicking on malformed/out-of-
+//     bounds server data.
+//   - Annotation type dispatch: FormatMetadata HIDDEN (drop text),
+//     BOLD/ITALIC/UNDERLINE/STRIKE/MONOSPACE/MONOSPACE_BLOCK/
 //     BULLETED_LIST/BULLETED_LIST_ITEM (wrap), FONT_COLOR
 //     ((rgb+2^31)&0xFFFFFF -> hex), anything else format-typed (SOURCE_CODE,
 //     CLIENT_HIDDEN, TYPE_UNSPECIFIED) -> skip_entity (render as plain,
 //     unwrapped text, still recursing into nested annotations).
 //     url_metadata -> <a href>. user_mention_metadata: MENTION_ALL -> the
-//     literal "@room"; otherwise a mention pill (ported behavior: pill to
-//     the resolved MXID with the resolved display name; :190-194's
-//     Matrix-room-member-displayname override has no equivalent here since
-//     that requires a live state store lookup outside msgconv's layering --
-//     MentionResolver is the intended seam for M3 Task 3 to supply
-//     whatever name it prefers). No metadata at all -> skip_entity.
-//   - FONT_COLOR: rgb_int + 2**31 in Python is exact-precision integer
-//     arithmetic (never overflows); ported here as int64 arithmetic before
-//     masking to avoid Go's int32 add overflowing the literal 1<<31 (which
-//     does not even fit in a signed int32 constant).
+//     literal "@room"; otherwise a mention pill (pill to the resolved MXID
+//     with the resolved display name; there is no Matrix-room-member-
+//     displayname override here since that requires a live state store
+//     lookup outside msgconv's layering -- MentionResolver is the intended
+//     seam for the caller to supply whatever name it prefers). No metadata
+//     at all -> skip_entity.
+//   - FONT_COLOR: rgb_int + 2**31 must be exact-precision integer arithmetic
+//     that never overflows; done here as int64 arithmetic before masking to
+//     avoid Go's int32 add overflowing the literal 1<<31 (which does not
+//     even fit in a signed int32 constant).
 package gchatfmt
 
 import (
@@ -145,19 +132,16 @@ func (pm *ParsedMentions) addUser(mxid id.UserID) {
 // Returns (plainBody, htmlBody, mentions).
 //
 // body is always text, unmodified -- see the package doc comment's note on
-// googlechat_to_matrix; unlike Python (which re-derives content.body from
-// the rendered HTML via mautrix.util.formatter.parse_html once
-// formatted_body is set), this package leaves plain-body derivation to the
-// caller/M2's existing convention (pkg/msgconv/from-gchat.go: "text_body
-// taken verbatim"). That HTML round-trip is a nice-to-have plaintext
-// fallback improvement, not a fidelity requirement, and pulling in an
-// HTML->text engine here would add a dependency this package does not
-// otherwise need.
+// body derivation above; this package leaves plain-body derivation to the
+// caller's existing convention (pkg/msgconv/from-gchat.go: "text_body
+// taken verbatim") rather than re-deriving content.body from the rendered
+// HTML. That HTML round-trip is a nice-to-have plaintext fallback
+// improvement, not a fidelity requirement, and pulling in an HTML->text
+// engine here would add a dependency this package does not otherwise need.
 //
-// html is "" whenever annotations is empty -- this is the fix for the
-// Python always-truthy-annotations bug documented in the package comment
-// and docs/research/07-gap-analysis.md §1.2/§5 risk #5: Google Chat
-// messages with zero annotations must never get an HTML formatted_body.
+// html is "" whenever annotations is empty -- the always-truthy-annotations
+// hazard documented in the package comment: Google Chat messages with zero
+// annotations must never get an HTML formatted_body.
 //
 // mentions (ParsedMentions) is computed by collectMentions, a DELIBERATELY
 // SEPARATE deterministic pass over the annotations, run BEFORE the recursive
@@ -195,9 +179,8 @@ func Parse(ctx context.Context, text string, annotations []*pb.Annotation, menti
 		return body, "", mentions
 	}
 
-	// from_googlechat.py:52 -- literal newlines become <br/> in the final
-	// HTML string. A blanket post-hoc replace, not HTML-context-aware;
-	// ported as-is (see package doc comment).
+	// literal newlines become <br/> in the final HTML string. A blanket
+	// post-hoc replace, not HTML-context-aware (see package doc comment).
 	html = strings.ReplaceAll(rendered, "\n", "<br/>")
 	return body, html, mentions
 }
@@ -211,8 +194,8 @@ func Parse(ctx context.Context, text string, annotations []*pb.Annotation, menti
 // fields: a malformed/adversarial annotation with Length near int32 max would
 // otherwise overflow a naive int32 sum and wrap to a value that spuriously
 // passes the check, then panics as an out-of-range slice bound downstream.
-// Python's equivalent assert (from_googlechat.py:137) can't overflow since
-// Python ints are arbitrary precision; this is Go's equivalent safety net.
+// The equivalent bounds check in an arbitrary-precision-integer language
+// can't overflow; int64 here is Go's equivalent safety net.
 func spanWithinParent(start, length, offset, parentLen int32) bool {
 	if start < offset || length < 0 {
 		return false
@@ -263,7 +246,7 @@ func collectMentions(units []uint16, annotations []*pb.Annotation, mention Menti
 // freely sort and mutate (StartIndex/Length truncation, split-copy
 // insertion) without touching the caller's slice or the *pb.Annotation
 // objects within it. See the package doc comment for why this deviates
-// from both Python and megabridge (which both mutate in place).
+// from megabridge (which mutates in place).
 func cloneAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 	cloned := make([]*pb.Annotation, len(annotations))
 	for i, a := range annotations {
@@ -272,31 +255,23 @@ func cloneAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 	return cloned
 }
 
-// normalizeAnnotations is a field-for-field port of from_googlechat.py's
-// _normalize_annotations (see the package doc comment for the algorithm
-// walkthrough). It mutates and reorders the annotations slice it is given
-// in place -- callers that don't own the slice must clone first (Parse
-// does, via cloneAnnotations).
+// normalizeAnnotations implements the overlapping-span normalization
+// algorithm (see the package doc comment for the walkthrough). It mutates
+// and reorders the annotations slice it is given in place -- callers that
+// don't own the slice must clone first (Parse does, via cloneAnnotations).
 //
-// Index-arithmetic proof that this Go port matches Python exactly:
-// Python's `i += 1 + i2; annotations[i:i] = insert_annotations` inserts
-// insert_annotations immediately before the first annotation found to
-// start at/after the current span's end (annotations[old_i+1+i2] in the
-// pre-insertion list). The Go version computes the same split point
-// (i+1+i2, with i still holding its pre-branch value at that point) and
-// rebuilds the slice as annotations[:i+1+i2] ++ insertAnnotations ++
-// annotations[i+1+i2:] before advancing i to i+1+i2 -- the same insertion
-// position, expressed as three concatenated slices instead of Python's
-// list splice. When the inner loop exhausts without ever finding a
-// non-overlapping annotation (Python's for/else `else: i += 1`), Go's
-// `if !foundBreak { i++ }` matches, leaving insertAnnotations queued for
-// the next outer iteration exactly as Python does. Both loops terminate
-// with i == len(annotations) (each branch either sets i to a valid
-// in-bounds index and continues, or increments by exactly 1 until the
-// while/for condition fails), so Python's final `annotations[i:i] =
-// insert_annotations` (insert at the list's own length, i.e. append) is
-// equivalent to Go's final unconditional append of any still-queued
-// insertAnnotations.
+// Index-arithmetic notes: the split point i+1+i2 (with i still holding its
+// pre-branch value at that point) is where insertAnnotations is spliced in --
+// immediately before the first annotation found to start at/after the current
+// span's end. The slice is rebuilt as annotations[:i+1+i2] ++
+// insertAnnotations ++ annotations[i+1+i2:], then i advances to i+1+i2. When
+// the inner loop exhausts without ever finding a non-overlapping annotation,
+// `if !foundBreak { i++ }` leaves insertAnnotations queued for the next outer
+// iteration. Both loops terminate with i == len(annotations) (each branch
+// either sets i to a valid in-bounds index and continues, or increments by
+// exactly 1 until the loop condition fails), so the final unconditional
+// append of any still-queued insertAnnotations lands them at the slice's own
+// length.
 func normalizeAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 	if len(annotations) == 0 {
 		return annotations
@@ -314,14 +289,12 @@ func normalizeAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 	var insertAnnotations []*pb.Annotation
 	for i < len(annotations) {
 		cur := annotations[i]
-		// int64: StartIndex/Length are wire-controlled int32 fields: Python's
-		// equivalent addition (from_googlechat.py:93) is on arbitrary-
-		// precision ints and can never overflow. A malformed/adversarial
-		// annotation (e.g. Length near int32 max) would silently wrap an
-		// int32 sum, producing a bogus `end` and wrong (not just
-		// Python-divergent) truncation decisions below -- see the identical
-		// concern in renderAnnotations's bounds check, which is the actual
-		// panic backstop for any annotation that reaches it un-truncated.
+		// int64: StartIndex/Length are wire-controlled int32 fields. A
+		// malformed/adversarial annotation (e.g. Length near int32 max) would
+		// silently wrap an int32 sum, producing a bogus `end` and wrong
+		// truncation decisions below -- see the identical concern in
+		// renderAnnotations's bounds check, which is the actual panic backstop
+		// for any annotation that reaches it un-truncated.
 		end := int64(cur.GetStartIndex()) + int64(cur.GetLength())
 
 		foundBreak := false
@@ -353,8 +326,7 @@ func normalizeAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 				// -- so a `cur` large enough to make this narrowing wrap
 				// is guaranteed to be rejected first. Do not weaken or
 				// reorder that check without re-deriving this safety
-				// argument (see the port audit in
-				// .superpowers/sdd/m3-task-1-report.md).
+				// argument.
 				tail := ggproto.Clone(annotation).(*pb.Annotation)
 				truncatedLength := int32(end - start)
 				annotation.Length = &truncatedLength
@@ -376,14 +348,12 @@ func normalizeAnnotations(annotations []*pb.Annotation) []*pb.Annotation {
 	return annotations
 }
 
-// renderAnnotations is the recursive interval renderer, a port of
-// _gc_annotations_to_matrix (see package doc comment). text is the UTF-16
-// code-unit slice covering exactly [offset, offset+length) of the overall
-// message; annotations is the candidate set for this recursion level
-// (normalized once at the top level, and re-normalized -- a no-op on an
-// already-sorted-and-split slice, matching Python's re-normalize-every-call
-// behavior -- at each nested level since the candidate set shrinks each
-// recursion).
+// renderAnnotations is the recursive interval renderer (see package doc
+// comment). text is the UTF-16 code-unit slice covering exactly [offset,
+// offset+length) of the overall message; annotations is the candidate set for
+// this recursion level (normalized once at the top level, and re-normalized --
+// a no-op on an already-sorted-and-split slice -- at each nested level since
+// the candidate set shrinks each recursion).
 func renderAnnotations(
 	mention MentionResolver,
 	text []uint16,
@@ -426,10 +396,9 @@ func renderAnnotations(
 		if !spanWithinParent(start, annLen, offset, length) {
 			// Overlapping/out-of-bounds annotations should have been
 			// resolved by normalizeAnnotations; malformed server data
-			// (or a bug) could still violate this. Python asserts here;
-			// Go must not panic on untrusted input, so this degrades to
-			// an error that Parse catches and falls back to plain text
-			// for the whole message.
+			// (or a bug) could still violate this. Go must not panic on
+			// untrusted input, so this degrades to an error that Parse
+			// catches and falls back to plain text for the whole message.
 			annEnd := int64(start) + int64(annLen)
 			return "", fmt.Errorf("gchatfmt: annotation [%d,%d) out of parent bounds [%d,%d)", start, annEnd, offset, offset+length)
 		}
@@ -461,8 +430,7 @@ func renderAnnotations(
 
 // renderOne dispatches a single annotation to its HTML rendering (or
 // records that it should be skipped, i.e. rendered as unwrapped plain
-// text). Returns skipEntity, matching from_googlechat.py's skip_entity
-// local.
+// text). Returns skipEntity.
 func renderOne(out *strings.Builder, mention MentionResolver, annotation *pb.Annotation, entityText string) (skipEntity bool) {
 	switch {
 	case annotation.GetFormatMetadata() != nil:
@@ -494,11 +462,10 @@ func renderFormat(out *strings.Builder, fm *pb.FormatMetadata, entityText string
 	case pb.FormatMetadata_MONOSPACE_BLOCK:
 		fmt.Fprintf(out, "<pre><code>%s</code></pre>", entityText)
 	case pb.FormatMetadata_FONT_COLOR:
-		// from_googlechat.py:171-173 -- rgb_int + 2**31 is Python
-		// arbitrary-precision arithmetic that never overflows; done here
-		// in int64 (an int32 add of the literal 1<<31 doesn't even
-		// compile -- 2147483648 overflows int32) before masking to the
-		// low 24 bits.
+		// rgb_int + 2**31 must be exact-precision arithmetic that never
+		// overflows; done here in int64 (an int32 add of the literal 1<<31
+		// doesn't even compile -- 2147483648 overflows int32) before masking
+		// to the low 24 bits.
 		rgb := int64(fm.GetFontColor())
 		color := (rgb + (1 << 31)) & 0xFFFFFF
 		fmt.Fprintf(out, `<span data-mx-color="#%06x">%s</span>`, color, entityText)
@@ -507,8 +474,8 @@ func renderFormat(out *strings.Builder, fm *pb.FormatMetadata, entityText string
 	case pb.FormatMetadata_BULLETED_LIST:
 		fmt.Fprintf(out, "<ul>%s</ul>", entityText)
 	default:
-		// SOURCE_CODE, CLIENT_HIDDEN, TYPE_UNSPECIFIED: Python has no
-		// case for these either -- render as plain, unwrapped text.
+		// SOURCE_CODE, CLIENT_HIDDEN, TYPE_UNSPECIFIED: no case for these --
+		// render as plain, unwrapped text.
 		return true
 	}
 	return false
@@ -527,7 +494,7 @@ func renderFormat(out *strings.Builder, fm *pb.FormatMetadata, entityText string
 // here. Escaping (B1) only stops the value from breaking OUT of the href
 // attribute; it does nothing to stop a syntactically well-formed
 // javascript:/data: URL from becoming a live, clickable link. This is that
-// scheme-side sibling fix (M7 Task 3 item 1).
+// scheme-side sibling fix.
 var dangerousURLSchemes = []string{"javascript:", "data:"}
 
 // isDangerousURLScheme reports whether href's scheme matches one of
@@ -542,8 +509,8 @@ var dangerousURLSchemes = []string{"javascript:", "data:"}
 //     from input"), which runs BEFORE scheme parsing -- so the textbook
 //     filter bypass "java&#9;script:alert(1)" (an embedded tab, or CR/LF)
 //     still parses as, and executes as, javascript: in Chromium/Firefox/
-//     WebKit. A leading-only trim (an earlier version of this function, and
-//     the specific gap the M7 Task 3 port audit caught) misses exactly this.
+//     WebKit. A leading-only trim (an earlier version of this function)
+//     misses exactly this.
 //   - Then any leading C0-control-or-space is stripped (the parser's
 //     scheme-start-state leading-trim), catching "  javascript:..." /
 //     "\njavascript:...".
@@ -599,12 +566,11 @@ func renderURL(out *strings.Builder, urlMeta *pb.UrlMetadata, entityText string)
 
 // renderMention renders a user_mention_metadata annotation. MENTION_ALL
 // (Google Chat's "@all") always renders as the literal "@room", matching
-// Matrix's room-wide mention convention (from_googlechat.py:184-185).
+// Matrix's room-wide mention convention.
 //
-// For a specific-user mention (fix for B2): the resolver seam this task
-// wires up. mention may be nil (M3 Task 1 has no real resolver yet -- Task
-// 3 provides one); when nil, or when it returns ok=false, no pill is
-// rendered:
+// For a specific-user mention (fix for B2): the resolver seam. mention may
+// be nil (no real resolver may be wired up yet); when nil, or when it
+// returns ok=false, no pill is rendered:
 //   - if the resolver still supplied a name (ok=false but name != ""), that
 //     name is used as the plain-text rendering (HTML-escaped);
 //   - otherwise entityText -- the original annotation text already present
@@ -615,9 +581,8 @@ func renderURL(out *strings.Builder, urlMeta *pb.UrlMetadata, entityText string)
 // When the resolver returns ok=true, a pill (<a href="https://matrix.to/#/...">)
 // is rendered; the label prefers the resolved display name over entityText
 // when one is supplied. Both the mxid (via its matrix.to URL) and the name
-// are attribute-escaped/text-escaped respectively -- unlike
-// from_googlechat.py:195, which interpolates a Matrix room member's
-// displayname into the href-adjacent text completely unescaped.
+// are attribute-escaped/text-escaped respectively, so a mention target can
+// never inject markup into the rendered event.
 func renderMention(out *strings.Builder, mention MentionResolver, m *pb.UserMentionMetadata, entityText string) {
 	if m.GetType() == pb.UserMentionMetadata_MENTION_ALL {
 		out.WriteString("@room")

@@ -8,9 +8,8 @@ import (
 )
 
 // RequiredCookies are the cookies the login UI must collect, on domain
-// chat.google.com (maugclib/http_utils.py:39-44's Cookies NamedTuple:
-// compass/ssid/sid/osid/hsid, installed uppercased as
-// COMPASS/SSID/SID/OSID/HSID -- http_utils.py:64-66).
+// chat.google.com: compass/ssid/sid/osid/hsid, installed uppercased as
+// COMPASS/SSID/SID/OSID/HSID.
 var RequiredCookies = []string{"COMPASS", "SSID", "SID", "OSID", "HSID"}
 
 // CookieIsDomainSpecific reports whether a required cookie's NAME is also used
@@ -19,11 +18,10 @@ var RequiredCookies = []string{"COMPASS", "SSID", "SID", "OSID", "HSID"}
 // and HSID exist only under the parent .google.com and must NOT be pinned to
 // chat.google.com (hinting the wrong domain would make the extension miss or
 // grab the wrong value). Copied verbatim from the cleared reference
-// googlechat-megabridge/pkg/gchatmeow/cookies.go's CookieIsDomainSpecific
-// (documented in docs/research/08b-megabridge-connector.md §1.3). This is a
-// login-UI extraction hint only -- it is unrelated to the outbound cookie
-// JAR, which installs all 5 flat under chat.google.com (doc 01 §1.2,
-// cookieJar's doc comment).
+// googlechat-megabridge/pkg/gchatmeow/cookies.go's CookieIsDomainSpecific.
+// This is a login-UI extraction hint only -- it is unrelated to the
+// outbound cookie JAR, which installs all 5 flat under chat.google.com
+// (see cookieJar's doc comment).
 func CookieIsDomainSpecific(cookieName string) bool {
 	return cookieName == "COMPASS" || cookieName == "OSID"
 }
@@ -32,11 +30,9 @@ func CookieIsDomainSpecific(cookieName string) bool {
 //
 // Unlike net/http/cookiejar.Jar, it does NOT do RFC 6265 domain/path
 // scoping per cookie: the bridge only ever talks to Google's *.google.com
-// family, and Python's own jar is effectively flat too for the purposes
-// this port needs (a SimpleCookie keyed by name; all 5 auth cookies are
-// installed on the single domain chat.google.com,
-// maugclib/http_utils.py:63-67, and read back purely by name,
-// http_utils.py:87-92). Host-based access control lives one level up, in
+// family, and a flat store is all this port needs -- all 5 auth cookies are
+// installed on the single domain chat.google.com and read back purely by
+// name. Host-based access control lives one level up, in
 // Session.allowedHostSuffixes -- it gates whether the jar's cookies are
 // attached to / absorbed from a given request at all, not which subset of
 // cookies apply to which sub-path.
@@ -45,11 +41,9 @@ func CookieIsDomainSpecific(cookieName string) bool {
 // net/http quotes a cookie value that contains a space or comma
 // (net/http's sanitizeCookieValue) to keep the header RFC-syntactically
 // valid, but Google's server does not accept that -- it wants the raw
-// value verbatim, same as Python's aiohttp.CookieJar(quote_cookie=False)
-// (maugclib/http_utils.py:61-62, referencing hangups issue #498). To
-// guarantee this, the jar is never wired into http.Client.Jar: it is not
-// an http.CookieJar at all, and the Cookie header is built by hand in
-// Session.buildRequest.
+// value verbatim. To guarantee this, the jar is
+// never wired into http.Client.Jar: it is not an http.CookieJar at all,
+// and the Cookie header is built by hand in Session.buildRequest.
 type cookieJar struct {
 	mu      sync.RWMutex
 	cookies map[string]string // name (as stored) -> value
@@ -67,9 +61,8 @@ func (j *cookieJar) set(name, value string) {
 }
 
 // absorb ingests every Set-Cookie the response carried, capturing rotation
-// (e.g. Google issuing a new SID after login, maugclib channel.py:267-268
-// comment; doc 01 §1.2: "Google rotates cookies over time ... the jar
-// picks up any Set-Cookie responses").
+// (e.g. Google issuing a new SID after login: Google rotates cookies over
+// time, so the jar picks up any Set-Cookie responses).
 func (j *cookieJar) absorb(resp *http.Response) {
 	for _, c := range resp.Cookies() {
 		j.set(c.Name, c.Value)
@@ -100,8 +93,7 @@ func (j *cookieJar) header() string {
 
 // snapshot returns the current value of each name in names that is present
 // in the jar; missing ones are simply omitted from the result. Used by
-// Session.Cookies() to read back RequiredCookies post-rotation
-// (mirrors Session.get_auth_cookies, http_utils.py:87-92).
+// Session.Cookies() to read back RequiredCookies post-rotation.
 func (j *cookieJar) snapshot(names []string) map[string]string {
 	j.mu.RLock()
 	defer j.mu.RUnlock()

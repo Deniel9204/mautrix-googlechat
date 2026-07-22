@@ -1,33 +1,31 @@
 // Package pblite implements the pblite (a.k.a. protojson-array) codec used
-// for Google Chat's realtime webchannel stream (docs/research/02-wire-protocol.md
-// §6.2). A pblite message is a JSON array where array index i (0-based)
-// holds field number i+1; missing fields are null-padded. High field
-// numbers may instead appear in a trailing JSON *object* keyed by field
-// number ("{fieldNumber: value}", e.g. Message.reply_to = field 37) -- a
-// sparse extension the server actually uses.
+// for Google Chat's realtime webchannel stream. A pblite message is a JSON
+// array where array index i (0-based) holds field number i+1; missing
+// fields are null-padded. High field numbers may instead appear in a
+// trailing JSON *object* keyed by field number ("{fieldNumber: value}",
+// e.g. Message.reply_to = field 37) -- a sparse extension the server
+// actually uses.
 //
-// Decoding is permissive by design (mirroring maugclib/pblite.py): unknown
-// field numbers, null values, and values that don't match the field's
-// expected shape are debug-logged and skipped. Only a structural failure --
+// Decoding is permissive by design: unknown field numbers, null values,
+// and values that don't match the field's expected shape are debug-logged
+// and skipped. Only a structural failure --
 // the top-level payload not being a JSON array -- is a hard error. Google
 // adds/changes wire fields often; one bad or new field must never take down
 // decoding of the rest of the message.
 //
 // # Provenance
 //
-// Ported from _reference/googlechat-python/maugclib/pblite.py, with the
-// protoreflect field-walk structure adapted from go.mau.fi/util/pblite (the
-// package gmessages and googlechat-megabridge both import verbatim as
-// `go.mau.fi/util/pblite`; despite the task brief's reference path of
-// "gmessages/libgm/pblite", that decode logic was upstreamed there and
+// The protoreflect field-walk structure is adapted from
+// go.mau.fi/util/pblite (the package gmessages and googlechat-megabridge
+// both import verbatim as
+// `go.mau.fi/util/pblite`; that decode logic was upstreamed there and
 // gmessages itself only keeps a debug CLI around it). That upstream core --
 // walk msg.ProtoReflect().Descriptor().Fields(), map field number to array
 // index, recurse for MessageKind, string-or-number for 64-bit kinds,
 // base64 for BytesKind -- is the closest prior art and is reused here.
 //
-// It is NOT imported directly, because docs/research/08c documents two
-// defects in how megabridge relies on it that this package must not
-// replicate:
+// It is NOT imported directly, because of two defects in how megabridge
+// relies on it that this package must not replicate:
 //   - non-permissive decode: go.mau.fi/util/pblite.Unmarshal aborts the
 //     entire message on the first type-mismatched field (deserialize.go
 //     propagates every per-field error up through Unmarshal), so on the
@@ -126,8 +124,8 @@ func splitTrailingDict(arr []any) (positional []any, dict map[string]any) {
 // ascending field-number order. This ordering is what makes oneof
 // last-set-wins deterministic -- pblite has no special oneof encoding, so
 // "last" means "processed last" here, mirroring the array's natural
-// low-to-high field order (maugclib relies on the same plain
-// setattr-in-order behavior, pblite.py:104-125).
+// low-to-high field order (the format relies on plain in-order field
+// assignment).
 func buildFieldEntries(arr []any) []fieldEntry {
 	positional, dict := splitTrailingDict(arr)
 	entries := make([]fieldEntry, 0, len(positional)+len(dict))
@@ -196,11 +194,8 @@ func decodeSingularField(m protoreflect.Message, fd protoreflect.FieldDescriptor
 	m.Set(fd, v)
 }
 
-// decodeListField decodes a repeated field. Deliberate deviation from
-// maugclib: Python's _decode_repeated_field (pblite.py:48-70) discards the
-// *entire* list -- including elements already decoded successfully -- if
-// any single element fails to decode (ClearField on the caught exception).
-// This codec instead skips only the bad element and keeps the rest, per
+// decodeListField decodes a repeated field. If a single element fails to
+// decode, this codec skips only the bad element and keeps the rest, per
 // the stricter "undecodable single values are skipped" contract mandated
 // for this port: one malformed element in an otherwise-good repeated field
 // must not throw away the whole field.
@@ -327,7 +322,7 @@ func decodeValue(value any, ref protoreflect.Message, insideList protoreflect.Li
 // stringifies 64-bit values it can't represent exactly as JS numbers;
 // 32-bit fields are seen both ways in practice, so both are accepted for
 // all integer kinds). Falls back to a float parse for the rare non-integer
-// literal (e.g. "3.0"), matching Python's int(json.loads(...)) leniency.
+// literal (e.g. "3.0").
 func toInt64(value any) (int64, bool) {
 	switch v := value.(type) {
 	case string:
@@ -401,9 +396,9 @@ func logSkippedField(fd protoreflect.FieldDescriptor, value any) {
 		Msg("pblite: skipping undecodable field value")
 }
 
-// logUnknownField mirrors maugclib's debug-log gate (pblite.py:114): only
-// log when the value is non-trivial, so routine null-padding-equivalent
-// noise ("", 0, [], nil) from fields we don't know about doesn't spam logs.
+// logUnknownField gates the debug log: only log when the value is
+// non-trivial, so routine null-padding-equivalent noise ("", 0, [], nil)
+// from fields we don't know about doesn't spam logs.
 func logUnknownField(desc protoreflect.MessageDescriptor, fieldNumber int, value any) {
 	if isTrivialValue(value) {
 		return
@@ -425,7 +420,7 @@ func isTrivialValue(v any) bool {
 		f, err := t.Float64()
 		return err == nil && f == 0
 	case bool:
-		// Python: `False == 0`, so `False in [[], "", 0]` is true.
+		// false counts as trivial, the same as the numeric zero.
 		return !t
 	case []any:
 		return len(t) == 0
@@ -437,9 +432,8 @@ func isTrivialValue(v any) bool {
 // --- encode ---
 
 // encodeMessage encodes every populated field of m into a dense,
-// null-padded slice sized to the highest populated field number (matching
-// maugclib's encoder, pblite.py:154-176, which pads only up to the fields
-// actually present via ListFields()).
+// null-padded slice sized to the highest populated field number (padding
+// only up to the fields actually present, not the full schema).
 func encodeMessage(m protoreflect.Message) ([]any, error) {
 	maxFieldNumber := 0
 	m.Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {

@@ -1,13 +1,12 @@
 package gchatmeow
 
-// BrowserChannel long-poll client, ported from
-// _reference/googlechat-python/maugclib/channel.py (the authoritative spec;
-// docs/research/01 §2, docs/research/07 risk #2). This is the single most
-// fidelity-critical module: subtle bugs cause silent event loss.
+// BrowserChannel long-poll client implementing Google's webchannel protocol.
+// This is the single most fidelity-critical module: subtle bugs cause silent
+// event loss.
 //
 // Deliberate divergences from the second reference
 // (_reference/googlechat-megabridge/pkg/gchatmeow/channel.go), whose four
-// documented defects (docs/research/08c) this port must NOT reproduce:
+// documented defects this port must NOT reproduce:
 //   1. megabridge set a 90s http.Client.Timeout that killed every long poll;
 //      here the poll uses Session.FetchRaw (pollClient.Timeout == 0) and we
 //      own cancellation via a 60s read-idle watchdog (not a request deadline).
@@ -21,8 +20,8 @@ package gchatmeow
 //      returns ErrChannelLifetimeExpired.
 //
 // OnReceiveArray is invoked SYNCHRONOUSLY and IN ORDER from Listen's own
-// goroutine (channel.py:487-495 processes each inner array in a plain loop);
-// megabridge's unordered Event fan-out is a defect we avoid.
+// goroutine (each inner array is processed in a plain loop); megabridge's
+// unordered Event fan-out is a defect we avoid.
 
 import (
 	"context"
@@ -49,31 +48,28 @@ import (
 )
 
 const (
-	// channelURLBase mirrors CHANNEL_URL_BASE (channel.py:40).
+	// channelURLBase is the webchannel endpoint base URL.
 	channelURLBase = "https://chat.google.com/u/0/webchannel/"
 
-	// pushTimeout mirrors PUSH_TIMEOUT = 60 (channel.py:41-43): long polls
-	// heartbeat every 15-30s, so 60s with no bytes at all means the
-	// connection is dead. Implemented as a resettable READ-IDLE watchdog
-	// wrapping resp.Body reads (channel.py:447-449 wraps each read in
-	// async_timeout.timeout(PUSH_TIMEOUT)), NOT a whole-request deadline.
+	// pushTimeout is 60s: long polls heartbeat every 15-30s, so 60s with no
+	// bytes at all means the connection is dead. Implemented as a resettable
+	// READ-IDLE watchdog wrapping each resp.Body read individually, NOT a
+	// whole-request deadline.
 	pushTimeout = 60 * time.Second
 
-	// maxReadBytes mirrors MAX_READ_BYTES = 1 MiB (channel.py:44).
+	// maxReadBytes is the 1 MiB read cap.
 	maxReadBytes = 1024 * 1024
 
-	// channelProtocolVersion is the VER=8 query param (channel.py:371).
+	// channelProtocolVersion is the VER=8 query param.
 	channelProtocolVersion = "8"
 
-	// defaultChannelMaxAge is the 1.5h lifetime recycle. Python keeps this in
-	// user.py supervision (max_age=1.5h) and channel.listen(max_age) enforces
-	// it (channel.py:218-219); this port folds the timer into Listen itself
-	// for cohesion (documented move, task-7-brief.md choreography point 6).
+	// defaultChannelMaxAge is the 1.5h lifetime recycle. Listen folds this
+	// timer into itself for cohesion.
 	defaultChannelMaxAge = 90 * time.Minute
 )
 
-// Channel is the client side of Google's BrowserChannel protocol
-// (channel.py:152-153). One Channel owns one long-poll session.
+// Channel is the client side of Google's BrowserChannel protocol. One
+// Channel owns one long-poll session.
 type Channel struct {
 	session *Session
 
@@ -83,7 +79,7 @@ type Channel struct {
 	baseURL string
 
 	// maxAge is the lifetime recycle threshold (defaultChannelMaxAge);
-	// unexported so tests can inject a tiny value (channel.py:218-219).
+	// unexported so tests can inject a tiny value.
 	maxAge time.Duration
 
 	// readIdleTimeout is the read-idle watchdog interval (pushTimeout);
@@ -96,63 +92,60 @@ type Channel struct {
 
 	// mu guards the mutable session parameters below plus the connection-state
 	// flags: Listen runs on one goroutine while the EXPORTED SendStreamEvent
-	// may be called concurrently by Task 8 (forward-channel typing/read
-	// state). Python has no lock because its whole client is single-threaded
-	// asyncio; Go must serialize the rid/ofs/aid/sid sequence counters or the
+	// may be called concurrently (forward-channel typing/read
+	// state). Go must serialize the rid/ofs/aid/sid sequence counters or the
 	// server rejects out-of-order ofs. No blocking I/O is ever performed while
 	// holding mu.
 	mu sync.Mutex
 
-	// Connection state, mirroring channel.py:183-188. onConnectCalled makes
-	// the first-ever connect fire OnConnect exactly once (channel.py:474-482).
+	// Connection state. onConnectCalled makes the first-ever connect fire
+	// OnConnect exactly once.
 	isConnected     bool
 	onConnectCalled bool
 
-	// Discovered/session parameters (channel.py:192-198), all guarded by mu.
-	sid        string // _sid_param
-	csessionid string // _csessionid_param (currently unused downstream, but
-	// the webchannel COMPASS cookie it comes from must be present on
-	// subsequent requests; it lives in the Session jar -- channel.py:288-301).
-	// Written only by the Listen goroutine (post-register) but guarded by mu
-	// so Task 8 can read it via Csessionid() without a race.
-	aid int // _aid: last acknowledged array id
-	ofs int // _ofs: sent-map counter, resets on re-register
-	rid int // _rid: request identifier
+	// Discovered/session parameters, all guarded by mu.
+	sid        string
+	csessionid string // currently unused downstream, but the webchannel
+	// COMPASS cookie it comes from must be present on subsequent requests; it
+	// lives in the Session jar. Written only by the Listen goroutine
+	// (post-register) but guarded by mu so callers can read it via
+	// Csessionid() without a race.
+	aid int // last acknowledged array id
+	ofs int // sent-map counter, resets on re-register
+	rid int // request identifier
 
 	// OnReceiveArray is called synchronously, in order, once per decoded
-	// pblite data_array (the raw JSON bytes; Task 8 decodes). Returning an
-	// error is terminal: it propagates out of Listen (channel.py fires
-	// on_receive_array uncaught, so an observer error tears down the poll).
+	// pblite data_array (the raw JSON bytes; the caller decodes). Returning an
+	// error is terminal: it propagates out of Listen, so an observer error
+	// tears down the poll.
 	OnReceiveArray func(ctx context.Context, arr []byte) error
-	// OnConnect fires once, the first time a chunk is EVER received
-	// (channel.py:474-482, on_connect branch).
+	// OnConnect fires once, the first time a chunk is EVER received.
 	OnConnect func(ctx context.Context)
-	// OnReconnect fires when the first chunk arrives after a prior disconnect
-	// (channel.py:476-478, on_reconnect branch). Task 8 wires this to a
-	// gap-sync: a SIDExpiring re-register resets AID to 0, so events dropped
-	// during the gap are NOT server-replayed and must be caught up here.
+	// OnReconnect fires when the first chunk arrives after a prior disconnect.
+	// The caller wires this to a gap-sync: a SIDExpiring re-register resets AID
+	// to 0, so events dropped during the gap are NOT server-replayed and must
+	// be caught up here.
 	OnReconnect func(ctx context.Context)
-	// OnDisconnect fires when a live poll drops with a NetworkError
-	// (channel.py:251-253). Signals the connection is temporarily down.
+	// OnDisconnect fires when a live poll drops with a NetworkError. Signals
+	// the connection is temporarily down.
 	OnDisconnect func(ctx context.Context)
 }
 
 // NewChannel creates a channel bound to session. max_retries and
-// retry_backoff_base are passed to Listen (unlike Python/megabridge, which
-// take them in the constructor), matching task-7-brief.md's interface.
+// retry_backoff_base are passed to Listen (unlike megabridge, which takes
+// them in the constructor).
 func NewChannel(session *Session) *Channel {
 	return &Channel{
 		session:         session,
 		baseURL:         channelURLBase,
 		maxAge:          defaultChannelMaxAge,
 		readIdleTimeout: pushTimeout,
-		// _rid = random.randint(10000, 99999) (channel.py:198).
+		// rid starts as a random int in [10000, 99999].
 		rid: 10000 + rand.Intn(90000),
 	}
 }
 
-// IsConnected reports whether the channel currently has a live poll
-// (channel.py:200-203).
+// IsConnected reports whether the channel currently has a live poll.
 func (ch *Channel) IsConnected() bool {
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
@@ -167,14 +160,14 @@ func (ch *Channel) Csessionid() string {
 	return ch.csessionid
 }
 
-// setCsessionid stores the csessionid under mu (channel.py:214, 236).
+// setCsessionid stores the csessionid under mu.
 func (ch *Channel) setCsessionid(v string) {
 	ch.mu.Lock()
 	ch.csessionid = v
 	ch.mu.Unlock()
 }
 
-// The Set* methods below let Task 8's Client wire its callbacks through the
+// The Set* methods below let the Client wire its callbacks through the
 // unexported channelListener interface (client.go) rather than by touching the
 // exported fields directly. They exist ONLY so a test fake can satisfy the
 // same interface; each is a plain field assignment, always called before
@@ -196,33 +189,32 @@ func (ch *Channel) SetOnDisconnect(f func(ctx context.Context)) { ch.OnDisconnec
 
 // Listen registers and runs the long-poll loop until ctx is cancelled or a
 // terminal error occurs, returning that error to the caller (client.go
-// supervision). Ports channel.py:205-258 (listen).
+// supervision).
 func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase time.Duration) error {
 	retries := 0
 	skipBackoff := false
 	var lastNetErr error // last NetworkError, returned wrapped on exhaustion
 
-	// channel.py:214 -- register once before the loop.
+	// Register once before the loop.
 	csid, err := ch.register(ctx)
 	if err != nil {
 		return fmt.Errorf("register: %w", err)
 	}
 	ch.setCsessionid(csid)
-	start := time.Now() // channel.py:215
+	start := time.Now()
 
-	for retries <= maxRetries { // channel.py:217
+	for retries <= maxRetries {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// Lifetime recycle (channel.py:218-219).
+		// Lifetime recycle.
 		if time.Since(start) > ch.maxAge {
 			return ErrChannelLifetimeExpired
 		}
-		// Exponential backoff after the first failed retry (channel.py:222-226).
-		// Python computes retry_backoff_base ** retries with an int base; here
-		// retryBackoffBase is a Duration, so the brief mandates
-		// retryBackoffBase * 2^(retries-1) (base, 2*base, 4*base, ...), the
-		// same doubling schedule as session.go's backoffDelay.
+		// Exponential backoff after the first failed retry. retryBackoffBase
+		// is a Duration, so the backoff is retryBackoffBase * 2^(retries-1)
+		// (base, 2*base, 4*base, ...), the same doubling schedule as
+		// session.go's backoffDelay.
 		if retries > 0 && !skipBackoff {
 			backoff := retryBackoffBase * time.Duration(1<<uint(retries-1))
 			if err := sleepOrDone(ctx, backoff); err != nil {
@@ -232,20 +224,19 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 		skipBackoff = false
 
 		// Fresh parser per attempt: stale error data must not leak across
-		// polls (channel.py:228-230).
+		// polls.
 		ch.parser = &ChunkParser{}
 
 		err := ch.longpollRequest(ctx)
 		switch {
 		case err == nil:
 			// Clean exit (server closed after ~1h): reset retries and re-poll
-			// with the same SID (channel.py:243-247).
+			// with the same SID.
 			retries = 0
 			continue
 		case errors.Is(err, ErrSIDExpiring):
-			// Truncated body ~ aiohttp ClientPayloadError: re-register
-			// immediately, retries incremented but backoff skipped
-			// (channel.py:233-240).
+			// Truncated body: re-register immediately, retries incremented but
+			// backoff skipped.
 			csid, rerr := ch.register(ctx)
 			if rerr != nil {
 				return fmt.Errorf("re-register: %w", rerr)
@@ -255,8 +246,8 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 			skipBackoff = true
 			continue
 		case isNetworkError(err):
-			// aiohttp TimeoutError / ServerDisconnectedError / ClientError ->
-			// NetworkError: count a retry and back off (channel.py:241-256).
+			// Timeout / server-disconnected / connection error -> NetworkError:
+			// count a retry and back off.
 			lastNetErr = err
 			retries++
 			ch.mu.Lock()
@@ -264,22 +255,20 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 			ch.isConnected = false
 			ch.mu.Unlock()
 			if wasConnected && ch.OnDisconnect != nil {
-				ch.OnDisconnect(ctx) // channel.py:251-253
+				ch.OnDisconnect(ctx)
 			}
 			continue
 		default:
-			// SIDInvalidError and UnexpectedStatusError (incl. 401) are NOT
-			// caught by listen's except blocks in Python, so they propagate
-			// out (channel.py:231-247; research 01 §2.6). A ctx error or an
-			// OnReceiveArray error propagates here too.
+			// SIDInvalidError and UnexpectedStatusError (incl. 401) are
+			// terminal and propagate out rather than being retried. A ctx
+			// error or an OnReceiveArray error propagates here too.
 			return err
 		}
 	}
 
-	// channel.py:258 -- ran out of retries. Python's listen returns None here
-	// (silent); the brief mandates returning a wrapped NetworkError so the
-	// caller (Task 8 supervision) treats exhaustion as transient/reconnectable
-	// rather than terminal.
+	// Ran out of retries. Return a wrapped NetworkError so the caller (the
+	// supervision loop) treats exhaustion as transient/reconnectable rather
+	// than terminal.
 	if lastNetErr != nil {
 		return &NetworkError{Err: fmt.Errorf("ran out of retries for long-polling request: %w", lastNetErr)}
 	}
@@ -288,25 +277,24 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 
 // register performs the pre-poll GET /register that seeds the webchannel
 // COMPASS cookie, resets SID/AID/OFS, and returns the csessionid suffix.
-// Ports channel.py:260-301 (_register).
 func (ch *Channel) register(ctx context.Context) (string, error) {
-	// channel.py:263-265.
+	// Reset the discovered session parameters under mu.
 	ch.mu.Lock()
 	ch.sid = ""
 	ch.aid = 0
 	ch.ofs = 0
 	ch.mu.Unlock()
 
-	headers := http.Header{"Content-Type": {"application/x-protobuf"}} // channel.py:270
+	headers := http.Header{"Content-Type": {"application/x-protobuf"}}
 	resp, err := ch.session.FetchRaw(ctx, http.MethodGet, ch.baseURL+"register?ignore_compass_cookie=1", headers, nil)
 	if err != nil {
 		return "", fmt.Errorf("register request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes)) // channel.py:275
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes))
 
-	if resp.StatusCode != http.StatusOK { // channel.py:277-286
+	if resp.StatusCode != http.StatusOK {
 		return "", &UnexpectedStatusError{
 			URL:    ch.baseURL + "register",
 			Status: resp.StatusCode,
@@ -314,24 +302,24 @@ func (ch *Channel) register(ctx context.Context) (string, error) {
 		}
 	}
 
-	// Extract csessionid from the webchannel COMPASS cookie
-	// (channel.py:288-301). resp.Cookies() parses this response's Set-Cookie
-	// headers directly; the value itself is also absorbed into the shared jar
-	// by FetchRaw, so subsequent /events requests carry it.
+	// Extract csessionid from the webchannel COMPASS cookie. resp.Cookies()
+	// parses this response's Set-Cookie headers directly; the value itself is
+	// also absorbed into the shared jar by FetchRaw, so subsequent /events
+	// requests carry it.
 	for _, c := range resp.Cookies() {
 		if c.Name == "COMPASS" {
 			if strings.HasPrefix(c.Value, "dynamite-ui=") {
 				return strings.TrimPrefix(c.Value, "dynamite-ui="), nil
 			}
-			// COMPASS present but unexpected prefix (channel.py:298-300):
-			// fall through and return "" like Python.
+			// COMPASS present but unexpected prefix: fall through and
+			// return "".
 		}
 	}
 	return "", nil
 }
 
 // longpollRequest opens one long-poll GET and reads arrays until the response
-// ends or an error occurs. Ports channel.py:362-467 (_longpoll_request).
+// ends or an error occurs.
 //
 // Return contract (mapped to Listen's error ladder):
 //   - nil                 => clean EOF (server closed) => reset retries, re-poll
@@ -341,8 +329,8 @@ func (ch *Channel) register(ctx context.Context) (string, error) {
 //   - *UnexpectedStatusError => any other non-200 (incl. 401) => propagate
 //   - ctx.Err()            => caller cancelled => propagate
 func (ch *Channel) longpollRequest(ctx context.Context) error {
-	// Common params (channel.py:370-376). Built under mu so the rid/aid/sid
-	// reads and rid++ don't race a concurrent SendStreamEvent.
+	// Common params. Built under mu so the rid/aid/sid reads and rid++ don't
+	// race a concurrent SendStreamEvent.
 	ch.mu.Lock()
 	params := url.Values{
 		"VER": {channelProtocolVersion},
@@ -351,13 +339,13 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 		"zx":  {uniqueID()},
 	}
 	if ch.sid == "" {
-		// First request, no SID yet (channel.py:378-387).
+		// First request, no SID yet.
 		params.Set("CVER", "22")
 		params.Set("$req", "count=1&ofs=0&req0_data=%5B%5D")
 		params.Set("SID", "null")
 		ch.rid++
 	} else {
-		// Subsequent requests, SID acquired (channel.py:389).
+		// Subsequent requests, SID acquired.
 		params.Set("CI", "0")
 		params.Set("TYPE", "xmlhttp")
 		params.Set("RID", "rpc")
@@ -366,24 +354,23 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 	}
 	ch.mu.Unlock()
 
-	headers := http.Header{"referer": {"https://chat.google.com/"}} // channel.py:391-393
+	headers := http.Header{"referer": {"https://chat.google.com/"}}
 	resp, err := ch.session.FetchRaw(ctx, http.MethodGet, ch.eventsURL(params), headers, nil)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		// aiohttp.ClientError connecting -> NetworkError (channel.py:464-466).
+		// Connection error -> NetworkError.
 		return &NetworkError{Err: err}
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK { // channel.py:402-417
+	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes))
 		if resp.StatusCode == http.StatusBadRequest {
-			// HTTP 400 "Unknown SID" in reason OR body -> SIDInvalid, matching
-			// channel.py:408-411's check-both semantics (res.reason == "Unknown
-			// SID" or "Unknown SID" in text). Go's resp.Status is the FULL
-			// status line ("400 Unknown SID"), not the bare reason phrase, so
+			// HTTP 400 "Unknown SID" in reason OR body -> SIDInvalid; the
+			// check must cover both. Go's resp.Status is the FULL status line
+			// ("400 Unknown SID"), not the bare reason phrase, so
 			// an equality check against "Unknown SID" would be dead code and
 			// collapse onto the body substring alone -- a 400 that carries
 			// "Unknown SID" only in the status line (empty/different body) would
@@ -400,14 +387,14 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 		}
 	}
 
-	// SID acquisition from the first response (channel.py:419-445).
+	// SID acquisition from the first response.
 	if initial := resp.Header.Get("X-HTTP-Initial-Response"); initial != "" {
 		sid, err := parseSIDResponse(initial)
 		if err != nil {
 			return fmt.Errorf("parse SID response: %w", err)
 		}
 		ch.mu.Lock()
-		changed := ch.sid != sid // channel.py:422
+		changed := ch.sid != sid
 		if changed {
 			ch.sid = sid
 			ch.aid = 0
@@ -417,7 +404,7 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 		ch.mu.Unlock()
 
 		if changed {
-			// Ack GET: "required, unclear why" (channel.py:427-442).
+			// Ack GET: required, unclear why.
 			ackParams := url.Values{
 				"VER":  {channelProtocolVersion},
 				"RID":  {"rpc"},
@@ -438,15 +425,14 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 			_, _ = io.Copy(io.Discard, ackResp.Body)
 			ackResp.Body.Close()
 
-			// Initial ping: without it the server never streams events
-			// (channel.py:444-445, _send_initial_ping channel.py:347-360).
+			// Initial ping: without it the server never streams events.
 			if err := ch.sendInitialPing(ctx); err != nil {
 				return err
 			}
 		}
 	}
 
-	// Stream the body with a 60s read-idle watchdog (channel.py:447-453).
+	// Stream the body with a 60s read-idle watchdog.
 	return ch.readBody(ctx, resp)
 }
 
@@ -454,8 +440,7 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 // OnReceiveArray. A dedicated reader goroutine performs the blocking reads so
 // the select loop can enforce the read-idle timeout by closing the body;
 // OnReceiveArray is only ever called from THIS goroutine, preserving the
-// synchronous, in-order delivery contract. Ports the read loop and error
-// mapping of channel.py:447-467.
+// synchronous, in-order delivery contract.
 func (ch *Channel) readBody(ctx context.Context, resp *http.Response) error {
 	type readResult struct {
 		data []byte
@@ -489,10 +474,9 @@ func (ch *Channel) readBody(ctx context.Context, resp *http.Response) error {
 	}()
 
 	// The idle watchdog is armed ONLY while waiting for a read to complete,
-	// mirroring channel.py:448-449 which wraps async_timeout.timeout(PUSH_TIMEOUT)
-	// around res.content.read() alone -- NOT around _on_push_data processing.
-	// We therefore stop it before running onPushData and re-arm it before the
-	// next wait, so slow OnReceiveArray work can never trip a spurious timeout.
+	// wrapping the read alone -- NOT the onPushData processing. We therefore
+	// stop it before running onPushData and re-arm it before the next wait, so
+	// slow OnReceiveArray work can never trip a spurious timeout.
 	idle := time.NewTimer(ch.readIdleTimeout)
 	defer idle.Stop()
 
@@ -504,9 +488,8 @@ func (ch *Channel) readBody(ctx context.Context, resp *http.Response) error {
 			return ctx.Err()
 
 		case <-idle.C:
-			// No bytes for readIdleTimeout: aiohttp asyncio.TimeoutError ->
-			// NetworkError (channel.py:455-457). Close the body to unblock the
-			// reader.
+			// No bytes for readIdleTimeout: timeout -> NetworkError. Close the
+			// body to unblock the reader.
 			resp.Body.Close()
 			return &NetworkError{Err: errReadIdleTimeout}
 
@@ -534,20 +517,19 @@ func (ch *Channel) readBody(ctx context.Context, resp *http.Response) error {
 }
 
 // errReadIdleTimeout is the underlying error wrapped by NetworkError when the
-// read-idle watchdog fires (channel.py:455-457).
+// read-idle watchdog fires.
 var errReadIdleTimeout = errors.New("long poll read idle timeout")
 
-// mapReadError translates a body-read error into Listen's error ladder,
-// mirroring channel.py:455-467's except clauses:
+// mapReadError translates a body-read error into Listen's error ladder:
 //   - io.EOF               => clean exit (nil): server closed after ~1h
-//   - io.ErrUnexpectedEOF  => ErrSIDExpiring: truncated body ~ ClientPayloadError
+//   - io.ErrUnexpectedEOF  => ErrSIDExpiring: truncated body
 //   - ctx cancelled        => ctx.Err()
-//   - anything else        => *NetworkError: ServerDisconnected / ClientError
+//   - anything else        => *NetworkError: server-disconnected / transport
 //
 // Note: we deliberately do NOT map our own body-close ("use of closed network
 // connection") here -- that path is handled by the idle/ctx select branches
 // before this is reached. Megabridge mapped that string to SIDExpiring, a
-// defect (docs/research/08c) that never re-registered on a real invalidation.
+// defect that never re-registered on a real invalidation.
 func (ch *Channel) mapReadError(ctx context.Context, err error) error {
 	if errors.Is(err, io.EOF) {
 		return nil
@@ -562,11 +544,10 @@ func (ch *Channel) mapReadError(ctx context.Context, err error) error {
 }
 
 // onPushData frames data into chunks and fires OnReceiveArray per inner array.
-// Ports channel.py:469-495 (_on_push_data).
 func (ch *Channel) onPushData(ctx context.Context, data []byte) error {
 	for _, chunk := range ch.parser.Feed(data) {
 		// Connected once the first chunk arrives; OnConnect fires exactly once,
-		// OnReconnect on every subsequent reconnection (channel.py:474-482).
+		// OnReconnect on every subsequent reconnection.
 		// Decide the transition under mu, then fire the callback WITHOUT the
 		// lock held (callbacks may be slow / call back in).
 		ch.mu.Lock()
@@ -582,10 +563,10 @@ func (ch *Channel) onPushData(ctx context.Context, data []byte) error {
 		}
 		ch.mu.Unlock()
 		if fireConnect && ch.OnConnect != nil {
-			ch.OnConnect(ctx) // channel.py:479-482
+			ch.OnConnect(ctx)
 		}
 		if fireReconnect && ch.OnReconnect != nil {
-			ch.OnReconnect(ctx) // channel.py:476-478
+			ch.OnReconnect(ctx)
 		}
 
 		// Dump the reconstructed WIRE frame (with its "<utf16len>\n" length
@@ -599,8 +580,8 @@ func (ch *Channel) onPushData(ctx context.Context, data []byte) error {
 		}
 
 		// chunk is a JSON container array of inner [array_id, data_array]
-		// pairs (channel.py:485-495). Parse positionally with RawMessage to
-		// hand OnReceiveArray the data_array bytes verbatim (Task 8 decodes).
+		// pairs. Parse positionally with RawMessage to hand OnReceiveArray the
+		// data_array bytes verbatim (the caller decodes).
 		var container []json.RawMessage
 		if err := json.Unmarshal([]byte(chunk), &container); err != nil {
 			return fmt.Errorf("unmarshal container array: %w", err)
@@ -626,7 +607,7 @@ func (ch *Channel) onPushData(ctx context.Context, data []byte) error {
 					return err
 				}
 			}
-			// Update last acknowledged id AFTER processing (channel.py:495).
+			// Update last acknowledged id AFTER processing.
 			ch.mu.Lock()
 			ch.aid = arrayID
 			ch.mu.Unlock()
@@ -635,8 +616,7 @@ func (ch *Channel) onPushData(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// sendInitialPing sends the PingEvent that kicks off the event stream
-// (channel.py:347-360, _send_initial_ping).
+// sendInitialPing sends the PingEvent that kicks off the event stream.
 func (ch *Channel) sendInitialPing(ctx context.Context) error {
 	ping := &pb.PingEvent{
 		State:                      pb.PingEvent_ACTIVE.Enum(),
@@ -648,22 +628,20 @@ func (ch *Channel) sendInitialPing(ctx context.Context) error {
 }
 
 // SendStreamEvent POSTs a StreamEventsRequest on the forward channel.
-// Ports channel.py:303-341 (send_stream_event).
 func (ch *Channel) SendStreamEvent(ctx context.Context, ev *pb.StreamEventsRequest) error {
-	// pblite.Marshal already returns the JSON-encoded array bytes, i.e. it
-	// does BOTH of Python's steps (pblite.encode -> a list, then json.dumps
-	// -> a string; channel.py:324-325). Do NOT json.Marshal it again --
-	// megabridge double-encoded here. Done before taking mu (no shared state).
+	// pblite.Marshal already returns the JSON-encoded array bytes (it both
+	// encodes to a list and serializes it to a string). Do NOT json.Marshal it
+	// again -- megabridge double-encoded here. Done before taking mu (no
+	// shared state).
 	body, err := pblite.Marshal(ev)
 	if err != nil {
 		return fmt.Errorf("marshal stream event: %w", err)
 	}
 
 	// Snapshot + advance the sequence counters under mu so a concurrent
-	// SendStreamEvent / longpollRequest can't interleave rid/ofs (channel.py
-	// is single-threaded asyncio and needs no lock).
+	// SendStreamEvent / longpollRequest can't interleave rid/ofs.
 	ch.mu.Lock()
-	// Query params (channel.py:304-312).
+	// Query params.
 	params := url.Values{
 		"VER": {channelProtocolVersion},
 		"RID": {strconv.Itoa(ch.rid)},
@@ -671,23 +649,23 @@ func (ch *Channel) SendStreamEvent(ctx context.Context, ev *pb.StreamEventsReque
 		"SID": {ch.sid},
 		"AID": {strconv.Itoa(ch.aid)},
 	}
-	ch.rid++ // channel.py:314
-	// Form body (channel.py:326-330).
+	ch.rid++
+	// Form body.
 	form := url.Values{
 		"count":     {"1"},
 		"ofs":       {strconv.Itoa(ch.ofs)},
 		"req0_data": {string(body)},
 	}
-	ch.ofs++ // channel.py:331
+	ch.ofs++
 	ch.mu.Unlock()
 
-	headers := http.Header{"Content-Type": {"application/x-www-form-urlencoded"}} // channel.py:320-322
+	headers := http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}
 	resp, err := ch.session.FetchRaw(ctx, http.MethodPost, ch.eventsURL(params), headers, form)
 	if err != nil {
 		return fmt.Errorf("send stream event: %w", err)
 	}
-	// Python returns the response without reading it; we must drain+close to
-	// release the connection back to the pool.
+	// Drain+close the response body to release the connection back to the
+	// pool.
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	return nil
@@ -700,7 +678,7 @@ func (ch *Channel) eventsURL(params url.Values) string {
 }
 
 // debugDump writes raw chunks and decoded arrays under $GCHAT_DEBUG_DUMP for
-// /capture-fixtures (task-7-brief.md choreography point 7). No-op when unset.
+// /capture-fixtures. No-op when unset.
 func (ch *Channel) debugDump(prefix, ext string, data []byte) {
 	dir := os.Getenv("GCHAT_DEBUG_DUMP")
 	if dir == "" {
@@ -714,9 +692,8 @@ func (ch *Channel) debugDump(prefix, ext string, data []byte) {
 // debugDumpSeq disambiguates dumps written within the same nanosecond.
 var debugDumpSeq int64
 
-// uniqueID mirrors _unique_id (channel.py:137-149): base36 of 64 random bits.
-// Used only as the zx cache-buster query param, so the exact encoding is not
-// wire-critical.
+// uniqueID returns base36 of 64 random bits. Used only as the zx cache-buster
+// query param, so the exact encoding is not wire-critical.
 func uniqueID() string {
 	const keyspace = "abcdefghijklmnopqrstuvwxyz0123456789"
 	x := rand.Uint64()
@@ -731,9 +708,8 @@ func uniqueID() string {
 	return string(b)
 }
 
-// parseSIDResponse extracts the SID from an X-HTTP-Initial-Response header.
-// Ports _parse_sid_response (channel.py:124-134): parse JSON, return
-// res[0][1][1] from a shape like [[0,["c","<sid>","",8,12]]].
+// parseSIDResponse extracts the SID from an X-HTTP-Initial-Response header:
+// parse JSON, return res[0][1][1] from a shape like [[0,["c","<sid>","",8,12]]].
 func parseSIDResponse(res string) (string, error) {
 	var outer []json.RawMessage
 	if err := json.Unmarshal([]byte(res), &outer); err != nil {

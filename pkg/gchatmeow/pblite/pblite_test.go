@@ -207,8 +207,8 @@ func TestEnumAsNumber(t *testing.T) {
 // oneof arms of GroupId.Id populated (space_id=field 1, dm_id=field 3) must
 // end up with only the higher-field-number (later-processed) arm set, since
 // pblite has no special oneof encoding and decode walks fields in ascending
-// field-number order (matching maugclib's reliance on protobuf's normal
-// last-write-wins field assignment, pblite.py:122-125).
+// field-number order (protobuf's normal last-write-wins field assignment
+// then leaves only the last arm set).
 func TestOneofLastSetWins(t *testing.T) {
 	raw := `[["space-1"], null, ["dm-1"]]`
 	var out pb.GroupId

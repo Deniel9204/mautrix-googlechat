@@ -72,7 +72,7 @@ func TestBMPNonASCII(t *testing.T) {
 	assertChunks(t, "Feed", got, []string{"éa"})
 }
 
-// --- Additional edge cases found while reading channel.py's get_chunks ---
+// --- Additional edge cases for the framing parser ---
 
 func TestEmptyFeed(t *testing.T) {
 	p := &ChunkParser{}
@@ -81,7 +81,7 @@ func TestEmptyFeed(t *testing.T) {
 }
 
 func TestEmptyBuffer_NoNewlineYet(t *testing.T) {
-	// No newline at all yet -> LEN_REGEX doesn't match -> nothing yielded,
+	// No newline at all yet -> no length token matches -> nothing yielded,
 	// buffer just accumulates.
 	p := &ChunkParser{}
 	got := p.Feed([]byte("123"))
@@ -89,7 +89,7 @@ func TestEmptyBuffer_NoNewlineYet(t *testing.T) {
 }
 
 func TestZeroLengthChunk(t *testing.T) {
-	// Python's LEN_REGEX = r"([0-9]+)\n" matches "0" just fine.
+	// A "0" length token is valid and yields an empty payload.
 	p := &ChunkParser{}
 	got := p.Feed([]byte("0\n5\nhello"))
 	assertChunks(t, "Feed", got, []string{"", "hello"})
@@ -97,7 +97,7 @@ func TestZeroLengthChunk(t *testing.T) {
 
 func TestLengthNotYetTerminatedByNewline(t *testing.T) {
 	// "5" alone (no trailing \n) must not be treated as a complete length --
-	// Python's regex requires the \n. Confirm nothing is yielded and the
+	// the '\n' terminator is required. Confirm nothing is yielded and the
 	// eventual full frame ("5\nhello") is decoded correctly once completed.
 	p := &ChunkParser{}
 	got1 := p.Feed([]byte("5"))

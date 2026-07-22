@@ -1,10 +1,9 @@
 package connector
 
-// media_test.go -- TDD coverage for M5 Task 3 (inbound Google Chat
-// UPLOAD_METADATA attachments -> Matrix media parts, media.go). Every
-// network call (attachmentURL, downloadAttachment, UploadMediaStream) is
-// injected via a fake, per this task's brief: no real gchatmeow.Client, no
-// real Matrix homeserver.
+// media_test.go -- TDD coverage for inbound Google Chat UPLOAD_METADATA
+// attachments -> Matrix media parts, media.go. Every network call
+// (attachmentURL, downloadAttachment, UploadMediaStream) is injected via a
+// fake: no real gchatmeow.Client, no real Matrix homeserver.
 
 import (
 	"bytes"
@@ -204,7 +203,7 @@ func TestConvertAttachmentsToMatrix_VideoAndAudioMsgTypes(t *testing.T) {
 	}{
 		{"video/mp4", event.MsgVideo},
 		{"audio/ogg", event.MsgAudio},
-		{"text/plain", event.MsgFile}, // portal.py:1552-1553's explicit TEXT->FILE override
+		{"text/plain", event.MsgFile}, // explicit TEXT->FILE override
 	}
 	for _, tc := range cases {
 		msg := &pb.Message{Annotations: []*pb.Annotation{makeUploadAnnotation("TOK", tc.mime, "f")}}
@@ -223,8 +222,8 @@ func TestConvertAttachmentsToMatrix_VideoAndAudioMsgTypes(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType is the
-// missing regression test the M7 Task 3 brief (item 7) calls out: when the
+// TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType is a
+// regression test for the case when the
 // UPLOAD_METADATA annotation's own declared content_type disagrees with the
 // mime type the actual download reports (a stale/wrong annotation, or a
 // server that recompresses/transcodes), the resulting Matrix event's
@@ -298,7 +297,7 @@ func TestConvertAttachmentsToMatrix_TwoAttachments(t *testing.T) {
 
 // TestConvertAttachmentsToMatrix_OversizeSkippedCleanly pins the size-cap
 // requirement: a download that reports ErrFileTooLarge (gchatmeow's own
-// sentinel, Task 1) must be skipped -- no part, no error returned, no panic.
+// sentinel) must be skipped -- no part, no error returned, no panic.
 func TestConvertAttachmentsToMatrix_OversizeSkippedCleanly(t *testing.T) {
 	msg := &pb.Message{Annotations: []*pb.Annotation{makeUploadAnnotation("TOK1", "image/png", "huge.png")}}
 	media := &fakeMediaFetcher{
@@ -358,7 +357,7 @@ func TestConvertAttachmentsToMatrix_HTMLAttachmentSkipped(t *testing.T) {
 	}
 	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), fakeUploadIntent{}, msg, media)
 	if len(parts) != 0 {
-		t.Fatalf("len(parts) = %d, want 0 (text/html attachments are dropped, portal.py:1547-1549)", len(parts))
+		t.Fatalf("len(parts) = %d, want 0 (text/html attachments are dropped)", len(parts))
 	}
 }
 
@@ -404,9 +403,9 @@ func TestConvertAttachmentsToMatrix_UploadFailureSkipped(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_FilenameFallback pins portal.py:1554-1558:
-// when the download gives no usable filename ("" or the request path's own
-// "get_attachment_url"), fall back to content_name, then to
+// TestConvertAttachmentsToMatrix_FilenameFallback pins the filename-fallback
+// logic: when the download gives no usable filename ("" or the request
+// path's own "get_attachment_url"), fall back to content_name, then to
 // "<msgtype><ext>".
 func TestConvertAttachmentsToMatrix_FilenameFallback(t *testing.T) {
 	t.Run("uses content_name", func(t *testing.T) {
@@ -471,13 +470,12 @@ func TestConvertAttachmentsToMatrix_NonUploadAnnotationsIgnored(t *testing.T) {
 	}
 }
 
-// --- convertMessageToMatrix composition (M3 B4: text + attachments) ----
+// --- convertMessageToMatrix composition (text + attachments) ----
 
 // TestConvertMessageToMatrix_TextAndAttachmentBothPresent is the headline
 // composition test: a message with BOTH text_body and an UPLOAD_METADATA
-// annotation gets TWO parts -- "" (text) first, then att_0 -- matching
-// Python's own ordering (portal.py:1411-1433 sends the text message first,
-// then processes attachments).
+// annotation gets TWO parts -- "" (text) first, then att_0 -- the text
+// message before the attachments.
 func TestConvertMessageToMatrix_TextAndAttachmentBothPresent(t *testing.T) {
 	msg := &pb.Message{
 		TextBody:    proto.String("check this out"),

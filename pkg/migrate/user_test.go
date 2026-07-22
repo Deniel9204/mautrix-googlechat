@@ -1,14 +1,12 @@
 package migrate
 
-// White-box tests (package migrate) for migrateUsers -- M7 Task 7. See
-// .superpowers/sdd/m7-migration-schema-map.md §5 (User + UserLogin) and
-// .superpowers/sdd/m7-migration-preflight.md items 1 (cookie key casing) and
-// 3 (double-puppet token -> user.access_token) for what's under test.
+// White-box tests (package migrate) for migrateUsers. Under test: cookie
+// key casing and the double-puppet token -> user.access_token copy.
 //
 // TestMigrateUsers_CookiesAndNoCookies reuses source_test.go's shared
 // fixture (@user1:example.com has a gcid+cookies+user_agent+revision;
 // @user2:example.com has none) -- exactly the "logged in" vs "never logged
-// in" split the brief asks for. That fixture's one puppet
+// in" split. That fixture's one puppet
 // (custom_mxid=@alice:example.com) does NOT match either migrated user, so
 // running migrateUsers against it also exercises the "double-puppet token
 // matches no migrated user" warn-and-skip path for free.

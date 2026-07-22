@@ -1,11 +1,9 @@
 package migrate
 
-// migrateUserPortals implements M7 Task 7's user_portal migrator -- see
-// .superpowers/sdd/m7-migration-schema-map.md §6 for the derivation this
-// replicates (Python has no dedicated per-user-per-portal membership table
-// at all; user_portal is *synthesized*, DM portals only). Same
-// raw-INSERT-through-ctx approach as the rest of this package -- see
-// portal.go's package doc comment.
+// migrateUserPortals implements the user_portal migrator. The source has no
+// dedicated per-user-per-portal membership table at all; user_portal is
+// *synthesized*, DM portals only. Same raw-INSERT-through-ctx approach as the
+// rest of this package -- see portal.go's package doc comment.
 //
 // This is a SEPARATE migration step from migrateUsers, run AFTER both
 // migratePortals (portal FK) and migrateUsers (user_login FK) -- see

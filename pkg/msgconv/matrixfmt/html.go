@@ -1,44 +1,31 @@
 // Package matrixfmt converts a Matrix message's HTML formatted_body (or
 // plain body, for the @room special case) into Google Chat's text_body +
-// annotations representation. It is a port of
-// _reference/googlechat-python/mautrix_googlechat/formatter/from_matrix/
-// (__init__.py, parser.py, gc_message.py), structurally adopted from
+// annotations representation. It is structurally adopted from
 // _reference/googlechat-megabridge/pkg/msgconv/matrixfmt/
-// {html,tree,tags,convert}.go per docs/research/08d-megabridge-msgconv.md
-// §2/§6 ("Adopt-and-fix: yes").
+// {html,tree,tags,convert}.go, then fixed (see the per-fix notes below).
 //
 // # UTF-16 offsets: EntityString, not a placeholder-locator
 //
-// docs/research/07-gap-analysis.md:39,350 describe the outgoing-mention
-// offset problem as needing "the mention placeholder-locator trick" (insert
-// a random placeholder token, render the full string, search for the
-// placeholder, compute its UTF-16 offset, substitute the real text). That
-// is what mautrix-meta's textfmt.parseMetaMentions actually does (see
-// docs/research/05-meta-bridge-blueprint.md:441-447 and
+// One framing of the outgoing-mention offset problem calls for "the mention
+// placeholder-locator trick" (insert a random placeholder token, render the
+// full string, search for the placeholder, compute its UTF-16 offset,
+// substitute the real text). That is what mautrix-meta's
+// textfmt.parseMetaMentions actually does (see
 // _reference/meta/pkg/msgconv/textfmt/mentions.go) -- but it is not what
-// this bridge's own Python source does. mautrix_googlechat's from_matrix
-// package is built on mautrix.util.formatter.{MatrixParser,EntityString}
-// (confirmed by downloading the exact pinned dependency,
-// mautrix==0.20.8 -- googlechat-python/setup.py pins
-// "mautrix>=0.20.8,<0.21" -- and reading
-// mautrix/util/formatter/{parser,entity_string}.py from the wheel): every
+// this bridge does. This package is built on an EntityString model: every
 // HTML node is converted bottom-up into an EntityString (text + a list of
 // entities, each an offset/length/type), and EntityString.append/prepend/
-// split/join (entity_string.py:94-162) shift every existing entity's
-// offset by the length of whatever text is being spliced in, in the same
-// operation. There is never a placeholder token anywhere in this pipeline
-// -- offsets are exact by construction the moment two pieces are joined,
-// because "how long is the text so far" is always known precisely (in
-// UTF-16 code units here, vs. Python's str length after its own
-// surrogate-pair-expansion trick, add_surrogate/del_surrogate in
-// ../util.py, which is Python's version of the same "operate in UTF-16
-// code-unit space, never code points" invariant).
+// split/join shift every existing entity's offset by the length of whatever
+// text is being spliced in, in the same operation. There is never a
+// placeholder token anywhere in this pipeline -- offsets are exact by
+// construction the moment two pieces are joined, because "how long is the
+// text so far" is always known precisely (in UTF-16 code units -- the
+// "operate in UTF-16 code-unit space, never code points" invariant).
 //
-// docs/research/08d-megabridge-msgconv.md:95 independently reaches the same
-// conclusion reviewing megabridge's Go port: "This is a different mechanism
-// than the 'mention placeholder-locator trick' ... but it solves the same
-// problem -- offsets are computed natively in UTF-16 code units at
-// composition time -- and is architecturally sounder." EntityString
+// Reviewing megabridge's Go port reaches the same conclusion: this is a
+// different mechanism than the "mention placeholder-locator trick" but it
+// solves the same problem -- offsets are computed natively in UTF-16 code
+// units at composition time -- and is architecturally sounder. EntityString
 // (below) is that mechanism, ported here with the UTF-16 correctness
 // property this package's tests exist to prove (see convert_test.go's
 // astral-emoji-before-a-mention case): every join/split/trim/append
@@ -47,79 +34,69 @@
 // scanning rendered output for a marker -- it falls out of the tree walk
 // automatically, correctly, every time.
 //
-// # Fixes applied over megabridge (docs/research/08d-megabridge-msgconv.md §2.1, §6)
+// # Fixes applied over megabridge
 //
-//   - URL-loss bug (the reason this task exists): megabridge's linkToString
+//   - URL-loss bug: megabridge's linkToString
 //     either matched the mention branch, returned the anchor text unchanged
 //     when it equaled the href (silently dropping the href entirely for
 //     the extremely common "bare URL" case, e.g. a Matrix client
 //     auto-linkifying "https://example.com" text as
 //     <a href="https://example.com">https://example.com</a>), or appended
-//     " (href)" as unannotated plain text. Real Python's url_to_fstring
-//     (mautrix/util/formatter/parser.py:163-164) always calls
-//     msg.format(self.e.URL, url=url) -- unconditionally, regardless of
-//     whether the displayed text equals the href. linkToString here does
-//     the same: every non-empty, non-mailto:, non-user-pill href becomes a
-//     URL{Href: href} annotation, full stop.
+//     " (href)" as unannotated plain text. The correct behavior emits a
+//     URL annotation unconditionally, regardless of whether the displayed
+//     text equals the href. linkToString here does that: every non-empty,
+//     non-mailto:, non-user-pill href becomes a URL{Href: href}
+//     annotation, full stop.
 //   - <u>/<ins> dropped entirely (megabridge's basicFormatToString had a
 //     case "u", "ins": return str with no .Format call) -- fixed to
-//     .Format(StyleUnderline), matching basic_format_to_fstring's
-//     UNDERLINE branch (parser.py:127-128) and GCEntityType.UNDERLINE
-//     (gc_message.py:52) existing on the wire.
+//     .Format(StyleUnderline); UNDERLINE is a real format type on the wire.
 //   - <pre> emitted inline MONOSPACE (5) instead of MONOSPACE_BLOCK (7) --
 //     fixed; see preToString.
-//   - Color (data-mx-color / <font color> / this task's own additional
-//     "style=color:#hex" ask) was not read at all -- spanToString did not
-//     even look at node attributes. Added: colorAttribute + FontColor
-//     (tags.go), ported from node_to_fstring's font/span branch
-//     (mautrix/util/formatter/parser.py:218-236) and
-//     color_to_fstring (from_matrix/parser.py:40-47).
+//   - Color (data-mx-color / <font color> / "style=color:#hex") was not read
+//     at all -- spanToString did not even look at node attributes. Added:
+//     colorAttribute + FontColor
+//     (tags.go), reading the font/span color attributes and mapping them
+//     to a FONT_COLOR annotation.
 //   - list annotations: megabridge rendered every <li> as literal "* "/
 //     "N. " prefixed text for both <ul> and <ol>, with zero
-//     BULLETED_LIST/BULLETED_LIST_ITEM annotations. Real Python's GC
-//     MatrixParser.list_to_fstring (from_matrix/parser.py:62-71) only
-//     does that for <ol> (delegating to the base class); <ul> instead
-//     wraps each <li> in a LIST_ITEM entity and the whole joined list in
-//     a LIST entity, with NO text prefix at all (Google Chat's own client
-//     renders the bullet UI from the annotation). Ported exactly --
-//     unorderedListToString vs. orderedListToString below.
-//   - @room -> MENTION_ALL: entirely absent from megabridge. Ported from
-//     the GC MatrixParser's text_to_fstring override (from_matrix/
-//     parser.py:85-98) as textToEntityString's mxRoomMention branch.
+//     BULLETED_LIST/BULLETED_LIST_ITEM annotations. The numbered-prefix
+//     behavior is only correct for <ol>; <ul> instead wraps each <li> in a
+//     LIST_ITEM entity and the whole joined list in a LIST entity, with NO
+//     text prefix at all (Google Chat's own client renders the bullet UI
+//     from the annotation). See unorderedListToString vs.
+//     orderedListToString below.
+//   - @room -> MENTION_ALL: entirely absent from megabridge. Implemented
+//     as textToEntityString's mxRoomMention branch.
 //   - mailto: links: megabridge had no special case (a mailto: link fell
-//     through to the generic "(href)" plain-text branch). Real Python's
-//     link_to_fstring returns the bare address with NO annotation at all,
-//     discarding the anchor's own text (mautrix/util/formatter/
-//     parser.py:137-138 combined with GCMessage.format's EMAIL no-op,
-//     gc_message.py:169-171) -- ported verbatim in linkToString.
+//     through to the generic "(href)" plain-text branch). The correct
+//     behavior returns the bare address with NO annotation at all,
+//     discarding the anchor's own text (EMAIL is a no-op on the wire) --
+//     see linkToString.
 //   - <tt> is not a Google Chat monospace trigger. megabridge treated
-//     "tt", "code" identically (both -> StyleMonospace). Real Python's
-//     basic_format_to_fstring tag list (parser.py:121-128) does not
-//     include "tt" or "code" at all; "code" is handled by a completely
-//     separate branch in node_to_fstring (parser.py:248-249) that also
-//     switches into a whitespace-preserving RecursionContext
-//     (ctx.enter_code_block()) -- "tt" has no case anywhere and falls to
-//     the default (plain recursion, no formatting, normal whitespace
-//     collapsing). Ported exactly: codeToString handles "code" only; "tt"
-//     is not special-cased.
+//     "tt", "code" identically (both -> StyleMonospace). Neither "tt" nor
+//     "code" is a plain monospace trigger; "code" is handled by a
+//     completely separate branch that also switches into a
+//     whitespace-preserving recursion context, while "tt" has no case
+//     anywhere and falls to the default (plain recursion, no formatting,
+//     normal whitespace collapsing). Ported exactly: codeToString handles
+//     "code" only; "tt" is not special-cased.
 //
-// # Deliberately out of scope here (left to later M3 tasks / the connector)
+// # Deliberately out of scope here (left to the connector or later)
 //
-//   - <mx-reply> fallback stripping (parser.py:196-197 in the real base
-//     class): standard mautrix-go bridgev2 practice is for the connector
-//     to call content.RemoveReplyFallback() before ever handing content to
-//     a formatter; Task 7 (quote-replies) owns that seam. Parse here
-//     assumes any <mx-reply> has already been stripped by the caller.
-//   - text_to_fstring's strip_leading_whitespace nuance (collapsing a
-//     leading whitespace run in the text immediately following a block
-//     tag's closing tag, parser.py:268-273): a purely cosmetic
-//     whitespace-collapsing refinement with no effect on offsets,
-//     annotations, or any behavior this task's tests exercise.
-//   - parse_node's default " " join separator for <pre>/<code> content
-//     with 2+ direct child nodes (entity_string.py:152, see nodeToString's
-//     doc comment): reproducing it would inject unrequested spaces into
-//     monospace content, which is the wrong direction to copy a quirk in;
-//     documented as a deliberate deviation rather than silently ignored.
+//   - <mx-reply> fallback stripping: standard mautrix-go bridgev2 practice
+//     is for the connector to call content.RemoveReplyFallback() before
+//     ever handing content to a formatter; the connector owns that seam.
+//     Parse here assumes any <mx-reply> has already been stripped by the
+//     caller.
+//   - the strip_leading_whitespace nuance (collapsing a leading whitespace
+//     run in the text immediately following a block tag's closing tag): a
+//     purely cosmetic whitespace-collapsing refinement with no effect on
+//     offsets, annotations, or any behavior this package's tests exercise.
+//   - the default " " join separator applied to <pre>/<code> content with
+//     2+ direct child nodes (see nodeToString's doc comment): reproducing
+//     it would inject unrequested spaces into monospace content, which is
+//     the wrong direction to copy a quirk in; documented as a deliberate
+//     deviation rather than silently ignored.
 package matrixfmt
 
 import (
@@ -137,12 +114,11 @@ import (
 )
 
 // utf16Text is a UTF-16 code-unit sequence, matching Google Chat's
-// annotation start_index/length semantics (JS/Java String indexing, the
-// same space Python's add_surrogate() trick puts str operations into). All
+// annotation start_index/length semantics (JS/Java String indexing). All
 // EntityString offset arithmetic below operates on this type, never on Go
 // byte or rune indices -- astral-plane characters (outside the Basic
 // Multilingual Plane, e.g. most emoji) encode to a surrogate PAIR here, two
-// code units, exactly as they would in JS/Python's UTF-16 string model.
+// code units, exactly as they would in the JS/Java UTF-16 string model.
 type utf16Text []uint16
 
 func newUTF16Text(s string) utf16Text {
@@ -154,11 +130,10 @@ func (t utf16Text) String() string {
 }
 
 // EntityString pairs a UTF-16 code-unit string with the list of formatting
-// entities covering it. It is the Go analogue of
-// mautrix.util.formatter.entity_string.EntityString: every operation that
-// changes the string (Split, TrimSpace, Append, AppendString,
-// JoinEntityString) adjusts every entity's Start/Length in the same step,
-// so offsets are exact by construction -- see the package doc comment.
+// entities covering it. Every operation that changes the string (Split,
+// TrimSpace, Append, AppendString, JoinEntityString) adjusts every entity's
+// Start/Length in the same step, so offsets are exact by construction --
+// see the package doc comment.
 type EntityString struct {
 	Text     utf16Text
 	Entities BodyRangeList
@@ -183,8 +158,7 @@ func (es *EntityString) TextString() string {
 // Split splits es on every occurrence of the ASCII rune at (Google Chat
 // annotation text never needs to split on anything outside ASCII -- this
 // package only ever splits on '\n'), truncating/dropping/shifting every
-// entity that crosses a split point exactly like EntityString.split
-// (entity_string.py:137-150), just working in code units instead of code
+// entity that crosses a split point, working in code units rather than code
 // points.
 func (es *EntityString) Split(at uint16) []*EntityString {
 	if at > 0x7F {
@@ -223,9 +197,9 @@ func (es *EntityString) Split(at uint16) []*EntityString {
 	return output
 }
 
-// asciiSpace matches the ASCII whitespace set entity_string doesn't need to
-// enumerate itself (Python's str.strip() default set); TrimSpace mirrors
-// EntityString.trim (entity_string.py:129-135).
+// isTrimmableSpace reports whether u is in the whitespace set TrimSpace
+// strips (ASCII whitespace plus NEL 0x85 and NBSP 0xA0); TrimSpace trims
+// those from both ends, adjusting each entity's offset to match.
 func isTrimmableSpace(u uint16) bool {
 	switch u {
 	case '\t', '\n', '\v', '\f', '\r', ' ', 0x85, 0xA0:
@@ -280,8 +254,7 @@ func (es *EntityString) TrimSpace() *EntityString {
 }
 
 // JoinEntityString joins strings with the separator with between each pair,
-// shifting each string's entities by the running length so far -- the Go
-// equivalent of EntityString.join (entity_string.py:152-162).
+// shifting each string's entities by the running length so far.
 func JoinEntityString(with string, strings ...*EntityString) *EntityString {
 	withUnits := newUTF16Text(with)
 	totalLen := 0
@@ -297,30 +270,26 @@ func JoinEntityString(with string, strings ...*EntityString) *EntityString {
 	entities := make(BodyRangeList, 0, totalEntities)
 	wroteAny := false
 	for _, s := range strings {
-		// entity_string.py:154-159 -- join writes `separator` for EVERY
-		// item unconditionally, even one with empty text (Python's
-		// EntityString objects are never nil/None; the empty case there
-		// is just an EntityString with text=""). An earlier version of
-		// this port (caught by the gchat-port-auditor re-audit of the
-		// JoinEntityString fix above) instead `continue`d past any item
-		// with zero-length text -- including a nil *EntityString, this
-		// package's sentinel for "empty/absent content" (e.g. an empty
-		// <li></li>, whose rendered content is nil because
-		// nodeToTagAwareString(nil, ctx) has nothing to iterate) --
-		// which skipped its separator slot entirely, silently merging it
-		// into whatever came before/after instead of preserving it as a
-		// blank line. <ul><li>foo</li><li></li><li>bar</li></ul> used to
-		// render "foo\nbar" (the empty middle item vanished); it must
-		// render "foo\n\nbar" (the empty item's own blank line survives).
+		// join writes `separator` for EVERY item unconditionally, even
+		// one with empty text (an empty item is just an EntityString with
+		// text="", never nil). An earlier version of this port instead
+		// `continue`d past any item with zero-length text -- including a
+		// nil *EntityString, this package's sentinel for
+		// "empty/absent content" (e.g. an empty <li></li>, whose rendered
+		// content is nil because nodeToTagAwareString(nil, ctx) has
+		// nothing to iterate) -- which skipped its separator slot
+		// entirely, silently merging it into whatever came before/after
+		// instead of preserving it as a blank line.
+		// <ul><li>foo</li><li></li><li>bar</li></ul> used to render
+		// "foo\nbar" (the empty middle item vanished); it must render
+		// "foo\n\nbar" (the empty item's own blank line survives).
 		//
-		// This does NOT fabricate an entity for the empty item -- unlike
-		// Python's format(), which appends an entity even for
-		// zero-length content (offset=0, length=0), this port's Format()
-		// deliberately treats a nil receiver as "nothing to format" (see
-		// its own doc comment) since a zero-length annotation is a
-		// meaningless no-op on the wire; only the item's structural
-		// position in the text (and hence its separator) needs to
-		// survive, not a content-free entity.
+		// This does NOT fabricate an entity for the empty item -- this
+		// port's Format() deliberately treats a nil receiver as "nothing
+		// to format" (see its own doc comment) since a zero-length
+		// annotation is a meaningless no-op on the wire; only the item's
+		// structural position in the text (and hence its separator) needs
+		// to survive, not a content-free entity.
 		if s != nil {
 			for _, entity := range s.Entities {
 				entity.Start += len(text)
@@ -331,10 +300,9 @@ func JoinEntityString(with string, strings ...*EntityString) *EntityString {
 		text = append(text, withUnits...)
 		wroteAny = true
 	}
-	// entity_string.py:160-161 -- join appends `separator` after EVERY
-	// item, then strips exactly ONE trailing occurrence once the loop
-	// ends, not per item. A first attempt at this port (caught by the
-	// gchat-port-auditor review) omitted that trailing strip entirely:
+	// join appends `separator` after EVERY item, then strips exactly ONE
+	// trailing occurrence once the loop ends, not per item. A first
+	// attempt at this port omitted that trailing strip entirely:
 	// every join with a non-empty separator -- every list/blockquote/
 	// ordered-list call site, all joined with "\n" -- left a dangling
 	// separator at the end. That corrupted both the rendered text (an
@@ -355,10 +323,9 @@ func JoinEntityString(with string, strings ...*EntityString) *EntityString {
 }
 
 // Format wraps the ENTIRE current string in a new entity of the given
-// value, mirroring EntityString.format (entity_string.py:116-127). A nil
-// receiver (empty/absent content) is left nil -- formatting zero-length
-// content produces a meaningless annotation, so it's dropped rather than
-// fabricated.
+// value. A nil receiver (empty/absent content) is left nil -- formatting
+// zero-length content produces a meaningless annotation, so it's dropped
+// rather than fabricated.
 func (es *EntityString) Format(value BodyRangeValue) *EntityString {
 	if es == nil {
 		return nil
@@ -369,7 +336,7 @@ func (es *EntityString) Format(value BodyRangeValue) *EntityString {
 }
 
 // Append concatenates other onto es, shifting other's entities by len(es.Text)
-// first -- EntityString.append (entity_string.py:94-101).
+// first.
 func (es *EntityString) Append(other *EntityString) *EntityString {
 	if es == nil {
 		return other
@@ -396,11 +363,10 @@ func (es *EntityString) AppendString(other string) *EntityString {
 }
 
 // TagStack tracks the chain of enclosing HTML tag names during the tree
-// walk (mirrors mautrix.util.formatter's RecursionContext.tag_stack
-// concept as implemented by the sibling maunium.net/go/mautrix/format
-// package's TagStack -- not currently read by anything in this package,
-// kept for parity with megabridge and future use, e.g. detecting "are we
-// inside a <pre>" without a dedicated context field).
+// walk (mirrors the sibling maunium.net/go/mautrix/format package's
+// TagStack -- not currently read by anything in this package, kept for
+// parity with megabridge and future use, e.g. detecting "are we inside a
+// <pre>" without a dedicated context field).
 type TagStack []string
 
 func (ts TagStack) Has(tag string) bool {
@@ -415,9 +381,7 @@ func (ts TagStack) Has(tag string) bool {
 // Context carries per-recursion state through the tree walk: the request
 // context.Context, the Matrix event's m.mentions allow-list (nil means "no
 // restriction" -- see linkToString), the enclosing tag chain, and whether
-// whitespace should be preserved verbatim (set inside <pre>/<code>, mirrors
-// RecursionContext.preserve_whitespace / enter_code_block(),
-// parser.py:37-38).
+// whitespace should be preserved verbatim (set inside <pre>/<code>).
 type Context struct {
 	Ctx                context.Context
 	AllowedMentions    *event.Mentions
@@ -439,9 +403,7 @@ func (ctx Context) WithWhitespace() Context {
 	return ctx
 }
 
-// HTMLParser is a Matrix HTML -> EntityString parser, the Go analogue of
-// the googlechat mautrix_googlechat.formatter.from_matrix.parser.MatrixParser
-// class (which itself subclasses mautrix.util.formatter.MatrixParser).
+// HTMLParser is a Matrix HTML -> EntityString parser.
 type HTMLParser struct {
 	// GetUIDFromMXID resolves a Matrix user ID (from a pill's
 	// matrix.to href) to a Google Chat gaia id, or "" if unresolved.
@@ -473,8 +435,8 @@ func (parser *HTMLParser) getAttribute(node *html.Node, attribute string) string
 }
 
 // Digits counts the number of digits (and the sign, if negative) in num --
-// used for ordered-list continuation-line indent width, matching Python's
-// len(str(longest_index)) (parser.py:86).
+// used for ordered-list continuation-line indent width (the number of
+// digits in the largest index).
 func Digits(num int) int {
 	if num == 0 {
 		return 1
@@ -486,11 +448,7 @@ func Digits(num int) int {
 
 // listToString dispatches <ol> to orderedListToString (numbered text
 // prefix, no annotations) and <ul> to unorderedListToString
-// (LIST/LIST_ITEM annotations, no text prefix) -- the GC
-// MatrixParser.list_to_fstring override (from_matrix/parser.py:62-71):
-// "if node.tag == 'ol': return await super().list_to_fstring(...)"
-// (base class numbered-prefix behavior) vs. its own annotation-based ul
-// handling.
+// (LIST/LIST_ITEM annotations, no text prefix).
 func (parser *HTMLParser) listToString(node *html.Node, ctx Context) *EntityString {
 	if node.Data == "ol" {
 		return parser.orderedListToString(node, ctx)
@@ -498,8 +456,7 @@ func (parser *HTMLParser) listToString(node *html.Node, ctx Context) *EntityStri
 	return parser.unorderedListToString(node, ctx)
 }
 
-// orderedListToString ports mautrix.util.formatter.MatrixParser.list_to_fstring
-// (parser.py:74-103) restricted to the ordered branch: "N. " prefixes
+// orderedListToString renders the ordered-list branch: "N. " prefixes
 // (honoring a start="" attribute), continuation lines of a multi-line <li>
 // indented to align under the prefix, no annotations at all (Google Chat
 // has no ordered-list format type).
@@ -538,14 +495,13 @@ func (parser *HTMLParser) orderedListToString(node *html.Node, ctx Context) *Ent
 	}
 	// children already contains every line of every <li> in order, each
 	// continuation line pre-indented -- joining the whole flat list with
-	// "\n" reproduces the same text as Python's per-li join-then-outer-join
+	// "\n" reproduces the same text as a per-<li> join-then-outer-join
 	// (string concatenation with a uniform separator is associative), see
 	// the package doc comment.
 	return JoinEntityString("\n", children...)
 }
 
-// unorderedListToString ports the GC-specific <ul> branch of
-// list_to_fstring (from_matrix/parser.py:65-71): each <li>'s content is
+// unorderedListToString renders the <ul> branch: each <li>'s content is
 // wrapped in a LIST_ITEM entity (no text prefix), the whole thing joined
 // with "\n" and wrapped in a LIST entity.
 func (parser *HTMLParser) unorderedListToString(node *html.Node, ctx Context) *EntityString {
@@ -560,10 +516,9 @@ func (parser *HTMLParser) unorderedListToString(node *html.Node, ctx Context) *E
 	return JoinEntityString("\n", items...).Format(StyleList)
 }
 
-// basicFormatToString handles b/strong, i/em, s/strike/del, u/ins -- ports
-// basic_format_to_fstring (parser.py:117-129). "tt"/"code" are
-// deliberately NOT handled here -- see the package doc comment and
-// codeToString.
+// basicFormatToString handles b/strong, i/em, s/strike/del, u/ins.
+// "tt"/"code" are deliberately NOT handled here -- see the package doc
+// comment and codeToString.
 func (parser *HTMLParser) basicFormatToString(node *html.Node, ctx Context) *EntityString {
 	str := parser.nodeToTagAwareString(node.FirstChild, ctx)
 	switch node.Data {
@@ -579,21 +534,18 @@ func (parser *HTMLParser) basicFormatToString(node *html.Node, ctx Context) *Ent
 	return str
 }
 
-// codeToString handles inline <code> -- ports node_to_fstring's dedicated
-// "code" branch (parser.py:248-249): whitespace-preserving recursion
-// (ctx.enter_code_block()) wrapped in INLINE_CODE (MONOSPACE). Unlike
-// <pre>, there's no code-inside-code unwrapping to do.
+// codeToString handles inline <code>: whitespace-preserving recursion
+// wrapped in MONOSPACE. Unlike <pre>, there's no code-inside-code
+// unwrapping to do.
 func (parser *HTMLParser) codeToString(node *html.Node, ctx Context) *EntityString {
 	return parser.nodeToString(node.FirstChild, ctx.WithWhitespace()).Format(StyleMonospace)
 }
 
-// preToString handles <pre> -- ports node_to_fstring's "pre" branch
-// (parser.py:237-247): if the sole/first child is a <code> element, unwrap
-// it (use ITS content, not a nested "code inside pre" render) and use its
-// language class only to detect the unwrap, since GC's FormatMetadata
-// carries no language field; whitespace preserved; wrapped in
-// PREFORMATTED (MONOSPACE_BLOCK) -- megabridge emitted plain MONOSPACE
-// here (docs/research/08d-megabridge-msgconv.md §2.1), fixed.
+// preToString handles <pre>: if the sole/first child is a <code> element,
+// unwrap it (use ITS content, not a nested "code inside pre" render) and
+// use its language class only to detect the unwrap, since GC's
+// FormatMetadata carries no language field; whitespace preserved; wrapped
+// in MONOSPACE_BLOCK -- megabridge emitted plain MONOSPACE here, fixed.
 func (parser *HTMLParser) preToString(node *html.Node, ctx Context) *EntityString {
 	inner := node
 	if node.FirstChild != nil && node.FirstChild.Type == html.ElementNode && node.FirstChild.Data == "code" {
@@ -602,12 +554,11 @@ func (parser *HTMLParser) preToString(node *html.Node, ctx Context) *EntityStrin
 	return parser.nodeToString(inner.FirstChild, ctx.WithWhitespace()).Format(StyleMonospaceBlock)
 }
 
-// colorAttribute extracts a color value from a <span>/<font> node. Ports
-// node_to_fstring's font/span branch (mautrix/util/formatter/parser.py:
-// 227-233): "color" attribute wins over "data-mx-color" when both are
-// present. Beyond Python (per this task's explicit ask): falls back to a
-// CSS "style=color:#hex" declaration as a third tier -- real Matrix
-// clients (e.g. Element) sometimes only set style=, not data-mx-color.
+// colorAttribute extracts a color value from a <span>/<font> node: the
+// "color" attribute wins over "data-mx-color" when both are present.
+// Additionally, falls back to a CSS "style=color:#hex" declaration as a
+// third tier -- real Matrix clients (e.g. Element) sometimes only set
+// style=, not data-mx-color.
 func (parser *HTMLParser) colorAttribute(node *html.Node) (string, bool) {
 	if v, ok := parser.maybeGetAttribute(node, "color"); ok && v != "" {
 		return v, true
@@ -642,15 +593,12 @@ func extractCSSColor(style string) (string, bool) {
 
 // colorToFontColor is the exact inverse of gchatfmt's
 // (rgb+2^31)&0xFFFFFF transform (pkg/msgconv/gchatfmt/convert.go's
-// renderFormat FONT_COLOR case), porting color_to_fstring
-// (from_matrix/parser.py:40-47) exactly: parse the (optionally
-// "#"-prefixed) hex string as an integer, OR it with 0x7F000000, subtract
-// 2**31. Python does this with arbitrary-precision integers; the int64
+// renderFormat FONT_COLOR case): parse the (optionally "#"-prefixed) hex
+// string as an integer, OR it with 0x7F000000, subtract 2**31. The int64
 // intermediate here avoids the int32 overflow a literal 1<<31 would hit
 // (mirrors gchatfmt's own int64-before-mask comment for the same reason).
-// A malformed color is not an error (matches Python's `except ValueError:
-// return msg` -- the message is left unformatted, never panics or
-// substitutes a bogus value).
+// A malformed color is not an error -- the message is left unformatted,
+// never panics or substitutes a bogus value.
 func colorToFontColor(color string) (int32, bool) {
 	color = strings.TrimLeft(color, "#")
 	parsed, err := strconv.ParseInt(color, 16, 64)
@@ -662,10 +610,9 @@ func colorToFontColor(color string) (int32, bool) {
 }
 
 // spanToString handles <span> and <font>. data-mx-spoiler is intentionally
-// ignored -- Google Chat has no spoiler concept, and the GC MatrixParser's
-// own spoiler_to_fstring override is a no-op (from_matrix/parser.py:59-60:
-// "return msg", i.e. render the content plainly). Color is read via
-// colorAttribute and turned into a FontColor entity when parseable.
+// ignored -- Google Chat has no spoiler concept, so the content is rendered
+// plainly. Color is read via colorAttribute and turned into a FontColor
+// entity when parseable.
 func (parser *HTMLParser) spanToString(node *html.Node, ctx Context) *EntityString {
 	str := parser.nodeToTagAwareString(node.FirstChild, ctx)
 	color, ok := parser.colorAttribute(node)
@@ -694,28 +641,19 @@ func (parser *HTMLParser) blockquoteToString(node *html.Node, ctx Context) *Enti
 	return JoinEntityString("\n", children...)
 }
 
-// linkToString handles <a href>. Ports link_to_fstring (mautrix/util/
-// formatter/parser.py:131-161) combined with the GC MatrixParser's
-// user_pill_to_fstring/room_pill_to_fstring overrides
-// (from_matrix/parser.py:49-57):
+// linkToString handles <a href>:
 //
-//  1. No href -> just the anchor's rendered content (link_to_fstring:134-135).
+//  1. No href -> just the anchor's rendered content.
 //  2. mailto: -> the bare address (href with "mailto:" stripped), discarding
-//     the anchor's own text entirely and producing NO annotation --
-//     link_to_fstring:137-138 formats with EntityType.EMAIL, and
-//     GCMessage.format no-ops for EMAIL (gc_message.py:169-171:
-//     "if entity_type == GCEntityType.EMAIL: return self").
+//     the anchor's own text entirely and producing NO annotation (EMAIL is
+//     a no-op on the wire).
 //  3. A matrix.to/matrix: URI naming a user (sigil '@') -> a mention pill,
 //     gated by content.Mentions (the m.mentions allow-list, when present)
 //     and by the MentionResolver seam (GetUIDFromMXID). Exactly one leading
 //     "@" + the anchor's own rendered text becomes a Mention entity: the
-//     "@" prefix is a deliberate deviation from the real (self-admittedly
-//     incomplete -- see its "# TODO remove potential Google Chat suffix
-//     from displayname" / "# TODO convert Matrix mentions of Google Chat
-//     users to GC mentions" comments, from_matrix/parser.py:50-51)
-//     user_pill_to_fstring, matching Google Chat's own convention of
-//     always writing "@Name" as the literal text under a MENTION
-//     annotation (confirmed by gchatfmt's own test fixtures, e.g.
+//     "@" prefix is a deliberate deviation, matching Google Chat's own
+//     convention of always writing "@Name" as the literal text under a
+//     MENTION annotation (confirmed by gchatfmt's own test fixtures, e.g.
 //     pkg/msgconv/gchatfmt/convert_test.go's "@Bob hi"). Crucially the "@"
 //     is prepended onto the anchor text with any existing leading "@"
 //     stripped first, so it appears exactly ONCE: gchatfmt (the inverse
@@ -727,10 +665,7 @@ func (parser *HTMLParser) blockquoteToString(node *html.Node, ctx Context) *Enti
 //     megabridge's unconditional prepend had exactly this cross-package
 //     round-trip defect (offsets stay correct, but the text is
 //     duplicated). Any other Matrix URI (room, event) falls through to
-//     case 4, exactly like Python (room_pill_to_fstring/
-//     event_link_to_fstring return None in the base class and neither is
-//     overridden by GC, so link_to_fstring falls through to url_to_fstring
-//     with the original href).
+//     case 4 with the original href.
 //  4. Otherwise -> a URL{Href: href} annotation, UNCONDITIONALLY -- this is
 //     the fix for the URL-loss bug (see the package doc comment).
 func (parser *HTMLParser) linkToString(node *html.Node, ctx Context) *EntityString {
@@ -756,7 +691,7 @@ func (parser *HTMLParser) linkToString(node *html.Node, ctx Context) *EntityStri
 			}
 		}
 		// Mention not allowed/resolvable -- fall through to plain text,
-		// per this task's MentionResolver contract: no annotation, nothing
+		// per the MentionResolver contract: no annotation, nothing
 		// dropped.
 		return str
 	}
@@ -783,8 +718,7 @@ func (parser *HTMLParser) tagToString(node *html.Node, ctx Context) *EntityStrin
 	case "a":
 		return parser.linkToString(node, ctx)
 	case "p":
-		// parser.py:216-217: "(await self.tag_aware_parse_node(node, ctx)).append('\n')"
-		// -- an extra trailing newline on top of the generic block-tag
+		// An extra trailing newline on top of the generic block-tag
 		// wrapping nodeToTagAwareString already adds one level up,
 		// producing a blank line between consecutive paragraphs.
 		return parser.nodeToTagAwareString(node.FirstChild, ctx).AppendString("\n")
@@ -797,9 +731,8 @@ func (parser *HTMLParser) tagToString(node *html.Node, ctx Context) *EntityStrin
 	}
 }
 
-// mxRoomMention / gcRoomMention: ported from
-// mautrix_googlechat/formatter/from_matrix/parser.py's module-level
-// MX_ROOM_MENTION / GC_ROOM_MENTION constants.
+// mxRoomMention / gcRoomMention: the literal "@room" Matrix text and the
+// "@all" Google Chat text it maps to.
 const (
 	mxRoomMention = "@room"
 	gcRoomMention = "@all"
@@ -812,23 +745,19 @@ func collapseWhitespace(s string) string {
 }
 
 // textToEntityString converts a single HTML text node into an EntityString,
-// porting the GC MatrixParser's text_to_fstring override
-// (from_matrix/parser.py:85-98) exactly, in the same order: check for a
-// literal "@room" BEFORE collapsing whitespace (and only when not
-// preserving whitespace, i.e. not inside <pre>/<code>); if found, split
-// around the FIRST occurrence, recurse on the prefix and suffix (so
-// multiple "@room"s in one text node each become their own MENTION_ALL),
-// and concatenate prefix + "@all"-as-MentionAll + suffix. Otherwise (or
-// once no more "@room" is found), collapse runs of whitespace into a
-// single space, matching mautrix.util.formatter's base text_to_fstring
-// (parser.py:252-257) -- the strip_leading_whitespace parameter it also
-// takes is not ported, see the package doc comment.
+// in this order: check for a literal "@room" BEFORE collapsing whitespace
+// (and only when not preserving whitespace, i.e. not inside <pre>/<code>);
+// if found, split around the FIRST occurrence, recurse on the prefix and
+// suffix (so multiple "@room"s in one text node each become their own
+// MENTION_ALL), and concatenate prefix + "@all"-as-MentionAll + suffix.
+// Otherwise (or once no more "@room" is found), collapse runs of whitespace
+// into a single space -- the strip_leading_whitespace nuance is not
+// implemented, see the package doc comment.
 //
-// Beyond Python (real Python's text_to_fstring has no allow-list concept at
-// all -- confirmed by reading mautrix.util.formatter's base class in full):
-// the "@room" -> MENTION_ALL substitution is gated on ctx.AllowedMentions,
-// exactly like linkToString's individual-mention gate just above
-// (`ctx.AllowedMentions == nil || ctx.AllowedMentions.Has(mxid)`). nil means
+// Additionally, the "@room" -> MENTION_ALL substitution is gated on
+// ctx.AllowedMentions, exactly like linkToString's individual-mention gate
+// just above (`ctx.AllowedMentions == nil || ctx.AllowedMentions.Has(mxid)`).
+// nil means
 // "no restriction" (no m.mentions block on the event at all -- an older/
 // non-compliant Matrix client); when AllowedMentions IS present but its
 // Room flag is false, the sender's own client did not intend this "@room"
@@ -876,11 +805,10 @@ func (parser *HTMLParser) nodeToTaggedStrings(node *html.Node, ctx Context) (str
 	return
 }
 
-// BlockTags mirrors mautrix.util.formatter.MatrixParser.block_tags
-// (parser.py:47-63) exactly, including "li" (which in practice is always
-// consumed by listToString before nodeToTagAwareString ever sees it as a
-// direct child, but is included for fidelity with a stray/malformed <li>
-// outside a list).
+// BlockTags is the set of block-level HTML tags, including "li" (which in
+// practice is always consumed by listToString before nodeToTagAwareString
+// ever sees it as a direct child, but is included for fidelity with a
+// stray/malformed <li> outside a list).
 var BlockTags = []string{"p", "pre", "blockquote", "ol", "ul", "li", "h1", "h2", "h3", "h4", "h5", "h6", "div", "hr", "table"}
 
 func (parser *HTMLParser) isBlockTag(tag string) bool {
@@ -895,15 +823,13 @@ func (parser *HTMLParser) isBlockTag(tag string) bool {
 func (parser *HTMLParser) nodeToTagAwareString(node *html.Node, ctx Context) *EntityString {
 	strs := parser.nodeToTaggedStrings(node, ctx)
 	var output *EntityString
-	// prevWasBlock ports tag_aware_parse_node's prev_was_block
-	// (parser.py:283-289) EXACTLY, including its surprising real-Python
-	// behavior: it is a one-way latch, never reset back to false for a
+	// prevWasBlock is a one-way latch, never reset back to false for a
 	// later non-block sibling. Every block-tag child always gets its
 	// trailing "\n"; only the FIRST block-tag child seen among ALL of
 	// node's children (block or not) also gets a leading "\n" prepended.
-	// An earlier version of this port (caught by the gchat-port-auditor
-	// review) unconditionally prepended AND appended "\n" for every block
-	// child with no state tracking at all, which double-counts the
+	// An earlier version of this port unconditionally prepended AND appended
+	// "\n" for every block child with no state tracking at all, which
+	// double-counts the
 	// leading newline for every block sibling after the first: two
 	// adjacent <p> elements (the extremely common case a Matrix client
 	// emits for a blank-line-separated multi-paragraph plain-text
@@ -939,20 +865,17 @@ func (parser *HTMLParser) nodeToStrings(node *html.Node, ctx Context) (strs []*E
 }
 
 // nodeToString joins node's children with NO separator. Used by
-// headerToString (matches Python: header_to_fstring calls
-// self.fs.join(children, "") explicitly, parser.py:115) and by
-// codeToString/preToString (a deliberate, acknowledged deviation: Python's
-// parse_node, used only for <pre>/<code>, calls self.fs.join(items) with
-// NO separator argument, which defaults to " " (entity_string.py:152) --
-// for the overwhelmingly common case of a single flat text child this
-// makes no observable difference, but a <code>/<pre> containing 2+ direct
-// child nodes, e.g. <code>foo<b>bar</b>baz</code>, would get real Python's
-// spurious injected spaces ("foo bar baz") that this port does not
-// reproduce ("foobarbaz", matching the source exactly). Flagged by the
-// gchat-port-auditor review as undocumented; left as Go's behavior rather
-// than "fixed" to match Python, since inserting unrequested whitespace
-// into a monospace/code block is arguably the wrong direction to copy a
-// quirk in.
+// headerToString (which joins with an empty separator) and by
+// codeToString/preToString (a deliberate, acknowledged deviation: the
+// original join used for <pre>/<code> content defaults to a " " separator
+// when none is given -- for the overwhelmingly common case of a single
+// flat text child this makes no observable difference, but a <code>/<pre>
+// containing 2+ direct child nodes, e.g. <code>foo<b>bar</b>baz</code>,
+// would get spurious injected spaces ("foo bar baz") that this port does
+// not reproduce ("foobarbaz"). Left as the no-separator behavior rather
+// than "fixed", since inserting unrequested whitespace into a
+// monospace/code block is
+// arguably the wrong direction to copy a quirk in.
 func (parser *HTMLParser) nodeToString(node *html.Node, ctx Context) *EntityString {
 	return JoinEntityString("", parser.nodeToStrings(node, ctx)...)
 }

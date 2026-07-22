@@ -1,6 +1,6 @@
 package connector
 
-// handleedit_test.go -- HandleMatrixEdit (M4 Task 1): outbound Matrix edit ->
+// handleedit_test.go -- HandleMatrixEdit: outbound Matrix edit ->
 // edit_message RPC. Mirrors handlematrix_test.go's request-construction /
 // response-mapping / error-path test shape for HandleMatrixMessage.
 
@@ -84,10 +84,10 @@ func TestHandleMatrixEditSpacePortalBuildsEditMessageRequest(t *testing.T) {
 		t.Errorf("TextBody = %q, want %q", got, "edited text")
 	}
 	if !gotReq.GetMessageInfo().GetAcceptFormatAnnotations() {
-		t.Error("MessageInfo.AcceptFormatAnnotations = false, want true (client.py:407-409)")
+		t.Error("MessageInfo.AcceptFormatAnnotations = false, want true")
 	}
 	if gotReq.GetMessageInfo().GetReplyTo() != nil {
-		t.Error("MessageInfo.ReplyTo is set, want nil -- edit_message never sets reply_to (client.py:407-409)")
+		t.Error("MessageInfo.ReplyTo is set, want nil -- edit_message never sets reply_to")
 	}
 }
 
@@ -118,9 +118,8 @@ func TestHandleMatrixEditDMPortalBuildsDmGroupID(t *testing.T) {
 
 // TestHandleMatrixEditUsesStoredTopicIDForThreadReply covers a reply-in-thread
 // target: the target's own stored MessageMetadata.TopicID (the thread's
-// topic, distinct from the target's own message id) must be used, mirroring
-// client.py's edit_message(conversation_id, thread_id=target.gc_parent_id,
-// message_id=target.gcid, ...).
+// topic, distinct from the target's own message id) must be used as the
+// edit's thread/topic id, not the target's own message id.
 func TestHandleMatrixEditUsesStoredTopicIDForThreadReply(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.EditMessageRequest
@@ -149,11 +148,10 @@ func TestHandleMatrixEditUsesStoredTopicIDForThreadReply(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixEditFallsBackToOwnIDWhenTopicIDMissing pins Python's
-// `thread_id or message_id` fallback (client.py:400): a target with no
-// stored TopicID (e.g. a pre-M3-Task-6 legacy row) must fall back to its own
-// message id, exactly like threadRootTopicID (handlematrix.go), which this
-// method reuses.
+// TestHandleMatrixEditFallsBackToOwnIDWhenTopicIDMissing pins the
+// `thread_id or message_id` fallback: a target with no stored TopicID (e.g. a
+// legacy row) must fall back to its own message id, exactly
+// like threadRootTopicID (handlematrix.go), which this method reuses.
 func TestHandleMatrixEditFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.EditMessageRequest
@@ -178,12 +176,12 @@ func TestHandleMatrixEditFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 
 // --- HandleMatrixEdit: LastEditTime bookkeeping ------------------------------
 
-// TestHandleMatrixEditUpdatesLastEditTimeOnSuccess pins portal.py:874's
-// `self._edit_dedup[target.gcid] = resp.message.last_edit_time` ported onto
-// the DB row: EditTarget.Metadata.LastEditTime must be bumped to the
-// server's own response value, and bridgev2 itself persists EditTarget after
-// this method returns (EditHandlingNetworkAPI.HandleMatrixEdit's own doc
-// comment), so no explicit DB.Message.Update call belongs here.
+// TestHandleMatrixEditUpdatesLastEditTimeOnSuccess pins the last-edit-time
+// dedup bookkeeping on the DB row: EditTarget.Metadata.LastEditTime must be
+// bumped to the server's own response value, and bridgev2 itself persists
+// EditTarget after this method returns
+// (EditHandlingNetworkAPI.HandleMatrixEdit's own doc comment), so no explicit
+// DB.Message.Update call belongs here.
 func TestHandleMatrixEditUpdatesLastEditTimeOnSuccess(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	gc := &GChatClient{
@@ -249,15 +247,14 @@ func TestHandleMatrixEditNoExistingMetadataStillWorks(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixEditNonTextMsgTypeRejected pins portal.py:853-862's
-// stricter-than-new-message gate: `# We don't support non-text edits yet /
-// if message.msgtype != MessageType.TEXT: ... return`. Unlike
-// HandleMatrixMessage (handlematrix.go), which accepts BOTH TEXT and NOTICE
-// for a brand new send (portal.py:915), an edit's new content must be
-// literal TEXT -- bridgev2's own generic checkMessageContentCaps
-// (mautrix-go bridgev2/portal.go:1108-1146) whitelists
-// MsgText/MsgNotice/MsgEmote with "no checks for now" and does NOT enforce
-// this, so this method must reject it itself.
+// TestHandleMatrixEditNonTextMsgTypeRejected pins the
+// stricter-than-new-message gate: we don't support non-text edits yet.
+// Unlike HandleMatrixMessage (handlematrix.go), which accepts BOTH TEXT and
+// NOTICE for a brand new send, an edit's new content must be literal TEXT --
+// bridgev2's own generic checkMessageContentCaps (mautrix-go
+// bridgev2/portal.go:1108-1146) whitelists MsgText/MsgNotice/MsgEmote with
+// "no checks for now" and does NOT enforce this, so this method must reject
+// it itself.
 func TestHandleMatrixEditNonTextMsgTypeRejected(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	called := false
@@ -349,10 +346,10 @@ func TestHandleMatrixEditPropagatesRPCError(t *testing.T) {
 	}
 }
 
-// --- HandleMatrixEdit: formatting/mentions reuse (M3 composition) -----------
+// --- HandleMatrixEdit: formatting/mentions reuse ----------------------------
 
 // TestHandleMatrixEditFormattedTextBuildsAnnotations proves edits reuse the
-// same M3 matrixfmt outbound formatting path as HandleMatrixMessage: an HTML
+// same matrixfmt outbound formatting path as HandleMatrixMessage: an HTML
 // formatted_body must produce an annotation-stripped TextBody plus the
 // HTML-derived formatting annotation.
 func TestHandleMatrixEditFormattedTextBuildsAnnotations(t *testing.T) {

@@ -19,10 +19,10 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// split_event_bodies (client.py:565-580)
+// splitEventBodies
 // ---------------------------------------------------------------------------
 
-// TestSplitEventBodies verifies the exact Python semantics: an Event carrying
+// TestSplitEventBodies verifies the flattening semantics: an Event carrying
 // a top-level body (field 4) plus two embedded bodies (field 8) flattens to
 // three Events, in order -- parent first, then one per embedded body -- with
 // the parent's fields copied and each copy's type taken from the body.
@@ -47,7 +47,7 @@ func TestSplitEventBodies(t *testing.T) {
 		t.Fatalf("splitEventBodies returned %d events, want 3", len(got))
 	}
 
-	// Parent must have its bodies cleared (Python evt.ClearField("bodies")).
+	// Parent must have its bodies cleared.
 	if len(got[0].Bodies) != 0 {
 		t.Errorf("parent event still has %d bodies, want 0 (ClearField)", len(got[0].Bodies))
 	}
@@ -121,7 +121,7 @@ func TestOnReceiveArrayDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pblite.Marshal: %v", err)
 	}
-	// data_array = [ <StreamEventsResponse pblite array>, ... ] (client.py:550).
+	// data_array = [ <StreamEventsResponse pblite array>, ... ].
 	dataArray, err := json.Marshal([]json.RawMessage{json.RawMessage(serBytes)})
 	if err != nil {
 		t.Fatalf("marshal data array: %v", err)
@@ -154,7 +154,7 @@ func TestOnReceiveArrayDispatch(t *testing.T) {
 }
 
 // TestOnReceiveArrayNoop verifies the "noop" keep-alive is dropped silently
-// (client.py:547-548) and never reaches OnStreamEvent.
+// and never reaches OnStreamEvent.
 func TestOnReceiveArrayNoop(t *testing.T) {
 	called := false
 	c := &Client{OnStreamEvent: func(ctx context.Context, ev *pb.Event) { called = true }}
@@ -167,7 +167,7 @@ func TestOnReceiveArrayNoop(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Supervision ladder (research 07 §6 / user.py:299-388)
+// Supervision ladder (research 07 §6)
 // ---------------------------------------------------------------------------
 
 // scriptedChannel is a fake channelListener whose Listen returns a scripted
@@ -592,7 +592,7 @@ func TestSIDInvalidResyncCancelDuringBackoff(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// XSRF refresh on 401 (client.py:499-539 fetch + brief's 401-retry mandate)
+// XSRF refresh on 401 (brief's 401-retry mandate)
 // ---------------------------------------------------------------------------
 
 // TestXSRFRefreshOn401 verifies that a 401 from an /api/* RPC triggers a token

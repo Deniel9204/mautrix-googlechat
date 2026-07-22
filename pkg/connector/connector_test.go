@@ -100,9 +100,8 @@ func TestLoadUserLoginNilPriorClientIsSafe(t *testing.T) {
 
 // TestSetMaxFileSize pins M5 Task 3's bridgev2.MaxFileSizeingNetwork wiring:
 // bridgev2 calls SetMaxFileSize once soon after startup with the
-// homeserver's own configured max upload size (the Go equivalent of
-// portal.py:1534's `self.matrix.media_config.upload_size`), and
-// GChatClient.maxFileSize (media.go) must read back exactly that value.
+// homeserver's own configured max upload size, and GChatClient.maxFileSize
+// (media.go) must read back exactly that value.
 func TestSetMaxFileSize(t *testing.T) {
 	gc := &GChatConnector{}
 	gc.SetMaxFileSize(12345)

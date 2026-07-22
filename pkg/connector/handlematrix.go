@@ -1,46 +1,38 @@
 package connector
 
 // handlematrix.go -- Matrix -> Google Chat outbound message send
-// (HandleMatrixMessage). Ports mautrix_googlechat/portal.py's
-// handle_matrix_message + _handle_matrix_text (portal.py:880-931,1051-1079)
-// together with maugclib/client.py's send_message (client.py:413-475).
+// (HandleMatrixMessage).
 //
-// M3 Task 6 implements send_message's full `if thread_id: ... else: ...`
-// branch (client.py:441-472): msg.ThreadRoot != nil (bridgev2 has already
-// resolved a Matrix thread reply -- or, in a threads-only room, auto-
-// converted a plain reply into one, mautrix-go bridgev2/portal.go:1259-1268
-// -- into a pre-fetched *database.Message) routes to create_message with
-// parent_id.topic_id set to the root's own stored topic id (sendThreadedMessage,
-// below); msg.ThreadRoot == nil keeps going through create_topic
-// (sendNewTopic, below), exactly matching Python's own thread_id
-// computation being restricted to msg.get_thread_parent()/reply-into-thread
-// detection (portal.py:891-907) -- this connector leans on bridgev2's own
-// generic thread/reply resolution (roomFeatures' Thread/Reply capabilities,
-// capabilities.go) to build that pre-resolved ThreadRoot rather than
-// re-implementing portal.py:886-907's DBMessage lookups itself.
+// The full thread-vs-no-thread branch: msg.ThreadRoot
+// != nil (bridgev2 has already resolved a Matrix thread reply -- or, in a
+// threads-only room, auto-converted a plain reply into one, mautrix-go
+// bridgev2/portal.go:1259-1268 -- into a pre-fetched *database.Message)
+// routes to create_message with parent_id.topic_id set to the root's own
+// stored topic id (sendThreadedMessage, below); msg.ThreadRoot == nil keeps
+// going through create_topic (sendNewTopic, below). This connector leans on
+// bridgev2's own generic thread/reply resolution (roomFeatures' Thread/Reply
+// capabilities, capabilities.go) to build that pre-resolved ThreadRoot
+// rather than doing the message-row lookups itself.
 //
-// M3 Task 7 implements reply_to_wrapped/message_info.reply_to (the other
-// half of client.py:423-438/453-456,467-469 the above paragraph doesn't
-// cover): msg.ReplyTo != nil (bridgev2's own pre-resolved quote-reply
-// target, mautrix-go bridgev2/portal.go:1248-1273) builds a SendReplyTarget
-// via buildReplyTarget, below, composing independently of ThreadRoot -- a
-// reply can also be posted into a thread (both set at once).
+// message_info.reply_to is the quote-reply half the above
+// paragraph doesn't cover: msg.ReplyTo != nil (bridgev2's own pre-resolved
+// quote-reply target, mautrix-go bridgev2/portal.go:1248-1273) builds a
+// SendReplyTarget via buildReplyTarget, below, composing independently of
+// ThreadRoot -- a reply can also be posted into a thread (both set at once).
 //
 // Field-by-field fidelity notes for each RPC's request live on sendNewTopic,
 // sendThreadedMessage, and buildReplyTarget's own doc comments, below.
 //
-// Known gap, tracked rather than fixed here (gchat-port-auditor, M2 Task 5
-// review): portal.py's _handle_matrix_text also unconditionally calls
-// `sender.client.mark_typing(self.gcid, typing=False)` immediately before
-// every send (portal.py:1061-1065, best-effort/log-only on failure) to
-// force-clear a lingering "typing..." indicator before the message lands.
-// There is no equivalent call here -- this bridge has no
+// Known gap, tracked rather than fixed here: a lingering "typing..."
+// indicator is not force-cleared before each send (a mark_typing
+// typing=False call, best-effort/log-only on failure, to clear it before the
+// message lands). There is no equivalent call here -- this bridge has no
 // TypingHandlingNetworkAPI/HandleMatrixTyping implementation yet for it to
 // piggyback on, though the RPC primitive already exists
 // (gchatmeow.Client.SetTypingState, pkg/gchatmeow/api.go). Pick this up
-// alongside that future typing-support task rather than as a standalone
-// fix: no data loss results from its absence (P2, not required for M2's
-// plain-text send correctness).
+// alongside that future typing-support task rather than as a standalone fix:
+// no data loss results from its absence (P2, not required for plain-text
+// send correctness).
 import (
 	"context"
 	"errors"
@@ -82,24 +74,22 @@ var errOutboundMediaDisabled = bridgev2.WrapErrorInStatus(errors.New("outbound m
 // HandleMatrixMessage sends a Matrix message to Google Chat, routing it to
 // create_topic (a brand-new top-level message) or create_message (a reply
 // into an existing topic) depending on msg.ThreadRoot -- see the file doc
-// comment -- with full HTML formatting/mention conversion as of M3 Task 4
-// and outbound media (m.image/m.file/m.video/m.audio) as of M5 Task 5.
+// comment -- with full HTML formatting/mention conversion
+// and outbound media (m.image/m.file/m.video/m.audio).
 //
-// Every other message type is rejected with bridgev2.ErrUnsupportedMessageType,
-// matching handle_matrix_message's final else branch (`raise
-// NotImplementedError(f"Unsupported msgtype {message.msgtype}")`,
-// portal.py:923-924) for every msgtype that is neither TEXT/NOTICE nor
-// is_media. In practice, bridgev2's own checkMessageContentCaps (driven by
-// GetCapabilities' File map, capabilities.go) already rejects anything
-// outside image/video/audio/file before this method is ever reached for a
-// media msgtype -- this check is what actually mirrors Python's msgtype
-// gate for the types that DO reach here (e.g. m.emote, m.location).
+// Every other message type is rejected with bridgev2.ErrUnsupportedMessageType
+// for every msgtype that is neither TEXT/NOTICE nor is_media. In practice,
+// bridgev2's own checkMessageContentCaps (driven by GetCapabilities' File
+// map, capabilities.go) already rejects anything outside
+// image/video/audio/file before this method is ever reached for a media
+// msgtype -- this check is what actually enforces the msgtype gate for the
+// types that DO reach here (e.g. m.emote, m.location).
 //
-// Media branch (M5 Task 5, portal.py:1081-1121's _handle_matrix_media):
-// isOutboundMediaMsgType gates on exactly the four msgtypes
-// capabilities.go's gchatFile map advertises. Config.DisableOutboundMedia
-// short-circuits with errOutboundMediaDisabled before any network I/O --
-// see its own doc comment for why (issue #114). Otherwise
+// Media branch: isOutboundMediaMsgType gates on exactly the four
+// msgtypes capabilities.go's gchatFile map advertises.
+// Config.DisableOutboundMedia short-circuits with errOutboundMediaDisabled
+// before any network I/O -- see its own doc comment for why (issue #114).
+// Otherwise
 // buildUploadAnnotation (media.go) downloads the Matrix file (decrypting it
 // if encrypted), uploads it to Google Chat, and returns an
 // UPLOAD_METADATA/RENDER annotation; a failure at either step (the #114
@@ -113,8 +103,8 @@ var errOutboundMediaDisabled = bridgev2.WrapErrorInStatus(errors.New("outbound m
 // resulting file and caption annotations are combined via mergeAnnotations
 // below exactly like text-only messages are -- never by outright
 // replacement -- so a formatted caption can never clobber the file
-// annotation (the B4 fix this file has guarded against append-only since M3
-// Task 4, before any real UPLOAD_METADATA annotation existed to lose).
+// annotation (the B4 fix this file has guarded against append-only from the
+// start, before any real UPLOAD_METADATA annotation existed to lose).
 func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
 	isMedia := isOutboundMediaMsgType(msg.Content.MsgType)
 	if msg.Content.MsgType != event.MsgText && msg.Content.MsgType != event.MsgNotice && !isMedia {
@@ -149,10 +139,8 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 	// mergeAnnotations combines the media branch's own file annotation (nil
 	// for a text/notice message) with the caption/body text's own
 	// formatting annotations, always by APPENDING rather than replacing --
-	// the fix for B4 (docs/research/08d §2.4, see mergeAnnotations' own doc
-	// comment). Shared by both the create_topic and create_message branches
-	// below, exactly like send_message shares message_info's construction
-	// between them (client.py:441-471).
+	// the fix for B4 (see mergeAnnotations' own doc comment). Shared by both
+	// the create_topic and create_message branches below.
 	annotations := mergeAnnotations(fileAnnotations, textAnnotations)
 	localID := newLocalID()
 	txnID := networkid.TransactionID(localID)
@@ -164,11 +152,10 @@ func (c *GChatClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.Mat
 }
 
 // threadRootTopicID resolves the topic id a reply must be posted into from
-// bridgev2's pre-resolved ThreadRoot message, porting Python's own fallback
-// at portal.py:895: `thread_id = thread_parent.gc_parent_id or
-// thread_parent.gcid`. The primary source is the root message's own stored
+// bridgev2's pre-resolved ThreadRoot message, applying a `topic id or message
+// id` fallback. The primary source is the root message's own stored
 // MessageMetadata.TopicID (dbmeta.go, stamped on every bridged message both
-// directions); if that is empty -- e.g. a pre-Task-6 legacy DB row, or a
+// directions); if that is empty -- e.g. a legacy DB row, or a
 // Metadata value of an unexpected type -- this falls back to the root
 // message's own id, which is correct regardless: message_id == topic_id for
 // any head-of-topic message, so a root whose OWN id IS the topic id (the
@@ -185,54 +172,45 @@ func threadRootTopicID(root *database.Message) (string, bool) {
 	return string(root.ID), true
 }
 
-// buildReplyTarget builds message_info.reply_to (M3 Task 7), porting
-// send_message's reply_to_wrapped construction (client.py:423-438) field by
-// field:
+// buildReplyTarget builds message_info.reply_to, the
+// SendReplyTarget proto:
 //
-//	reply_to_wrapped = SendReplyTarget(
-//	    id=MessageId(
-//	        parent_id=MessageParentId(
-//	            topic_id=TopicId(group_id=..., topic_id=thread_id or reply_to),
-//	        ),
-//	        message_id=reply_to,
-//	    ),
-//	    create_time=reply_to_ts,
-//	) if reply_to else None
+//	SendReplyTarget{
+//	    Id: MessageId{
+//	        ParentId: MessageParentId{
+//	            TopicId: TopicId{GroupId: ..., TopicId: thread_id or reply_to},
+//	        },
+//	        MessageId: reply_to,
+//	    },
+//	    CreateTime: reply_to_ts,
+//	}   // built only when there is a reply target
 //
 // replyTo is msg.ReplyTo, bridgev2's own pre-resolved reply target
-// (mautrix-go bridgev2/portal.go:1248-1273) -- nil (-> nil return, matching
-// Python's `if reply_to else None` gate) whenever the Matrix event carried
-// no (non-fallback) m.in_reply_to relation.
+// (mautrix-go bridgev2/portal.go:1248-1273) -- nil (-> nil return) whenever
+// the Matrix event carried no (non-fallback) m.in_reply_to relation.
 //
 // threadTopicID is the SAME "thread_id" sendNewTopic/sendThreadedMessage
 // compute for routing: "" from sendNewTopic (no thread), or the topic being
 // posted into from sendThreadedMessage. It drives the reply target's own
-// nested topic_id via exactly Python's "thread_id or reply_to" fallback:
-// truthy threadTopicID (we ARE posting into a thread) wins outright; empty
-// falls back to the reply target's own message id. That fallback is only
-// ever exercised in the no-thread case, and is correct there: portal.py's
-// own upstream thread_id/reply_to selection (portal.py:896-900, `elif
-// reply_to.gc_parent_id != reply_to.gcid: thread_id = reply_to.gc_parent_id;
-// reply_to = None`) guarantees a reply_to that survives to this point with
-// no thread_id is always the head of its own topic (message_id ==
-// topic_id) -- this connector doesn't need to replicate that upstream
-// selection itself (see threadRootTopicID's own doc comment on leaning on
-// bridgev2's generic thread/reply resolution instead), because bridgev2
-// hands ReplyTo/ThreadRoot through independently rather than pre-clearing
-// ReplyTo the way portal.py's Python-side elif does -- see
-// TestHandleMatrixMessageReplyAndThreadBothSet's doc comment for the
+// nested topic_id via a "thread_id or reply_to" fallback: truthy
+// threadTopicID (we ARE posting into a thread) wins outright; empty falls
+// back to the reply target's own message id. That fallback is only ever
+// exercised in the no-thread case, and is correct there: a reply target that
+// survives to this point with no thread id is always the head of its own
+// topic (message_id == topic_id). This connector leans on bridgev2's generic
+// thread/reply resolution (see threadRootTopicID's own doc comment) and takes
+// ReplyTo/ThreadRoot through independently rather than pre-clearing ReplyTo --
+// see TestHandleMatrixMessageReplyAndThreadBothSet's doc comment for the
 // resulting "both set at once" case this connector must (and does) still
 // handle correctly.
 //
 // create_time is the target's own stored µs create_time
 // (MessageMetadata.TimestampMicro, replyTo.Metadata -- stamped on every
-// bridged message, both directions, since M2/M3 Task 6; see
-// MessageMetadata's own doc comment on why it exists). Python's
-// reply_to_ts is always available (DBMessage.timestamp is a NOT NULL
-// column, mautrix_googlechat/db/message.py:40) so client.py never has a
-// missing-timestamp case to handle; this Go port defensively covers the
-// scenarios Python's schema rules out (a legacy pre-Task-7 DB row with no
-// TimestampMicro stored, or a Metadata value of an unexpected type) by
+// bridged message, both directions; see
+// MessageMetadata's own doc comment on why it exists). A stored create_time
+// is normally always available, but this Go port defensively covers the
+// scenarios that would otherwise rule it out (a legacy DB row with
+// no TimestampMicro stored, or a Metadata value of an unexpected type) by
 // logging a warning and returning nil -- sending the message WITHOUT any
 // reply target, rather than risking a malformed SendReplyTarget (id set,
 // create_time missing/0) getting the whole create_topic/create_message call
@@ -271,81 +249,62 @@ func buildReplyTarget(ctx context.Context, group gcid.GroupID, replyTo *database
 	}
 }
 
-// sendNewTopic issues create_topic, matching send_message's else branch
-// (client.py:459-472) field-by-field:
+// sendNewTopic issues create_topic, building the request field-by-field:
 //
 //   - request_header is deliberately NOT set on the request built here:
 //     every gchatmeow.Client RPC wrapper stamps it itself
-//     (pkg/gchatmeow/api.go's newRequestHeader, invoked from CreateTopic)
-//     exactly like client.py stamps self.gc_request_header
-//     (client.py:103-109, WEB client_type + client_version 2440378181258 +
-//     spam_room_invites FULLY_SUPPORTED) on every request it builds.
-//     sync.go's PaginatedWorldRequest follows the same "connector builds
-//     business fields only, gchatmeow owns the header" split -- see its doc
-//     comment and pkg/gchatmeow/api.go's "16 /api/* RPCs" comment.
-//   - group_id: parsers.group_id_from_id(conversation_id) is
-//     gchatmeow.PartsToGroupID(group.ID, group.IsDM) here, fed by
+//     (pkg/gchatmeow/api.go's newRequestHeader, invoked from CreateTopic) --
+//     WEB client_type + client_version 2440378181258 + spam_room_invites
+//     FULLY_SUPPORTED on every request. sync.go's PaginatedWorldRequest
+//     follows the same "connector builds business fields only, gchatmeow owns
+//     the header" split -- see its doc comment and pkg/gchatmeow/api.go's
+//     "16 /api/* RPCs" comment.
+//   - group_id: gchatmeow.PartsToGroupID(group.ID, group.IsDM), fed by
 //     gcid.ParsePortalID(msg.Portal.ID) (the "dm:"/"space:" prefix half of
-//     that same Python function lives in pkg/gcid, per ids.go's doc
-//     comment).
-//   - local_id: Python generates one random 64-bit id per send
-//     (`local_id = f"mautrix-googlechat%{random.randint(0,
-//     0xffffffffffffffff)}"`, portal.py:908, BEFORE dispatching to
-//     _handle_matrix_text/_handle_matrix_media) and threads it through
-//     self._local_dedup so the later inbound echo of this exact message can
-//     be recognized and dropped before it round-trips back to Matrix as a
-//     duplicate (portal.py:909,931, and the check at portal.py:1341). M2
-//     Task 5 generated and sent that token (newLocalID, same prefix and
-//     64-bit random range as Python's random.randint(0,
-//     0xffffffffffffffff)); Task 6 wired it into bridgev2's own
-//     pending-transaction mechanism (msg.AddPendingToIgnore, via the
-//     addPendingToIgnoreFn seam, client.go) as the Go
-//     equivalent of self._local_dedup, registered before send() is called,
-//     and matched against the echo's own local_id via
-//     queueMessagePosted's TransactionID field (events.go) --
+//     that derivation lives in pkg/gcid, per ids.go's doc comment).
+//   - local_id: one random 64-bit id is generated per send (the literal
+//     prefix "mautrix-googlechat%" followed by a random 64-bit integer,
+//     newLocalID) and threaded through dedup so the later inbound echo of
+//     this exact message can be recognized and dropped before it round-trips
+//     back to Matrix as a duplicate. That token is generated and sent, and
+//     wired into bridgev2's own pending-transaction mechanism
+//     (msg.AddPendingToIgnore, via the addPendingToIgnoreFn seam, client.go),
+//     registered before send() is called, and matched against the echo's own
+//     local_id via queueMessagePosted's TransactionID field (events.go) --
 //     RemoteMessageWithTransactionID.GetTransactionID(), which bridgev2's
 //     checkPendingMessage (portal.go) compares against the pending table.
 //   - text_body + annotations: msgConverter().FromMatrix
-//     (pkg/msgconv/from-matrix.go) delegates to matrixfmt.Parse (M3
-//     Task 2), the full fmt.matrix_to_googlechat (portal.py:1059) --
-//     text_body is the annotation-stripped text, annotations the
+//     (pkg/msgconv/from-matrix.go) delegates to matrixfmt.Parse
+//     -- text_body is the annotation-stripped text, annotations the
 //     HTML-derived formatting/mention list; computed once by the caller
 //     (HandleMatrixMessage) and shared with sendThreadedMessage.
-//   - history_v2=true is sent unconditionally, matching send_message's own
-//     unconditional value (client.py:465) -- not gated on any config or
+//   - history_v2=true is sent unconditionally -- not gated on any config or
 //     portal state. CreateMessageRequest has no history_v2 field at all
-//     (proto field 8 belongs only to CreateTopicRequest), matching
-//     send_message never setting it on the `if thread_id:` branch either.
+//     (proto field 8 belongs only to CreateTopicRequest), so it is never set
+//     on the threaded branch either.
 //   - message_info.accept_format_annotations=true is likewise unconditional
-//     (client.py:467-469, shared by both the create_topic and
-//     create_message branches, regardless of whether annotations is
-//     empty -- grep-verified: send_message never gates this on
-//     `len(annotations)`) -- so it stays unconditional here too, matching
-//     Python exactly rather than gating it on len(annotations) > 0.
-//     message_info.reply_to (M3 Task 7): buildReplyTarget(ctx, group,
-//     msg.ReplyTo, "") -- nil (matching send_message's own reply_to=None ->
-//     reply_to_wrapped=nil, client.py:423-437) when msg.ReplyTo is nil, else
-//     a SendReplyTarget built from it. See buildReplyTarget's own doc
-//     comment for the full field-by-field port, including the "" passed
-//     here for its threadTopicID parameter (no thread on this path).
-//   - retention_settings is left unset: it is never set by send_message at
-//     all (client.py:460-471 never mentions it).
-//   - topic_and_message_id is never set by send_message either (proto field
-//     7, unused by this call site in Python) and is likewise left unset
-//     here.
+//     (required for outgoing formatting to render), shared by both the
+//     create_topic and create_message branches, regardless of whether
+//     annotations is empty -- never gated on len(annotations).
+//     message_info.reply_to: buildReplyTarget(ctx, group,
+//     msg.ReplyTo, "") -- nil when msg.ReplyTo is nil, else a SendReplyTarget
+//     built from it. See buildReplyTarget's own doc comment for the full
+//     field-by-field construction, including the "" passed here for its
+//     threadTopicID parameter (no thread on this path).
+//   - retention_settings is left unset: it is never set on this call.
+//   - topic_and_message_id is never set (proto field 7, unused by this call
+//     site) and is likewise left unset here.
 //
-// Known gap, tracked rather than fixed here (gchat-port-auditor, M2 Task 5
-// review): portal.py's _handle_matrix_text also unconditionally calls
-// `sender.client.mark_typing(self.gcid, typing=False)` immediately before
-// every send (portal.py:1061-1065, best-effort/log-only on failure) to
-// force-clear a lingering "typing..." indicator before the message lands.
-// There is no equivalent call here -- this bridge has no
+// Known gap, tracked rather than fixed here: a lingering "typing..."
+// indicator is not force-cleared before each send (a mark_typing
+// typing=False call, best-effort/log-only on failure, to clear it before the
+// message lands). There is no equivalent call here -- this bridge has no
 // TypingHandlingNetworkAPI/HandleMatrixTyping implementation yet for it to
 // piggyback on, though the RPC primitive already exists
 // (gchatmeow.Client.SetTypingState, pkg/gchatmeow/api.go). Pick this up
-// alongside that future typing-support task rather than as a standalone
-// fix: no data loss results from its absence (P2, not required for M2's
-// plain-text send correctness).
+// alongside that future typing-support task rather than as a standalone fix:
+// no data loss results from its absence (P2, not required for plain-text
+// send correctness).
 func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMessage, group gcid.GroupID, text string, annotations []*pb.Annotation, localID string, txnID networkid.TransactionID) (*bridgev2.MatrixMessageResponse, error) {
 	send := c.createTopicFn
 	if send == nil {
@@ -364,7 +323,7 @@ func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMess
 		HistoryV2:   proto.Bool(true),
 		MessageInfo: &pb.MessageInfo{
 			AcceptFormatAnnotations: proto.Bool(true),
-			// M3 Task 7: threadTopicID is "" here (no thread) -- see
+			// threadTopicID is "" here (no thread) -- see
 			// buildReplyTarget's own doc comment for the "thread_id or
 			// reply_to" fallback this drives.
 			ReplyTo: buildReplyTarget(ctx, group, msg.ReplyTo, ""),
@@ -373,8 +332,8 @@ func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMess
 
 	// Register localID as a pending-to-ignore transaction BEFORE issuing the
 	// RPC -- see addPendingToIgnoreFn's doc comment (client.go) for why the
-	// ordering matters (Task 6: closes the race window the megabridge port
-	// left open, docs/research/08b row 61). If the echo somehow reaches
+	// ordering matters (closes the race window the megabridge port
+	// left open). If the echo somehow reaches
 	// queueMessagePosted (events.go) before send() below even returns, it is
 	// already covered.
 	c.addPendingToIgnore(msg, txnID)
@@ -383,22 +342,16 @@ func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMess
 	if err != nil {
 		// Undo the registration above via bridgev2's own purpose-built hook
 		// (MatrixMessage.RemovePending, "should only be called if sending
-		// the message fails" per its doc comment). Python's own local_id
-		// leaks forever in self._local_dedup on this path (portal.py:925-931's
-		// except branch never reaches the remove() call at portal.py:931) --
-		// but that is an accidental limitation of Python's plain set(), not a
-		// behavior worth reproducing: bridgev2 hands connectors exactly the
-		// cleanup call Python never had, and both bridges are equally
-		// long-running daemons, so leaving this unpaired would be unbounded
-		// growth in outgoingMessages across every failed send for the life
-		// of the process (gchat-port-auditor, Task 6 review).
+		// the message fails" per its doc comment). Leaving this unpaired
+		// would be unbounded growth in outgoingMessages across every failed
+		// send for the life of the process.
 		c.removePending(msg, txnID)
 		return nil, fmt.Errorf("googlechat: create_topic failed: %w", err)
 	}
 
-	// _get_send_response's CreateTopicResponse arm (portal.py:1047-1048):
-	// gcid=resp.topic.id.topic_id, timestamp=resp.topic.create_time_usec.
-	// The new topic's id also becomes MessageMetadata.TopicID (M3 Task 6):
+	// CreateTopicResponse: gcid=resp.topic.id.topic_id,
+	// timestamp=resp.topic.create_time_usec.
+	// The new topic's id also becomes MessageMetadata.TopicID:
 	// message_id == topic_id for the head of a brand new topic, so this
 	// message IS its own topic -- storing it here is what lets a LATER
 	// Matrix thread reply targeting this exact message resolve the right
@@ -413,27 +366,22 @@ func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMess
 			Timestamp: gchatmeow.MicrosToTime(createTimeUsec),
 			Metadata:  &MessageMetadata{TimestampMicro: createTimeUsec, TopicID: topicID},
 		},
-		// RemovePending mirrors portal.py:931's
-		// `self._local_dedup.remove(local_id)` on the success path: once this
-		// response is saved, the pending entry registered above is no longer
-		// needed.
+		// RemovePending on the success path: once this response is saved, the
+		// pending entry registered above is no longer needed.
 		RemovePending: txnID,
 	}, nil
 }
 
-// sendThreadedMessage issues create_message, matching send_message's
-// `if thread_id:` branch (client.py:441-458): a reply posted into topicID,
+// sendThreadedMessage issues create_message for a reply posted into topicID,
 // an EXISTING topic (never a brand new one -- see threadRootTopicID). Field
 // handling mirrors sendNewTopic's doc comment above except where noted:
 //
-//   - parent_id.topic_id.{group_id,topic_id}: the thread being replied
-//     into, i.e. exactly what send_message builds at client.py:444-448
-//     (`parent_id=MessageParentId(topic_id=TopicId(group_id=...,
-//     topic_id=thread_id))`).
-//   - message_id (proto field 6, CreateMessageRequest only) is never set by
-//     send_message's threaded branch (client.py:442-457 never mentions it)
-//     and is likewise left unset here.
-//   - message_info.reply_to (M3 Task 7): buildReplyTarget(ctx, group,
+//   - parent_id.topic_id.{group_id,topic_id}: the thread being replied into
+//     (parent_id=MessageParentId(topic_id=TopicId(group_id=...,
+//     topic_id=thread_id))).
+//   - message_id (proto field 6, CreateMessageRequest only) is never set on
+//     the threaded branch and is likewise left unset here.
+//   - message_info.reply_to: buildReplyTarget(ctx, group,
 //     msg.ReplyTo, topicID) -- same as sendNewTopic, except topicID (the
 //     thread this message is being posted into) is passed as
 //     threadTopicID here rather than "", driving the "thread_id or
@@ -463,7 +411,7 @@ func (c *GChatClient) sendThreadedMessage(ctx context.Context, msg *bridgev2.Mat
 		Annotations: annotations,
 		MessageInfo: &pb.MessageInfo{
 			AcceptFormatAnnotations: proto.Bool(true),
-			// M3 Task 7: threadTopicID is topicID here (the thread this
+			// threadTopicID is topicID here (the thread this
 			// message is being posted into) -- see buildReplyTarget's own
 			// doc comment for the "thread_id or reply_to" fallback this
 			// drives, and TestHandleMatrixMessageReplyAndThreadBothSet for
@@ -484,9 +432,9 @@ func (c *GChatClient) sendThreadedMessage(ctx context.Context, msg *bridgev2.Mat
 		return nil, fmt.Errorf("googlechat: create_message failed: %w", err)
 	}
 
-	// _get_send_response's CreateMessageResponse arm (portal.py:1049):
-	// gcid=resp.message.id.message_id, timestamp=resp.message.create_time --
-	// note this is the NEW reply's own message id (never equal to topicID
+	// CreateMessageResponse: gcid=resp.message.id.message_id,
+	// timestamp=resp.message.create_time -- note this is the NEW reply's own
+	// message id (never equal to topicID
 	// here, since topicID names an EXISTING topic this reply was posted
 	// into), unlike sendNewTopic's self-referencing case above.
 	message := resp.GetMessage()
@@ -502,25 +450,22 @@ func (c *GChatClient) sendThreadedMessage(ctx context.Context, msg *bridgev2.Mat
 	}, nil
 }
 
-// newLocalID generates one send's local_id/dedup token, matching
-// portal.py's `f"mautrix-googlechat%{random.randint(0,
-// 0xffffffffffffffff)}"` (portal.py:908): the literal prefix
+// newLocalID generates one send's local_id/dedup token: the literal prefix
 // "mautrix-googlechat%" followed by a uniformly random 64-bit integer.
-// math/rand (not crypto/rand) matches Python's own use of the non-secure
-// `random` module here -- this token only needs to be practically unique
-// for in-flight dedup, not unpredictable.
+// math/rand (not crypto/rand) is deliberate -- this token only needs to be
+// practically unique for in-flight dedup, not unpredictable.
 func newLocalID() string {
 	return fmt.Sprintf("mautrix-googlechat%%%d", rand.Uint64())
 }
 
 // mergeAnnotations combines a message's already-decided annotations
 // (existing -- nil for a text/notice message, or a media message's own
-// UPLOAD_METADATA annotation as of M5 Task 5, see HandleMatrixMessage's
+// UPLOAD_METADATA annotation, see HandleMatrixMessage's
 // media branch) with the caption/body text's own formatting annotations
 // (text, from matrixfmt.Parse via FromMatrix), always by APPENDING text
 // after existing -- never by replacing existing outright.
 //
-// This is the fix for B4 (docs/research/08d-megabridge-msgconv.md §2.4):
+// This is the fix for B4:
 // megabridge's handlematrix.go built `annotations = []*proto.Annotation{
 // {Type: UPLOAD_METADATA, ...}}` for a media message, then unconditionally
 // ran the caption through its formatter and did `if entities != nil {

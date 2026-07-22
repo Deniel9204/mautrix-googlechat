@@ -18,49 +18,46 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// Constants ported VERBATIM from maugclib/client.py (docs/research/01
-// §3.1/§7, read 2026-07-13). Task 13's live protocol spike is responsible
-// for validating these against the real Google Chat server before this
+// Constants ported VERBATIM from the Google Chat web client. A live protocol
+// spike should validate these against the real Google Chat server before this
 // client is trusted in production.
 const (
 	// apiKey is the `key` query param on every /api/* request -- inherited
 	// from the Hangouts web client, required to avoid a 403 "Daily Limit
-	// for Unauthenticated Use Exceeded" (client.py:29, client.py:662-664).
+	// for Unauthenticated Use Exceeded".
 	apiKey = "AIzaSyD7InnYR3VKdb4j2rMUEbTCIr2VyEazl6k"
 
-	// apiBaseURL is GC_BASE_URL, client.py:31. Overridable per-Client via
-	// the baseURL field for tests.
+	// apiBaseURL is the /api/* base URL. Overridable per-Client via the
+	// baseURL field for tests.
 	apiBaseURL = "https://chat.google.com/u/0"
 
 	// clientVersion is the RequestHeader.client_version stamped on every
-	// request (client.py:105; RequestHeader schema at
-	// googlechat.proto:106-139).
+	// request (RequestHeader schema at googlechat.proto:106-139).
 	clientVersion = int64(2440378181258)
 )
 
 // Client is the binary-proto RPC layer for the Google Chat private web API:
-// one method per proto_* endpoint in maugclib/client.py, all POSTing binary
-// protobuf to https://chat.google.com/u/0/api/*.
+// one method per /api/* endpoint, all POSTing binary protobuf to
+// https://chat.google.com/u/0/api/*.
 //
-// This type carries ONLY the fields the RPC layer itself needs. Task 8
-// (client.go, same package) adds the BrowserChannel/callback/supervision
-// fields to this same struct -- methods living in separate files within one
+// This type carries ONLY the fields the RPC layer itself needs. The
+// BrowserChannel/callback/supervision fields are added to this same struct in
+// client.go (same package) -- methods living in separate files within one
 // package is intentional, not a layering violation.
 type Client struct {
 	// session is the authenticated HTTP layer (cookies, retries) every RPC
 	// is sent through.
 	session *Session
 
-	// mu guards xsrfToken, which Task 8's connect loop may refresh
+	// mu guards xsrfToken, which the connect loop may refresh
 	// concurrently with in-flight RPCs.
 	mu        sync.RWMutex
 	xsrfToken string
 
 	// requestCounter is the `c` query param -- an incrementing per-Client
-	// request id (client.py:123-126's _api_reqid). The server appears to
-	// ignore duplicates; kept only "to not stand out" from the real web
-	// client, per client.py's own comment. atomic because RPCs may be
-	// issued concurrently from multiple goroutines.
+	// request id. The server appears to ignore duplicates; kept only "to not
+	// stand out" from the real web client. atomic because RPCs may be issued
+	// concurrently from multiple goroutines.
 	requestCounter atomic.Int64
 
 	// baseURL overrides apiBaseURL when non-empty, so tests can point a
@@ -72,7 +69,7 @@ type Client struct {
 	// is NOT under apiBaseURL's /u/0/api/ path).
 	uploadBaseURL string
 
-	// --- Task 8 orchestration state (methods live in client.go) ---
+	// --- Orchestration state (methods live in client.go) ---
 	//
 	// OnStreamEvent is called once per flattened event body, synchronously and
 	// in order, from the Connect goroutine (see client.go's goroutine model).
@@ -98,13 +95,13 @@ type Client struct {
 	cancel context.CancelFunc
 
 	// Supervision tunables (defaults from NewClient; overridable in tests).
-	maxRetries          int           // passed to Channel.Listen (Python max_retries=3)
-	retryBackoffBase    time.Duration // passed to Channel.Listen (Python retry_backoff_base=2)
-	reconnectBackoffMin time.Duration // supervision-loop transient backoff floor (Python 4s)
-	reconnectBackoffMax time.Duration // supervision-loop transient backoff ceiling (Python 60s)
+	maxRetries          int           // passed to Channel.Listen (default 3)
+	retryBackoffBase    time.Duration // passed to Channel.Listen (default 2)
+	reconnectBackoffMin time.Duration // supervision-loop transient backoff floor (default 4s)
+	reconnectBackoffMax time.Duration // supervision-loop transient backoff ceiling (default 60s)
 
-	// XSRF refresh scheduling (client.py:147-149's 24h staleness check plus
-	// the brief's 401-triggered refresh). lastTokenRefresh is guarded by mu;
+	// XSRF refresh scheduling (a 24h staleness check plus a 401-triggered
+	// refresh). lastTokenRefresh is guarded by mu;
 	// refreshMu serializes the fetch itself so concurrent 401s don't stampede
 	// /mole/world.
 	xsrfRefreshInterval time.Duration
@@ -134,9 +131,8 @@ func (c *Client) SetXSRFToken(token string) {
 	c.xsrfToken = token
 }
 
-// newRequestHeader builds the RequestHeader every /api/* request carries,
-// mirroring client.py:103-109 exactly: client_type=WEB,
-// client_version=2440378181258, and
+// newRequestHeader builds the RequestHeader every /api/* request carries:
+// client_type=WEB, client_version=2440378181258, and
 // client_feature_capabilities.spam_room_invites_level=FULLY_SUPPORTED. A
 // fresh struct is built per call (rather than shared/cached) since it's
 // cheap and avoids any risk of concurrent mutation of a shared proto
@@ -151,7 +147,7 @@ func newRequestHeader() *pb.RequestHeader {
 	}
 }
 
-// doRequest wraps doRequestOnce with the brief's 401-triggered XSRF refresh:
+// doRequest wraps doRequestOnce with a 401-triggered XSRF refresh:
 // a stale x-framework-xsrf-token surfaces as HTTP 401, so on that (and only
 // that) status we re-fetch the token via /mole/world (client.go's
 // refreshXSRFToken) and retry the RPC exactly once. Any other error -- and a
@@ -179,13 +175,12 @@ func isUnauthorizedStatus(err error) bool {
 	return errors.As(err, &ue) && ue.Status == http.StatusUnauthorized
 }
 
-// doRequestOnce implements Client._gc_request (client.py:582-615): marshal
-// requestPB to binary protobuf, POST it to
+// doRequestOnce issues one raw /api/* request: marshal requestPB to binary
+// protobuf, POST it to
 // {baseURL}/api/{endpoint}?c=<counter>&rt=b&alt=proto&key=<apiKey>, and
 // unmarshal the response body into responsePB.
 //
-// Wire format (docs/research/01 §3.1, cross-checked against
-// docs/research/08c):
+// Wire format:
 //
 //	POST https://chat.google.com/u/0/api/{endpoint}?c={reqid}&rt=b&alt=proto&key={API_KEY}
 //	Content-Type: application/x-protobuf
@@ -194,9 +189,8 @@ func isUnauthorizedStatus(err error) bool {
 //	<binary serialized request proto>
 //
 // Non-200 responses surface as *UnexpectedStatusError with the status
-// preserved (Session.Fetch's job) -- an explicit improvement over Python,
-// which collapses every non-200 /api/* response into a bare NetworkError
-// with no status (doc 01 §6).
+// preserved (Session.Fetch's job), so callers can map a specific status
+// (e.g. 401 -> BAD_CREDENTIALS) instead of seeing an opaque network error.
 func (c *Client) doRequestOnce(ctx context.Context, endpoint string, requestPB, responsePB proto.Message) error {
 	reqBody, err := proto.Marshal(requestPB)
 	if err != nil {
@@ -235,24 +229,22 @@ func (c *Client) doRequestOnce(ctx context.Context, endpoint string, requestPB, 
 	return nil
 }
 
-// unmarshalAPIResponse implements the dual binary/base64 response path
-// (task-5-brief.md wire-format note): /api/* responses are ordinarily raw
-// binary protobuf, parsed directly like Python's response_pb.ParseFromString
-// (client.py:609-614). But the X-Goog-Encode-Response-If-Executable: base64
-// header this client sends on every request (matching client.py:650-653)
-// means the server MAY base64-encode the body instead -- so if the raw
-// bytes don't parse as valid protobuf, this retries the same bytes after a
-// base64 decode before giving up.
+// unmarshalAPIResponse implements the dual binary/base64 response path:
+// /api/* responses are ordinarily raw binary protobuf, parsed directly. But
+// the
+// X-Goog-Encode-Response-If-Executable: base64 header this client sends on
+// every request means the server MAY base64-encode the body instead -- so if
+// the raw bytes don't parse as valid protobuf, this retries the same bytes
+// after a base64 decode before giving up.
 //
-// Residual risk (flagged by the gchat-port-auditor review, carried forward
-// to Task 13's live spike rather than fixed here): protobuf's wire format
-// is permissive enough that a genuinely base64-encoded body could in
-// principle parse "successfully" as a differently-structured, wrong
-// message on the FIRST attempt, before ever reaching the base64 fallback
-// -- silently returning a wrong-but-non-nil response instead of an error.
-// There's no header or other positive signal to disambiguate the two
-// encodings up front; this is inherent to the "try raw, then try base64"
-// strategy the task brief mandates. Low probability for realistically-sized
+// Residual risk (worth carrying forward to a live spike rather than fixed
+// here): protobuf's wire format is permissive enough that a genuinely
+// base64-encoded body could in principle parse "successfully" as a
+// differently-structured, wrong message on the FIRST attempt, before ever
+// reaching the base64 fallback -- silently returning a wrong-but-non-nil
+// response instead of an error. There's no header or other positive signal
+// to disambiguate the two encodings up front; this is inherent to the "try
+// raw, then try base64" strategy. Low probability for realistically-sized
 // responses, but worth an explicit live-server check.
 func unmarshalAPIResponse(body []byte, responsePB proto.Message) error {
 	if err := proto.Unmarshal(body, responsePB); err == nil {
@@ -273,16 +265,13 @@ func unmarshalAPIResponse(body []byte, responsePB proto.Message) error {
 	return nil
 }
 
-// The 16 /api/* RPCs, matching maugclib/client.py's proto_* methods 1:1
-// (docs/research/01 §3.2). Each wrapper stamps request_header on the
-// caller-supplied request in place (mirroring
+// The 16 /api/* RPCs. Each wrapper stamps
+// request_header on the caller-supplied request in place (mirroring
 // googlechat-megabridge/pkg/gchatmeow/api.go's `request.RequestHeader =
 // c.gcRequestHeader` pattern) and returns a freshly-allocated response.
-//
-// Endpoint-name spelling cross-checked 1:1 against client.py:682-810.
 
 // GetUserPresence returns presence for one or more users.
-// Endpoint: get_user_presence (client.py:682, proto_get_user_presence).
+// Endpoint: get_user_presence.
 func (c *Client) GetUserPresence(ctx context.Context, req *pb.GetUserPresenceRequest) (*pb.GetUserPresenceResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.GetUserPresenceResponse{}
@@ -290,7 +279,7 @@ func (c *Client) GetUserPresence(ctx context.Context, req *pb.GetUserPresenceReq
 }
 
 // GetMembers resolves user/member info by id.
-// Endpoint: get_members (client.py:691, proto_get_members).
+// Endpoint: get_members.
 func (c *Client) GetMembers(ctx context.Context, req *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.GetMembersResponse{}
@@ -298,7 +287,7 @@ func (c *Client) GetMembers(ctx context.Context, req *pb.GetMembersRequest) (*pb
 }
 
 // PaginatedWorld lists all conversations ("world view"); used for chat sync.
-// Endpoint: paginated_world (client.py:700, proto_paginated_world).
+// Endpoint: paginated_world.
 func (c *Client) PaginatedWorld(ctx context.Context, req *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.PaginatedWorldResponse{}
@@ -307,7 +296,7 @@ func (c *Client) PaginatedWorld(ctx context.Context, req *pb.PaginatedWorldReque
 
 // GetSelfUserStatus returns the current user's own status, including Gaia
 // ID and user revision.
-// Endpoint: get_self_user_status (client.py:710, proto_get_self_user_status).
+// Endpoint: get_self_user_status.
 func (c *Client) GetSelfUserStatus(ctx context.Context, req *pb.GetSelfUserStatusRequest) (*pb.GetSelfUserStatusResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.GetSelfUserStatusResponse{}
@@ -315,7 +304,7 @@ func (c *Client) GetSelfUserStatus(ctx context.Context, req *pb.GetSelfUserStatu
 }
 
 // GetGroup fetches one group/DM, including membership.
-// Endpoint: get_group (client.py:722, proto_get_group).
+// Endpoint: get_group.
 func (c *Client) GetGroup(ctx context.Context, req *pb.GetGroupRequest) (*pb.GetGroupResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.GetGroupResponse{}
@@ -323,7 +312,7 @@ func (c *Client) GetGroup(ctx context.Context, req *pb.GetGroupRequest) (*pb.Get
 }
 
 // MarkGroupReadstate sends a read receipt / last-read time.
-// Endpoint: mark_group_readstate (client.py:730, proto_mark_group_read_state).
+// Endpoint: mark_group_readstate.
 func (c *Client) MarkGroupReadstate(ctx context.Context, req *pb.MarkGroupReadstateRequest) (*pb.MarkGroupReadstateResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.MarkGroupReadstateResponse{}
@@ -331,7 +320,7 @@ func (c *Client) MarkGroupReadstate(ctx context.Context, req *pb.MarkGroupReadst
 }
 
 // CreateTopic sends a message that starts a new topic/thread.
-// Endpoint: create_topic (client.py:738, proto_create_topic).
+// Endpoint: create_topic.
 func (c *Client) CreateTopic(ctx context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.CreateTopicResponse{}
@@ -339,7 +328,7 @@ func (c *Client) CreateTopic(ctx context.Context, req *pb.CreateTopicRequest) (*
 }
 
 // CreateMessage sends a message into an existing thread.
-// Endpoint: create_message (client.py:746, proto_create_message).
+// Endpoint: create_message.
 func (c *Client) CreateMessage(ctx context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.CreateMessageResponse{}
@@ -347,7 +336,7 @@ func (c *Client) CreateMessage(ctx context.Context, req *pb.CreateMessageRequest
 }
 
 // UpdateReaction adds/removes an emoji reaction.
-// Endpoint: update_reaction (client.py:754, proto_update_reaction).
+// Endpoint: update_reaction.
 func (c *Client) UpdateReaction(ctx context.Context, req *pb.UpdateReactionRequest) (*pb.UpdateReactionResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.UpdateReactionResponse{}
@@ -355,7 +344,7 @@ func (c *Client) UpdateReaction(ctx context.Context, req *pb.UpdateReactionReque
 }
 
 // DeleteMessage deletes/redacts a message.
-// Endpoint: delete_message (client.py:762, proto_delete_message).
+// Endpoint: delete_message.
 func (c *Client) DeleteMessage(ctx context.Context, req *pb.DeleteMessageRequest) (*pb.DeleteMessageResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.DeleteMessageResponse{}
@@ -363,7 +352,7 @@ func (c *Client) DeleteMessage(ctx context.Context, req *pb.DeleteMessageRequest
 }
 
 // EditMessage edits message text.
-// Endpoint: edit_message (client.py:769, proto_edit_message).
+// Endpoint: edit_message.
 func (c *Client) EditMessage(ctx context.Context, req *pb.EditMessageRequest) (*pb.EditMessageResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.EditMessageResponse{}
@@ -371,7 +360,7 @@ func (c *Client) EditMessage(ctx context.Context, req *pb.EditMessageRequest) (*
 }
 
 // SetTypingState sends a typing notification (group or topic context).
-// Endpoint: set_typing_state (client.py:776, proto_set_typing_state).
+// Endpoint: set_typing_state.
 func (c *Client) SetTypingState(ctx context.Context, req *pb.SetTypingStateRequest) (*pb.SetTypingStateResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.SetTypingStateResponse{}
@@ -379,14 +368,12 @@ func (c *Client) SetTypingState(ctx context.Context, req *pb.SetTypingStateReque
 }
 
 // CatchUpUser replays missed events for the whole user since a revision.
-// Endpoint: catch_up_user (client.py:783, proto_catch_up_user).
+// Endpoint: catch_up_user.
 //
-// NOTE (proto type mismatch, see task-5-brief.md's "note any mismatch"
-// instruction): the brief's interface sketch names the response type
+// NOTE (proto type mismatch): the response type might be expected to be
 // *pb.CatchUpUserResponse, but pkg/gchatmeow/proto/googlechat.pb.go has no
-// such type -- proto_catch_up_user (client.py:783) and proto_catch_up_group
-// (client.py:790) both return the SAME googlechat_pb2.CatchUpResponse in
-// the Python original, and our generated proto matches that (only
+// such type -- the catch_up_user and catch_up_group endpoints both return
+// the SAME CatchUpResponse, and our generated proto matches that (only
 // CatchUpResponse exists, not CatchUpUserResponse/CatchUpGroupResponse).
 // This wrapper returns *pb.CatchUpResponse accordingly.
 func (c *Client) CatchUpUser(ctx context.Context, req *pb.CatchUpUserRequest) (*pb.CatchUpResponse, error) {
@@ -396,8 +383,8 @@ func (c *Client) CatchUpUser(ctx context.Context, req *pb.CatchUpUserRequest) (*
 }
 
 // CatchUpGroup replays missed events for one group since a revision.
-// Endpoint: catch_up_group (client.py:790, proto_catch_up_group). See
-// CatchUpUser's doc comment for the CatchUpResponse type-name note.
+// Endpoint: catch_up_group. See CatchUpUser's doc comment for the
+// CatchUpResponse type-name note.
 func (c *Client) CatchUpGroup(ctx context.Context, req *pb.CatchUpGroupRequest) (*pb.CatchUpResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.CatchUpResponse{}
@@ -405,7 +392,7 @@ func (c *Client) CatchUpGroup(ctx context.Context, req *pb.CatchUpGroupRequest) 
 }
 
 // ListTopics pages through topics of a group (backfill).
-// Endpoint: list_topics (client.py:797, proto_list_topics).
+// Endpoint: list_topics.
 func (c *Client) ListTopics(ctx context.Context, req *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.ListTopicsResponse{}
@@ -413,7 +400,7 @@ func (c *Client) ListTopics(ctx context.Context, req *pb.ListTopicsRequest) (*pb
 }
 
 // ListMessages pages through messages of a topic (backfill).
-// Endpoint: list_messages (client.py:804, proto_list_messages).
+// Endpoint: list_messages.
 func (c *Client) ListMessages(ctx context.Context, req *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.ListMessagesResponse{}

@@ -1,12 +1,11 @@
 package migrate
 
-// White-box tests (package migrate) for migratePortals -- M7 Task 5. See
-// .superpowers/sdd/m7-migration-schema-map.md §1 for the mapping under test.
+// White-box tests (package migrate) for migratePortals.
 //
 // TestMigratePortals_DMAndSpace reuses source_test.go's shared fixture (one
 // DM portal, mostly-NULL optional fields; one space portal, fully
-// populated) since it already exercises exactly the cases this task's brief
-// asks for: room_type-never-space and description->topic. A dedicated
+// populated) since it already exercises exactly the cases under test:
+// room_type-never-space and description->topic. A dedicated
 // second fixture (newInvalidPortalSourceDB) covers the invalid-id
 // warn-and-skip path, which the shared fixture has no row for.
 
@@ -165,7 +164,7 @@ func TestMigratePortals_DMAndSpace(t *testing.T) {
 // newInvalidPortalSourceDB builds a source DB whose only portal row has a
 // gcid with neither the dm: nor space: prefix (a corrupt/foreign row) --
 // exercising the warn-and-skip path gcid.ParsePortalID's error return
-// triggers, per the task's "invalid portal id" warning example.
+// triggers.
 func newInvalidPortalSourceDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "invalid_portal_source.db")

@@ -9,7 +9,7 @@ package connector
 // This bookkeeping deliberately lives here, in the connector, and not in
 // msgconv: msgconv's package doc (msgconv.go) states it holds "no portal, no
 // intent, no gchatmeow client" and must stay ignorant of connector-local
-// metadata types so it can be unit-tested (Task 3) against plain
+// metadata types so it can be unit-tested against plain
 // *bridgev2.ConvertedMessage output with no DB/connector dependencies at
 // all.
 import (
@@ -28,18 +28,18 @@ import (
 // simplevent.Message[T]) that calls conv.ToMatrix and attaches
 // MessageMetadata{TimestampMicro: msg.create_time} to every converted part.
 // TimestampMicro round-trips Google Chat's microsecond create_time through
-// the message's DB row so a later quote-reply (M3, SendReplyTarget) can
+// the message's DB row so a later quote-reply (SendReplyTarget) can
 // reconstruct the original timestamp without re-fetching the source message.
 //
 // A fresh *MessageMetadata is allocated per part (rather than one shared
-// pointer) so a future per-part mutation (e.g. M4's edit-dedup LastEditTime
+// pointer) so a future per-part mutation (e.g. an edit-dedup LastEditTime
 // bump on a single part) can never alias into a sibling part's metadata.
 //
 // It also builds content.Mentions ("m.mentions") from the mentions
 // conv.ToMatrix reports it ACTUALLY rendered (gchatfmt.ParsedMentions, fix
-// B2/gap G4 -- docs/research/08d §1.7/§6): every converted part (there is
-// normally exactly one text part, but this loop covers M5's future
-// multi-part messages too) gets its OWN cloneMentions copy of the same
+// B2/gap G4): every converted part (there is normally exactly one text part,
+// but this loop covers future multi-part messages too) gets its OWN
+// cloneMentions copy of the same
 // resolved Mentions block (content.Mentions describes the whole event's
 // mentions, not a per-part concept, but each part still gets an independent
 // object) -- matching the adjacent *MessageMetadata allocation's own "never
@@ -60,10 +60,10 @@ import (
 // ParsedMentions gaia ids -- so a single resolver instance drives both
 // within one conversion.
 //
-// media is M5 Task 3's own seam onto the attachment download+reupload path
+// media is the seam onto the attachment download+reupload path
 // (media.go's mediaFetcher, see its package doc comment for the full
 // layering rationale): production wiring (events.go) passes the real
-// *GChatClient; every pre-Task-3 test in msgconv_adapter_test.go now passes
+// *GChatClient; every earlier test in msgconv_adapter_test.go now passes
 // a bare nil, which convertAttachmentsToMatrix treats as "no attachments to
 // bridge" -- safe, since none of those tests' messages carry an
 // UPLOAD_METADATA annotation. A nil media is intentionally NOT the same as
@@ -80,7 +80,7 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) 
 		}
 		cm, parsed := conv.ToMatrix(ctx, msg, threadsOnly, resolve)
 		ts := msg.GetCreateTime()
-		// topic_id (M3 Task 6): stamped on every part regardless of whether
+		// topic_id: stamped on every part regardless of whether
 		// ToMatrix decided to set cm.ThreadRoot for THIS message, so a
 		// later Matrix reply into this same topic can look up the topic id
 		// it belongs to (handlematrix.go's outbound routing reads it back
@@ -97,14 +97,14 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) 
 			}
 		}
 
-		// Attachments (M5 Task 3): appended AFTER the text-part stamping
+		// Attachments: appended AFTER the text-part stamping
 		// loop above, not folded into it -- an attachment part shares the
 		// same TimestampMicro/TopicID as the text part (both describe the
 		// SAME Google Chat message) but must NOT inherit content.Mentions:
-		// Python's own MediaMessageEventContent (portal.py:1573-1579) never
-		// sets .mentions at all, and cloning the text part's ping onto
-		// every attachment event would double-notify every mentioned user
-		// once per Matrix event instead of once per Google Chat message.
+		// a media message event never sets .mentions at all, and cloning the
+		// text part's ping onto every attachment event would double-notify
+		// every mentioned user once per Matrix event instead of once per
+		// Google Chat message.
 		attachmentParts := convertAttachmentsToMatrix(ctx, portal, intent, msg, media)
 		for _, part := range attachmentParts {
 			part.DBMetadata = &MessageMetadata{TimestampMicro: ts, TopicID: topicID}
@@ -117,24 +117,20 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) 
 
 // convertEditToMatrix returns a simplevent.Message[*pb.Message].ConvertEditFunc
 // (see simplevent's own doc comment on the shape this must match) for the
-// MESSAGE_UPDATED body arm (events.go's queueMessageEdit, M4 Task 1),
-// porting handle_googlechat_edit's dedup + re-conversion (portal.py:1228-1260):
+// MESSAGE_UPDATED body arm (events.go's queueMessageEdit). It does
+// dedup + re-conversion of the edited message:
 //
-//	edit_ts = evt.last_edit_time or evt.last_update_time
-//	if self._edit_dedup[msg_id] >= edit_ts: return  # dedup, portal.py:1238-1240
-//	...
-//	elif target.msgtype != "m.text" or not evt.text_body: return  # portal.py:1248-1251
-//	content = await fmt.googlechat_to_matrix(source, evt, self)
-//	content.set_edit(target.mxid)
+//	edit_ts = last_edit_time or last_update_time
+//	if stored_last_edit_time >= edit_ts: return  # dedup
+//	if target is not "m.text" or has no text_body: return
+//	re-convert the body and mark it as an edit of the target
 //
 // Dedup compares editTS (msg.GetLastEditTime(), or msg.GetLastUpdateTime()
-// when LastEditTime is unset -- exactly Python's `or` fallback,
-// portal.py:1236) against the edit target's OWN stored
-// MessageMetadata.LastEditTime (dbmeta.go): the Go equivalent of Python's
-// process-local self._edit_dedup dict, except persisted on the message row
-// itself rather than an in-memory map, so it survives a bridge restart. A
-// duplicate/stale edit (editTS <= stored) is reported via
-// bridgev2.ErrIgnoringRemoteEvent -- the exact same signal
+// when LastEditTime is unset -- an `or` fallback) against the edit target's
+// OWN stored MessageMetadata.LastEditTime (dbmeta.go): a per-message dedup
+// value persisted on the message row itself rather than an in-memory map, so
+// it survives a bridge restart. A duplicate/stale edit (editTS <= stored) is
+// reported via bridgev2.ErrIgnoringRemoteEvent -- the exact same signal
 // mautrix-meta's own WhatsApp edit dedup uses
 // (_reference/meta/pkg/connector/events.go's WAMessageEvent.ConvertEdit) --
 // which portal.handleRemoteEdit (mautrix-go bridgev2/portal.go) treats as
@@ -142,14 +138,14 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) 
 //
 // ONLY the text part (the existing DB part whose PartID == gcid.TextPartID,
 // "") is ever read or modified -- found by an explicit scan of `existing`,
-// NOT by indexing existing[0]. This is the full port of Python's non-text
-// guard (portal.py:1248-1251, `elif target.msgtype != "m.text" or not
-// evt.text_body: return`, "Figuring out how to map multipart message edits
-// to Matrix is hard, so don't even try"): under M5, a Google Chat message
-// is multi-part (a text part "" plus att_0/att_1... attachment parts), and
-// an ATTACHMENT-ONLY message persists ONLY its att_0 part (ToMatrix returns
-// no text part for an empty text_body). existing[0] is therefore NO LONGER
-// guaranteed to be the text part:
+// NOT by indexing existing[0]. This is the non-text guard: skip the edit
+// unless the target is an "m.text" message with a non-empty text_body --
+// figuring out how to map multipart message edits to Matrix is hard, so
+// don't even try. A Google Chat message can be multi-part (a text part
+// "" plus att_0/att_1... attachment parts), and an ATTACHMENT-ONLY message
+// persists ONLY its att_0 part (ToMatrix returns no text part for an empty
+// text_body). existing[0] is therefore NO LONGER guaranteed to be the text
+// part:
 //
 //   - an attachment-only message's existing[0] is the att_0 (m.image) row;
 //     a MESSAGE_UPDATED that now carries non-empty text (e.g. an added
@@ -170,8 +166,8 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) 
 //
 // If no "" text part exists at all (an attachment-only message, or any
 // message with no text part), the whole edit is ignored via
-// bridgev2.ErrIgnoringRemoteEvent -- exactly Python's "don't even try"
-// return. (Redaction/reactions/replies are unaffected: they redact every
+// bridgev2.ErrIgnoringRemoteEvent -- the "don't even try" case.
+// (Redaction/reactions/replies are unaffected: they redact every
 // part, or use the ORDER BY'd GetFirstPartByID/GetLastPartByID; only this
 // edit path used the unordered query.)
 //
@@ -193,23 +189,21 @@ func convertMessageToMatrix(conv *msgconv.MessageConverter, media mediaFetcher) 
 // sendConvertedEdit (bridgev2/portal.go) always resets Content.Mentions to
 // either NewMentions (if set) or an empty *event.Mentions{} before sending,
 // regardless of what this function puts there -- so a re-ping only happens
-// when NewMentions is explicitly populated. This intentionally diverges from
-// portal.py's content.mentions (built the same way as a brand new message,
-// which WOULD re-ping every mentioned user on every edit): leaving
-// NewMentions nil here instead matches the wider bridgev2 ecosystem's
-// deliberate "edits don't re-notify" convention (mautrix-meta's own
-// WAMessageEvent.ConvertEdit does not set NewMentions either) rather than
-// Python's older behavior -- a documented, intentional UX deviation, not a
-// fidelity gap: the mention PILL in the edited HTML body (rendered by
-// gchatfmt.Parse via conv.ToMatrix, same as any other message) is
-// unaffected either way.
+// when NewMentions is explicitly populated. Leaving NewMentions nil here
+// matches the wider bridgev2 ecosystem's deliberate "edits don't re-notify"
+// convention (mautrix-meta's own WAMessageEvent.ConvertEdit does not set
+// NewMentions either), rather than rebuilding content.mentions the same way
+// a brand new message would (which WOULD re-ping every mentioned user on
+// every edit) -- a documented, intentional UX deviation, not a fidelity
+// gap: the mention PILL in the edited HTML body (rendered by gchatfmt.Parse
+// via conv.ToMatrix, same as any other message) is unaffected either way.
 func convertEditToMatrix(conv *msgconv.MessageConverter) func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message, msg *pb.Message) (*bridgev2.ConvertedEdit, error) {
 	return func(ctx context.Context, portal *bridgev2.Portal, _ bridgev2.MatrixAPI, existing []*database.Message, msg *pb.Message) (*bridgev2.ConvertedEdit, error) {
 		// Find the text part explicitly by its "" PartID, never by position
 		// -- see the doc comment above (the non-text guard + the Postgres
 		// ordering hazard M5's multi-part messages introduced). A message
 		// with no text part at all (attachment-only, or empty existing) is
-		// Python's `target.msgtype != "m.text"` case: ignore the whole edit.
+		// the non-text-message case: ignore the whole edit.
 		var target *database.Message
 		for _, part := range existing {
 			if part.PartID == gcid.TextPartID {
@@ -238,10 +232,10 @@ func convertEditToMatrix(conv *msgconv.MessageConverter) func(ctx context.Contex
 		}
 		cm, _ := conv.ToMatrix(ctx, msg, threadsOnly, resolve)
 		if len(cm.Parts) == 0 {
-			// evt.text_body empty (the `not evt.text_body` half of
-			// portal.py:1248-1251): the edit removed all text, which this
-			// bridge does not try to map to Matrix -- drop it. conv.ToMatrix
-			// only ever emits the text part (attachments are appended by
+			// text_body empty (the no-text-body half of the non-text
+			// guard): the edit removed all text, which this bridge does not
+			// try to map to Matrix -- drop it. conv.ToMatrix only ever emits
+			// the text part (attachments are appended by
 			// convertMessageToMatrix, not here), so cm.Parts[0] below is
 			// always that text part.
 			return nil, fmt.Errorf("%w: googlechat edit has no text body", bridgev2.ErrIgnoringRemoteEvent)

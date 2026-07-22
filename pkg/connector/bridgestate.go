@@ -2,10 +2,7 @@ package connector
 
 // Connection-state -> bridge-state mapping and the human-readable error
 // catalog for this connector. Mirrors $REF/meta/pkg/connector/handlemeta.go's
-// init()-time status.BridgeStateHumanErrors.Update(...) registration pattern
-// (docs/research/04 §4.11, 07 §1.3 "Bridge state / notices / MSS": "Define
-// stable status.BridgeStateErrorCode constants + BridgeStateHumanErrors in
-// init()").
+// init()-time status.BridgeStateHumanErrors.Update(...) registration pattern.
 import (
 	"maunium.net/go/mautrix/bridgev2/status"
 
@@ -27,9 +24,9 @@ const (
 	// and retrying internally.
 	GChatTransientDisconnect status.BridgeStateErrorCode = "gchat-transient-disconnect"
 	// GChatFatalError is sent for gchatmeow.ConnStateFatal (e.g. a
-	// SID-invalid storm exceeding the resync cap, research 07 §6) -- an
-	// unrecoverable condition for the current connection attempt that most
-	// likely needs a user-initiated relogin.
+	// SID-invalid storm exceeding the resync cap) -- an unrecoverable
+	// condition for the current connection attempt that most likely needs a
+	// user-initiated relogin.
 	GChatFatalError status.BridgeStateErrorCode = "gchat-fatal-error"
 )
 
@@ -43,8 +40,7 @@ func init() {
 }
 
 // connStateToBridgeState maps a gchatmeow connection-state transition to the
-// bridgev2 BridgeState the connector should send (brief's binding state
-// mapping table):
+// bridgev2 BridgeState the connector should send:
 //
 //	ConnStateConnected      -> StateConnected
 //	ConnStateTransient      -> StateTransientDisconnect + GChatTransientDisconnect

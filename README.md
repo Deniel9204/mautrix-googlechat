@@ -1,8 +1,7 @@
 # mautrix-googlechat (Go)
 
 A Matrix–Google Chat puppeting bridge, built on
-[mautrix-go bridgev2](https://github.com/mautrix/go). This is a Go rewrite of
-[mautrix/googlechat](https://github.com/mautrix/googlechat) (the Python bridge).
+[mautrix-go bridgev2](https://github.com/mautrix/go).
 
 Status: pre-alpha, under active development.
 
@@ -23,7 +22,7 @@ This project is not affiliated with, endorsed by, or supported by Google.
 | Read receipts | Supported |
 | Typing notifications | Supported |
 | Inbound media (Google Chat → Matrix: images, files) | Supported |
-| Outbound media (Matrix → Google Chat) | Supported — verified against Google's live endpoint (2026-07-22). The Python bridge's upload 500s ([upstream issue #114](https://github.com/mautrix/googlechat/issues/114)) are a client request-shape bug this port doesn't share; it uses the [purple-googlechat](https://github.com/EionRobb/purple-googlechat) shape. Can be disabled via `network.disable_outbound_media` |
+| Outbound media (Matrix → Google Chat) | Supported — verified against Google's live endpoint (2026-07-22), using the [purple-googlechat](https://github.com/EionRobb/purple-googlechat) request shape (which avoids the client bug behind [upstream issue #114](https://github.com/mautrix/googlechat/issues/114)). Can be disabled via `network.disable_outbound_media` |
 | Room renames / topic changes | Supported |
 | Membership changes (joins/invites/leaves/kicks) | Supported |
 | History backfill | Supported (opt-in, see [Configuration](#configuration)) |

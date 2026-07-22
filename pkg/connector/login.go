@@ -2,34 +2,28 @@ package connector
 
 // The Google Chat cookie login flow.
 //
-// Adopted from googlechat-megabridge/pkg/connector/login.go, which
-// docs/research/08b/08c clear for FLOW SHAPE: the LoginProcessCookies
-// Start/SubmitCookies/Cancel shape, the 5 required cookie fields
-// (COMPASS/SSID/SID/OSID/HSID) each scoped to chat.google.com, and the
-// COMPASS "dynamite-ui=" pattern hint. See docs/research/01 §1 (maugclib
-// auth) and 03 §2 (Python bridge login flow) for the underlying Python
-// behavior being ported: build a client, validate cookies via /mole/world
-// (Client.refresh_tokens), fetch the caller's own Gaia ID via
-// get_self_user_status, persist, then start the long-poll loop
-// (doc 01 §1.4's 5-step sequence).
+// Adopted from googlechat-megabridge/pkg/connector/login.go for FLOW SHAPE:
+// the LoginProcessCookies Start/SubmitCookies/Cancel shape, the 5 required
+// cookie fields (COMPASS/SSID/SID/OSID/HSID) each scoped to chat.google.com,
+// and the COMPASS "dynamite-ui=" pattern hint. The underlying behavior being
+// ported: build a client, validate cookies via /mole/world, fetch the
+// caller's own Gaia ID via get_self_user_status, persist, then start the
+// long-poll loop (a 5-step sequence).
 //
-// Two things are DELIBERATELY NOT copied from megabridge, per
-// docs/research/08b §1.3's audit of that file:
+// Two things are DELIBERATELY NOT copied from megabridge:
 //
 //   - Cookie persistence: megabridge writes UserLoginMetadata.Cookies once at
 //     login and never again -- no login.Save() call exists anywhere in that
-//     connector, so any cookie Google rotates after login is lost on restart
-//     (08b: "Cookie rotation persistence -- ABSENT"). This port persists
-//     client.Cookies() (the POST-VALIDATION, POST-ROTATION snapshot) into
-//     Metadata right here; Task 11 re-persists after every connect so later
-//     rotations survive a restart too.
+//     connector, so any cookie Google rotates after login is lost on restart.
+//     This port persists client.Cookies() (the POST-VALIDATION,
+//     POST-ROTATION snapshot) into Metadata right here; re-persisting after
+//     every connect keeps later rotations alive across a restart too.
 //   - The login client-swap race: megabridge calls Connect() on the COLD
 //     client LoadUserLogin built from (already-stale) metadata, THEN
 //     overwrites the login's client field with the WARM, already-validated
 //     one -- so observers/the channel start on one client while all
 //     subsequent RPCs go through a different one, with two live cookie jars
-//     and XSRF tokens (08b: "Post-login connect -- SUSPICIOUS ... Works by
-//     accident at best"). This port never builds a second client: LoadUserLogin
+//     and XSRF tokens. This port never builds a second client: LoadUserLogin
 //     (connector.go) only allocates an empty *GChatClient shell, and
 //     SubmitCookies attaches the one and only warm client to it directly
 //     before starting it.
@@ -53,10 +47,8 @@ const (
 
 // ErrLoginCookiesInvalid is returned when Google rejects the submitted
 // cookies (gchatmeow.ErrNotLoggedIn, from /mole/world's qwAQke ==
-// "AccountsSignInUi" check, client.py:536-537). Mirrors the Python bridge's
-// login-cookie command reply for the same condition (docs/research/03 §2.1,
-// commands/auth.py's `except NotLoggedInError` branch: "Those cookies don't
-// seem to be valid").
+// "AccountsSignInUi" check). The user-facing reply for this condition is
+// "Those cookies don't seem to be valid".
 var ErrLoginCookiesInvalid = bridgev2.RespError{
 	ErrCode: "FI.MAU.GOOGLECHAT.INVALID_COOKIES",
 	Err:     "Those cookies don't seem to be valid. Please log into https://chat.google.com in a browser and extract fresh ones.",
@@ -78,9 +70,9 @@ var ErrLoginFailed = bridgev2.RespError{
 }
 
 // GChatLogin implements bridgev2.LoginProcessCookies: the cookie-paste login
-// flow (the only login flow this bridge supports, matching Python -- doc 03
-// §2: "There is no interactive login web page ... a browser extension /
-// manual cookie extraction feeds either the command or this API").
+// flow (the only login flow this bridge supports -- there is no interactive
+// login web page; a browser extension / manual cookie extraction feeds
+// either the command or this API).
 type GChatLogin struct {
 	User *bridgev2.User
 	Main *GChatConnector
@@ -98,9 +90,8 @@ var _ bridgev2.LoginProcessCookies = (*GChatLogin)(nil)
 // (gchatmeow.CookieIsDomainSpecific); SSID, SID and HSID exist only under the
 // parent .google.com and are left with an EMPTY domain so the client extracts
 // them from wherever they live -- pinning them to chat.google.com would make
-// the extension miss them and break real logins. Copied from the cleared
-// reference googlechat-megabridge/pkg/connector/login.go:53-71 (per
-// docs/research/08b-megabridge-connector.md §1.3). COMPASS additionally
+// the extension miss them and break real logins. Copied from the reference
+// googlechat-megabridge/pkg/connector/login.go:53-71. COMPASS additionally
 // carries a client-side validation hint: real COMPASS cookie values contain a
 // "dynamite-ui=" segment.
 func loginCookieFields() []bridgev2.LoginCookieField {
@@ -156,11 +147,10 @@ func classifyXSRFError(err error) error {
 }
 
 // extractGaiaID pulls the caller's own Gaia ID out of a GetSelfUserStatus
-// response (client.py:710, proto_get_self_user_status; doc 01 §1.4 step 3:
-// "proto_get_self_user_status fetches the user's own Gaia ID"). proto's
-// generated Get* accessors are nil-safe at every level, but a missing ID is
-// still surfaced as an explicit error rather than silently producing an
-// empty-string UserLoginID.
+// response (the get_self_user_status RPC returns the user's own Gaia ID).
+// proto's generated Get* accessors are nil-safe at
+// every level, but a missing ID is still surfaced as an explicit error
+// rather than silently producing an empty-string UserLoginID.
 func extractGaiaID(resp *pb.GetSelfUserStatusResponse) (string, error) {
 	id := resp.GetUserStatus().GetUserId().GetId()
 	if id == "" {
@@ -171,7 +161,7 @@ func extractGaiaID(resp *pb.GetSelfUserStatusResponse) (string, error) {
 
 // attachAndConnect hands the warm, already-validated gchatmeow.Client to gc
 // and starts ITS real supervision/long-poll loop via GChatClient.wireAndStart
-// (client.go, Task 11), which wires the bridge-state and event callbacks and
+// (client.go), which wires the bridge-state and event callbacks and
 // runs conn.Connect (Task 8) in the background. Split out of SubmitCookies as
 // its own named step because "Connect" is ambiguous here: *GChatClient also
 // has its own Connect method (the bridgev2.NetworkAPI entry point bridgev2
@@ -186,18 +176,18 @@ func attachAndConnect(gc *GChatClient, client *gchatmeow.Client, connectCtx cont
 
 // SubmitCookies validates the submitted cookies against Google Chat, resolves
 // the caller's Gaia ID, creates (or reuses) the UserLogin row with the
-// validated cookies persisted, and starts the connection. Ports doc 01
-// §1.4's 5-step sequence (build Client -> refresh_tokens -> get_self_user_status
-// -> persist cookies -> spawn the long-poll loop), adjusted for bridgev2's
-// login-step shape.
+// validated cookies persisted, and starts the connection. Follows a 5-step
+// sequence (build client -> validate cookies via /mole/world
+// -> get_self_user_status -> persist cookies -> spawn the long-poll loop),
+// adjusted for bridgev2's login-step shape.
 func (gl *GChatLogin) SubmitCookies(ctx context.Context, cookies map[string]string) (*bridgev2.LoginStep, error) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: cookies})
 	if err != nil {
 		return nil, fmt.Errorf("failed to build Google Chat client: %w", err)
 	}
 
-	// Step 2: validate the cookies and obtain an XSRF token (client.py:499-539,
-	// doc 01 §1.3's "primary login validity check").
+	// Step 2: validate the cookies and obtain an XSRF token (the primary
+	// login validity check).
 	if err := client.FetchXSRFToken(ctx); err != nil {
 		gl.User.Log.Err(err).Msg("googlechat login: failed to validate cookies via /mole/world")
 		return nil, classifyXSRFError(err)
@@ -218,8 +208,8 @@ func (gl *GChatLogin) SubmitCookies(ctx context.Context, cookies map[string]stri
 	// Step 4: persist the validated cookies (POST-rotation snapshot, i.e.
 	// AFTER the /mole/world + get_self_user_status round trips above, which
 	// may themselves have rotated cookies via Set-Cookie) and the resolved UA
-	// fingerprint into UserLoginMetadata. Task 11 re-persists after every
-	// connect so later rotations survive a restart too (see this file's top
+	// fingerprint into UserLoginMetadata. Re-persisting after every connect
+	// keeps later rotations alive across a restart too (see this file's top
 	// comment on the megabridge defect this fixes).
 	ul, err := gl.User.NewLogin(ctx, &database.UserLogin{
 		ID: gcid.MakeUserLoginID(gaiaID),
@@ -231,7 +221,7 @@ func (gl *GChatLogin) SubmitCookies(ctx context.Context, cookies map[string]stri
 		// A conflicting login for this Gaia ID belonging to ANOTHER Matrix
 		// user is deleted rather than rejected: re-pasting cookies for the
 		// same Google account is expected to move the login to whichever
-		// Matrix user submits them, matching the task's specified params.
+		// Matrix user submits them.
 		DeleteOnConflict: true,
 		// A conflicting login for THIS Matrix user is reused (its metadata
 		// updated in place) rather than erroring -- re-submitting cookies is

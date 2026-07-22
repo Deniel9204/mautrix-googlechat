@@ -60,9 +60,8 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 			first: "",
 		},
 		{
-			// puppet.py:194-198: full name given, but no explicit first_name
-			// -> derive FirstName from the full name, stripping a trailing
-			// last_name suffix.
+			// full name given, but no explicit first_name -> derive FirstName
+			// from the full name, stripping a trailing last_name suffix.
 			name:  "first name derived from full name, stripping last name suffix",
 			user:  &pb.User{Name: proto.String("Ada Lovelace"), LastName: proto.String("Lovelace"), Email: proto.String("ada@example.com")},
 			want:  "Ada Lovelace",
@@ -71,9 +70,8 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 		{
 			// Same derivation, but last_name is NOT a suffix of the full
 			// name (e.g. a nickname/full name mismatch) -- first falls back
-			// to the whole full name, matching Python's `if last and
-			// first.endswith(last)` guard (only strips when it's actually a
-			// suffix).
+			// to the whole full name (the suffix is only stripped when it is
+			// actually a suffix).
 			name:  "first name derivation skips stripping when last name isn't a suffix",
 			user:  &pb.User{Name: proto.String("Ada L."), LastName: proto.String("Lovelace"), Email: proto.String("ada@example.com")},
 			want:  "Ada L.",

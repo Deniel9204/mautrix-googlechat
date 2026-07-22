@@ -1,6 +1,6 @@
 package connector
 
-// Per-portal event.RoomFeatures advertisement (M3 Task 5). bridgev2 uses
+// Per-portal event.RoomFeatures advertisement. bridgev2 uses
 // this to pre-validate outgoing Matrix events -- e.g. portal.go's
 // checkMessageContentCaps rejects/downgrades formatting the Formatting map
 // doesn't claim, and its reply/thread routing (see roomFeatures' doc
@@ -20,14 +20,13 @@ import (
 
 // MaxTextLength is the outgoing text length bridgev2 will accept before
 // truncating/rejecting a message. Google Chat's own server-side limit isn't
-// documented in this project's protocol research (docs/research), so this
-// keeps M2's original stub value.
+// documented in this project's protocol research, so this keeps the original
+// stub value.
 const MaxTextLength = 4096
 
 // gchatFormatting lists every event.FormattingFeature this bridge's
 // pkg/msgconv/gchatfmt + pkg/msgconv/matrixfmt pair actually implements as a
-// real, lossless (or Google-Chat-native) conversion -- ported per
-// docs/superpowers/plans/2026-07-15-m3-formatting-threads.md Tasks 1-4:
+// real, lossless (or Google-Chat-native) conversion:
 //
 //   - FmtBold/FmtItalic/FmtUnderline/FmtStrikethrough: FORMAT_DATA
 //     BOLD/ITALIC/UNDERLINE/STRIKE both ways (matrixfmt/tags.go's Style
@@ -86,27 +85,25 @@ var gchatFormatting = event.FormattingFeatureMap{
 
 // gchatFileFeatures is shared by every outbound msgtype gchatFile below
 // advertises: Google Chat's /uploads endpoint (gchatmeow.Client.UploadFile,
-// pkg/gchatmeow/upload.go, M5 Task 2) is a single generic file-upload
-// pipeline with no per-msgtype mime allow-list of its own -- Python's
-// _handle_matrix_media (portal.py:1081-1121) uploads whatever bytes/mime a
-// Matrix media event carries unconditionally, with no format restriction
-// either. "*/*": FullySupported mirrors that permissiveness (event
+// pkg/gchatmeow/upload.go) is a single generic file-upload
+// pipeline with no per-msgtype mime allow-list of its own -- it uploads
+// whatever bytes/mime a Matrix media event carries unconditionally, with no
+// format restriction. "*/*": FullySupported mirrors that permissiveness (event
 // .FileFeatures.GetMimeSupport falls back to CapLevelRejected for anything
 // not matched by an explicit entry when the map lacks a "*/*" catch-all, so
 // this entry is required, not merely permissive flavor).
 //
-// Caption: FullySupported -- unlike Python (which drops a Matrix caption
-// entirely, using its text as the UPLOAD file's reported name instead,
-// portal.py:1100) and unlike megabridge's audio arm (event.CapLevelDropped,
-// mautrix-meta style), this port's handlematrix.go media branch keeps BOTH
-// the uploaded file AND a genuine caption's own text+formatting (the M3 B4
-// pattern this task's brief calls out, mergeAnnotations) for every media
-// msgtype uniformly -- there is no Google-Chat-side reason to treat audio
-// differently the way Meta's own Messenger/WhatsApp integration does.
+// Caption: FullySupported -- unlike megabridge's audio arm
+// (event.CapLevelDropped, mautrix-meta style), this port's handlematrix.go
+// media branch keeps BOTH the uploaded file AND a genuine caption's own
+// text+formatting (via mergeAnnotations) for every media msgtype uniformly --
+// there is no
+// Google-Chat-side reason to treat audio differently the way Meta's own
+// Messenger/WhatsApp integration does.
 //
-// No MaxSize/MaxCaptionLength cap is set (both zero -- "unlimited"): neither
-// Python nor this project's protocol research (docs/research) documents any
-// server-side limit Google Chat's own upload endpoint enforces, and adding
+// No MaxSize/MaxCaptionLength cap is set (both zero -- "unlimited"): this
+// project's protocol research does not document any server-side limit Google
+// Chat's own upload endpoint enforces, and adding
 // an invented number here would be pure guesswork.
 var gchatFileFeatures = &event.FileFeatures{
 	MimeTypes: map[string]event.CapabilitySupportLevel{
@@ -115,7 +112,7 @@ var gchatFileFeatures = &event.FileFeatures{
 	Caption: event.CapLevelFullySupported,
 }
 
-// gchatFile is this bridge's outbound File capability map (M5 Task 5): the
+// gchatFile is this bridge's outbound File capability map: the
 // msgtypes handlematrix.go's HandleMatrixMessage media branch actually
 // accepts (isOutboundMediaMsgType, media.go) -- image/video/audio/file.
 // bridgev2 rejects any msgtype missing from this map (mautrix-go
@@ -149,19 +146,18 @@ var gchatFile = event.FileFeatureMap{
 // at its zero value (CapLevelUnsupported), which is what makes bridgev2's
 // portal.go route a Matrix reply as caps.Reply.Partial() rather than
 // starting a new GC thread.
-// Edit is fully supported with no age/count limit: handle_matrix_edit
-// (portal.py:840-878) never checks how old the target message is or how many
-// times it has already been edited -- unlike mautrix-meta's Messenger
-// capabilities (EditMaxCount: 5, EditMaxAge: 15m), which mirror real
-// Messenger-imposed server limits that have no Google Chat equivalent in
-// this project's protocol research (docs/research). Leaving
-// EditMaxCount/EditMaxAge at their zero values means "unlimited", matching
-// Python exactly rather than inventing a limit it never enforced (M4 Task 1).
+// Edit is fully supported with no age/count limit: there is no check on how
+// old the target message is or how many times it has already been edited --
+// unlike mautrix-meta's Messenger capabilities (EditMaxCount: 5, EditMaxAge:
+// 15m), which mirror real Messenger-imposed server limits that have no Google
+// Chat equivalent in this project's protocol research.
+// Leaving EditMaxCount/EditMaxAge at their zero values means "unlimited",
+// rather than inventing a limit Google Chat never enforced.
 //
 // Delete is fully supported: handleredact.go's HandleMatrixMessageRemove
-// ports delete_message (client.py:367-383) unconditionally, with no
-// age/count limit of its own to advertise -- mirroring Edit's own "leave the
-// limit fields at zero" reasoning above (M4 Task 2). DeleteForMe is left at
+// calls delete_message unconditionally, with no age/count limit of its own
+// to advertise -- mirroring Edit's own "leave the
+// limit fields at zero" reasoning above. DeleteForMe is left at
 // its zero value (false): Google Chat has no delete-for-me-only concept
 // distinct from a real delete_message, unlike Messenger/WhatsApp.
 //
@@ -173,19 +169,18 @@ var gchatFile = event.FileFeatureMap{
 // PreHandleMatrixReaction) and AllowedReactions stays nil (unrestricted).
 // CustomEmojiReactions is left at its zero value (false): Google Chat's own
 // wire form (proto Emoji.unicode) never carries a custom/non-Unicode emoji,
-// so there is nothing for this connector to advertise support for (M4 Task 3).
+// so there is nothing for this connector to advertise support for.
 //
-// ReadReceipts is true: handlereceipt.go's HandleMatrixReadReceipt ports
+// ReadReceipts is true: handlereceipt.go's HandleMatrixReadReceipt calls
 // mark_group_readstate, and events.go's queueReadReceiptChanged/
 // queueGroupViewed deliver GC's own read state back to Matrix -- both
-// directions are wired (M4 Task 4).
+// directions are wired.
 //
-// TypingNotifications is true: handletyping.go's HandleMatrixTyping ports
-// mark_typing (client.py:477-497), and events.go's queueTypingStateChanged
-// (this file's sibling) delivers GC's own typing state back to Matrix --
-// both directions are wired (M4 Task 5).
+// TypingNotifications is true: handletyping.go's HandleMatrixTyping calls
+// mark_typing, and events.go's queueTypingStateChanged (this file's sibling)
+// delivers GC's own typing state back to Matrix -- both directions are wired.
 //
-// File is gchatFile (M5 Task 5): image/video/audio/file all fully
+// File is gchatFile: image/video/audio/file all fully
 // supported, with captions kept alongside the file rather than dropped --
 // see gchatFileFeatures/gchatFile's own doc comments above. This is
 // advertised unconditionally, even though Config.DisableOutboundMedia or a
@@ -193,8 +188,8 @@ var gchatFile = event.FileFeatureMap{
 // rejection (handlematrix.go) -- bridgev2's own RoomFeatures has no
 // "conditionally supported" level for that distinction, and it would be
 // wrong to make the CAPABILITY itself config-dependent: the send path is
-// genuinely implemented and correct (M5 Tasks 2/5), independent of whether
-// THIS operator's account happens to be hitting the upstream outage.
+// genuinely implemented and correct, independent of whether THIS operator's
+// account happens to be hitting the upstream outage.
 var gchatCapsFlat = &event.RoomFeatures{
 	Formatting:          gchatFormatting,
 	File:                gchatFile,
@@ -210,37 +205,30 @@ var gchatCapsFlat = &event.RoomFeatures{
 // gchatCapsThreaded is advertised for any portal with PortalMetadata.
 // ThreadsEnabled == true -- BOTH the 2023+ "threads only" model
 // (ThreadsOnly) AND legacy topic-threading-enabled spaces
-// (flat_threads_enabled, ThreadsEnabled without ThreadsOnly). Python's own
-// handle_matrix_message (portal.py:891-907) does not distinguish these two
-// room types for outbound routing purposes at all: its entire thread_id
-// computation is gated on the single `self.threads_enabled` boolean (`=
-// flat_threads_enabled or threads_only`, set_group_meta) -- ThreadsOnly
-// only matters separately for the INBOUND self-referencing head-message
-// case (_append_event_id's `self.threads_only` check, portal.py:1406,
-// ported in pkg/msgconv/from-gchat.go's ToMatrix). An earlier revision of
+// (flat_threads_enabled, ThreadsEnabled without ThreadsOnly). These two room
+// types are NOT distinguished for outbound routing purposes at all: the
+// entire thread_id computation is gated on the single threads_enabled
+// boolean (= flat_threads_enabled OR threads_only) -- ThreadsOnly only
+// matters separately for the INBOUND self-referencing head-message case
+// (pkg/msgconv/from-gchat.go's ToMatrix). An earlier revision of
 // this file keyed roomFeatures purely off ThreadsOnly, silently making
 // every genuine GC thread reply in a legacy (non-ThreadsOnly)
 // threads-enabled room unreachable via bridgev2's own outbound resolution
 // (mautrix-go bridgev2/portal.go:1235-1244 never extracts
 // relatesTo.GetThreadParent() into MatrixMessage.ThreadRoot unless
-// caps.Thread.Partial()) -- caught by the M3 Task 6 gchat-port-auditor
-// pass; see also docs/research/07-gap-analysis.md row 45 ("per-portal
-// GetCapabilities switching Thread/Reply levels" off BOTH
-// threads_only/threads_enabled) and row 352 ("test matrix covering ...
-// flat+threads DM").
+// caps.Thread.Partial()).
 //
 // Both Thread AND Reply are fully supported here -- they are NOT mutually
-// exclusive on Google Chat's wire protocol: maugclib/client.py's
-// send_message sets message_info.reply_to on BOTH the threaded
-// (CreateMessageRequest, parent_id.topic_id set) and flat
-// (CreateTopicRequest) branches, and the Python bridge's own
-// handle_matrix_message (portal.py:891-907) composes them per-message:
+// exclusive on Google Chat's wire protocol: the send_message RPC sets
+// message_info.reply_to on BOTH the threaded (CreateMessageRequest,
+// parent_id.topic_id set) and flat (CreateTopicRequest) branches, and they
+// compose per-message:
 //   - an explicit Matrix thread reply always becomes a GC thread message,
 //     and ALSO keeps any additional non-fallback reply pointer;
 //   - a plain (non-thread) Matrix reply whose target is itself already
 //     inside a GC thread gets redirected into that thread, dropping the
-//     reply pointer (`reply_to = None`, portal.py:900), since GC groups it
-//     structurally instead;
+//     reply pointer (reply_to = None), since GC groups it structurally
+//     instead;
 //   - a plain Matrix reply to a standalone/top-level message stays a
 //     genuine cross-topic quote-reply, with NO thread at all.
 //
@@ -250,31 +238,30 @@ var gchatCapsFlat = &event.RoomFeatures{
 // (bridgev2/portal.go) unconditionally discard every reply pointer via its
 // `if !caps.Reply.Partial() { replyTo = nil }` and always start a brand
 // new thread, even for the common "quote-reply to a top-level message"
-// case Python instead sends as a flat cross-topic reply. Keeping both
+// case, which should instead stay a flat cross-topic reply. Keeping both
 // capabilities fully supported instead matches mautrix-meta's own
 // precedent (metaCapsWithThreads keeps Reply fully supported alongside
-// Thread) and lets bridgev2 hand Task 6/7's connector code BOTH ThreadRoot
+// Thread) and lets bridgev2 hand the connector code BOTH ThreadRoot
 // and ReplyTo when relevant.
 //
-// M3 Task 7 (buildReplyTarget, handlematrix.go) deliberately does NOT
+// buildReplyTarget (handlematrix.go) deliberately does NOT
 // replicate the second bullet's "dropping the reply pointer" clause,
-// though: unlike portal.py's own Python-side elif (portal.py:896-900),
-// which explicitly clears reply_to when rerouting a plain reply into an
-// existing thread, bridgev2's own generic auto-derivation
+// though: rather than explicitly clearing reply_to when rerouting a plain
+// reply into an existing thread, bridgev2's own generic auto-derivation
 // (mautrix-go bridgev2/portal.go:1248-1273) only clears ReplyTo when the
 // connector's Reply capability is NOT supported (`if !caps.Reply.Partial()
 // { replyTo = nil }`) -- which never applies here, since Reply stays fully
 // supported alongside Thread per this doc comment's own reasoning above.
-// So this connector's ThreadRoot+ReplyTo composition is a strict superset
-// of Python's: the first and third bullets above are replicated precisely
+// So this connector's ThreadRoot+ReplyTo composition is a strict superset of
+// the three bullets above: the first and third are replicated precisely
 // (see buildReplyTarget's own doc comment and
 // TestHandleMatrixMessageReplyAndThreadBothSet), while the second bullet's
 // case keeps its quote-reply decoration instead of losing it -- a
-// deliberate, tested deviation (M3 Task 7 gchat-port-auditor pass), not a
+// deliberate, tested deviation, not a
 // gap: the resulting SendReplyTarget is well-formed either way, since
-// buildReplyTarget's "thread_id or reply_to" fallback (client.py:429) means
-// a reply auto-rerouted into a thread gets the SAME nested topic_id a
-// genuine explicit-thread-reply would.
+// buildReplyTarget's "thread_id or reply_to" fallback means a reply
+// auto-rerouted into a thread gets the SAME nested topic_id a genuine
+// explicit-thread-reply would.
 var gchatCapsThreaded *event.RoomFeatures
 
 func init() {
@@ -284,14 +271,14 @@ func init() {
 
 // roomFeatures picks the RoomFeatures singleton for portal, reading
 // PortalMetadata.ThreadsOnly || ThreadsEnabled (both set by chatinfo.go's
-// threadingExtraUpdater, M1 Task 12) nil-safely: a nil portal, nil
+// threadingExtraUpdater) nil-safely: a nil portal, nil
 // Metadata, or a Metadata of an unexpected type all fall back to
 // gchatCapsFlat, the same default a brand new portal (metadata not yet
 // synced) gets. The explicit `||` (rather than relying on ThreadsEnabled
 // alone, which chatinfo.go always computes as `flat_threads_enabled ||
 // threads_only` and so is already a superset of ThreadsOnly in practice)
-// mirrors Python's own `self.threads_enabled = flat_threads_enabled or
-// threads_only` formula literally, so this stays correct even if the two
+// matches the threads_enabled = flat_threads_enabled OR threads_only formula
+// literally, so this stays correct even if the two
 // fields were ever set independently (e.g. directly in a test) rather than
 // through chatinfo.go's normal sync path; see gchatCapsThreaded's doc
 // comment for why both room types get the same RoomFeatures.

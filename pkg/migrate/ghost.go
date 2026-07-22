@@ -1,8 +1,7 @@
 package migrate
 
-// migrateGhosts implements M7 Task 5's ghost half. See
-// .superpowers/sdd/m7-migration-schema-map.md §4 for the full field-by-field
-// mapping this replicates exactly. Same raw-INSERT approach as portal.go --
+// migrateGhosts implements the ghost half of the migration, replicating the
+// field-by-field mapping exactly. Same raw-INSERT approach as portal.go --
 // see that file's package doc comment.
 
 import (
@@ -16,10 +15,10 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// insertMigratedGhostQuery writes one Go `ghost` row per schema map §4.
-// is_bot, identifiers, and extra_profile have no Python source at all (§4:
-// "Computed, not copied" / "leave NULL") so they're hardcoded rather than
-// bound: false, '[]', and NULL respectively.
+// insertMigratedGhostQuery writes one Go `ghost` row. is_bot, identifiers,
+// and extra_profile have no Python source at all (computed, not copied, or
+// left NULL) so they're hardcoded rather than bound: false, '[]', and NULL
+// respectively.
 const insertMigratedGhostQuery = `
 	INSERT INTO ghost (
 		bridge_id, id, name, avatar_id, avatar_hash, avatar_mxc,
@@ -33,21 +32,21 @@ const insertMigratedGhostQuery = `
 `
 
 // migrateGhosts reads every row of the source Python `puppet` table and
-// writes the corresponding Go `ghost` row, per schema map §4.
+// writes the corresponding Go `ghost` row.
 //
 // is_registered and the double-puppet columns (custom_mxid/access_token/
 // next_batch/base_url) are read by GetPuppets but deliberately NOT used
-// here -- §4 drops is_registered outright (no Go ghost equivalent), and the
-// double-puppet token is Task 7's concern (it lands on Go `user.access_token`
-// for the owning Matrix user, not on `ghost` at all).
+// here -- is_registered is dropped outright (no Go ghost equivalent), and
+// the double-puppet token lands on Go `user.access_token` for the owning
+// Matrix user, not on `ghost` at all.
 func migrateGhosts(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
 	rows, err := GetPuppets(ctx, deps.Source)
 	if err != nil {
 		return 0, nil, fmt.Errorf("migrate: reading source puppets: %w", err)
 	}
 
-	// GhostMetadata.Email has no Python source at all (§4: "the bridge will
-	// repopulate it ... the next time it processes that ghost's user info")
+	// GhostMetadata.Email has no Python source at all (the bridge will
+	// repopulate it the next time it processes that ghost's user info)
 	// -- every migrated ghost gets the identical empty metadata blob.
 	metaJSON, err := json.Marshal(&connector.GhostMetadata{})
 	if err != nil {
@@ -67,7 +66,7 @@ func migrateGhosts(ctx context.Context, deps *Deps, opts Options) (int, []string
 		_, err := deps.Target.Exec(ctx, insertMigratedGhostQuery,
 			string(id),
 			// name/avatar_id/avatar_mxc: identity copy, but Go's columns
-			// are NOT NULL -- coalesce a nullable Python NULL to "" (§4).
+			// are NOT NULL -- coalesce a nullable Python NULL to "".
 			nullStr(p.Name), nullStr(p.PhotoID), avatarHash, nullStr(p.PhotoMXC),
 			p.NameSet, p.AvatarSet, p.ContactInfoSet,
 			string(metaJSON),
@@ -81,12 +80,12 @@ func migrateGhosts(ctx context.Context, deps *Deps, opts Options) (int, []string
 }
 
 // validatedAvatarHash coalesces a nullable Python photo_hash column to Go
-// ghost.avatar_hash (schema map §4: "a direct hex-string copy at the
-// SQL/column level ... just validate it's exactly 64 hex chars (32 bytes)
-// before writing"). A NULL/empty source value silently becomes the
-// empty-string sentinel -- that's the documented "no avatar yet" case, not
-// an error. A NON-EMPTY value that fails validation is real (if malformed)
-// source data being dropped, so that case is reported as a warning.
+// ghost.avatar_hash (a direct hex-string copy at the SQL/column level, just
+// validating it's exactly 64 hex chars (32 bytes) before writing). A
+// NULL/empty source value silently becomes the empty-string sentinel --
+// that's the documented "no avatar yet" case, not an error. A NON-EMPTY
+// value that fails validation is real (if malformed) source data being
+// dropped, so that case is reported as a warning.
 func validatedAvatarHash(s sql.NullString) (value string, warning string) {
 	if !s.Valid || s.String == "" {
 		return "", ""

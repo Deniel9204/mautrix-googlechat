@@ -1,12 +1,9 @@
 package msgconv
 
 // from-matrix.go -- Matrix -> Google Chat message conversion, the outbound
-// counterpart of from-gchat.go's ToMatrix. Ports the text half of what
-// portal.py's _handle_matrix_text (portal.py:1051-1079) feeds into
-// maugclib/client.py's send_message: `text, annotations :=
-// fmt.matrix_to_googlechat(message)` (fmt.py), now covering full M3 scope
-// via matrixfmt.Parse (Task 2): both the plain text_body AND the
-// HTML-derived annotations list Google Chat's create_topic/create_message
+// counterpart of from-gchat.go's ToMatrix. Covers full M3 scope via
+// matrixfmt.Parse (Task 2): both the plain text_body AND the HTML-derived
+// annotations list Google Chat's create_topic/create_message
 // text_body+annotations fields carry.
 import (
 	"context"

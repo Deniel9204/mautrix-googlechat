@@ -162,7 +162,7 @@ func TestChatInfoFromWorldItemTopicAlwaysSetEvenWhenAbsent(t *testing.T) {
 	info := chatInfoFromWorldItem(item, ownID)
 
 	if info.Topic == nil || *info.Topic != "" {
-		t.Errorf("Topic = %v, want a non-nil pointer to \"\" (unconditional, matching Python's _update_description)", info.Topic)
+		t.Errorf("Topic = %v, want a non-nil pointer to \"\"", info.Topic)
 	}
 }
 
@@ -350,7 +350,7 @@ func TestChatInfoFromGetGroupResponseTopicAlwaysSetEvenWhenAbsent(t *testing.T) 
 	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
 
 	if info.Topic == nil || *info.Topic != "" {
-		t.Errorf("Topic = %v, want a non-nil pointer to \"\" (unconditional, matching Python's _update_description)", info.Topic)
+		t.Errorf("Topic = %v, want a non-nil pointer to \"\"", info.Topic)
 	}
 }
 
