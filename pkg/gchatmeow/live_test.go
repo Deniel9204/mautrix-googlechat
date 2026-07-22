@@ -44,6 +44,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -56,6 +57,18 @@ import (
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
+
+// errDetail surfaces the server's response body (first 512 bytes) from an
+// *UnexpectedStatusError, which the error's own Error() omits -- for an
+// opaque 500/4xx this is where Google's actual reason (e.g. invalid user id,
+// permission) appears.
+func errDetail(err error) string {
+	var ue *UnexpectedStatusError
+	if errors.As(err, &ue) && ue.Body != "" {
+		return fmt.Sprintf(" [status %d body: %q]", ue.Status, ue.Body)
+	}
+	return ""
+}
 
 func liveCookies(t *testing.T) map[string]string {
 	t.Helper()
@@ -579,7 +592,7 @@ func TestLiveRoomName(t *testing.T) {
 
 	probe := orig + " [rename-probe]"
 	if err := rename(probe); err != nil {
-		t.Fatalf("FAIL update_group rename -- #11 update_group endpoint/shape or a permission error: %v", err)
+		t.Fatalf("FAIL update_group rename -- #11 update_group endpoint/shape or a permission error: %v%s", err, errDetail(err))
 	}
 	t.Logf("PASS update_group renamed space to %q", probe)
 
@@ -628,7 +641,7 @@ func TestLiveMembershipRoundTrip(t *testing.T) {
 		GroupId:            groupID,
 		InviteeMemberInfos: []*pb.InviteeMemberInfo{UserInviteeMemberInfo(targetGaia)},
 	}); err != nil {
-		t.Fatalf("FAIL create_membership (invite) -- #11 endpoint/shape or permission: %v", err)
+		t.Fatalf("FAIL create_membership (invite) -- #11 endpoint/shape or permission: %v%s", err, errDetail(err))
 	}
 	t.Logf("PASS create_membership invited %s", targetGaia)
 
@@ -639,7 +652,7 @@ func TestLiveMembershipRoundTrip(t *testing.T) {
 		MemberIds:       []*pb.MemberId{UserMemberID(targetGaia)},
 		MembershipState: pb.MembershipState_MEMBER_INVITED.Enum(),
 	}); err != nil {
-		t.Errorf("remove_memberships cleanup failed -- %s may still be in the space, remove manually: %v", targetGaia, err)
+		t.Errorf("remove_memberships cleanup failed -- %s may still be in the space, remove manually: %v%s", targetGaia, err, errDetail(err))
 	} else {
 		t.Logf("PASS remove_memberships removed %s -- net-zero (also verifies the kick/leave RPC path)", targetGaia)
 	}
