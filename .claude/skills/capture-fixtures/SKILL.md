@@ -1,6 +1,6 @@
 ---
 name: capture-fixtures
-description: Capture and sanitize real Google Chat wire fixtures (channel chunks, pblite payloads) from the test account into pkg/gchatmeow/testdata/. Use during M1+ when tests need real frames.
+description: Capture and sanitize real Google Chat wire fixtures (channel chunks, pblite payloads) from the test account into pkg/gchatmeow/testdata/. Use when a test needs real captured frames.
 ---
 
 # Capture wire fixtures
