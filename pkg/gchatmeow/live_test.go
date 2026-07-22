@@ -415,15 +415,48 @@ func TestLiveDiagnosePaginatedWorld(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// Build the request exactly like PaginatedWorld -> doRequestOnce.
-	req := &pb.PaginatedWorldRequest{
+	// Controlled A/B/C: same session, three request shapes, one variable at a
+	// time. Evidence so far: our shape returns a 2-byte body (no world_items).
+	// The only difference from the maintained purple-googlechat client is that
+	// purple always sends a world_section_requests entry with a page_size.
+	//   A = our current shape (baseline; expected 0 items)
+	//   B = A + one world_section_requests{page_size:999} (isolates the section)
+	//   C = purple's exact shape (fetch_snippets_for_unnamed_rooms + section,
+	//       no fetch_options) -- the known-working reference
+	variantA := &pb.PaginatedWorldRequest{
 		RequestHeader:       newRequestHeader(),
 		FetchFromUserSpaces: boolPtr(true),
 		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
 	}
+	variantB := &pb.PaginatedWorldRequest{
+		RequestHeader:        newRequestHeader(),
+		FetchFromUserSpaces:  boolPtr(true),
+		FetchOptions:         []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		WorldSectionRequests: []*pb.WorldSectionRequest{{PageSize: proto.Int32(999)}},
+	}
+	variantC := &pb.PaginatedWorldRequest{
+		RequestHeader:                newRequestHeader(),
+		FetchFromUserSpaces:          boolPtr(true),
+		FetchSnippetsForUnnamedRooms: boolPtr(true),
+		WorldSectionRequests:         []*pb.WorldSectionRequest{{PageSize: proto.Int32(999)}},
+	}
+
+	probeWorld(t, ctx, client, "A (current: fetch_options, no section)", variantA)
+	probeWorld(t, ctx, client, "B (current + section page_size=999)", variantB)
+	probeWorld(t, ctx, client, "C (purple shape: snippets + section)", variantC)
+
+	t.Log("VERDICT GUIDE: if A=0 and B>0 -> fix is 'add a world_section_requests entry'; " +
+		"if A=0,B=0,C>0 -> fetch_options must be replaced by purple's snippet+section shape; " +
+		"if all 0 -> not a request-shape issue, investigate header/session.")
+}
+
+// probeWorld issues one paginated_world request (raw, so we see the real body)
+// and reports the world_items count plus body diagnostics.
+func probeWorld(t *testing.T, ctx context.Context, client *Client, label string, req *pb.PaginatedWorldRequest) {
+	t.Helper()
 	reqBody, err := proto.Marshal(req)
 	if err != nil {
-		t.Fatalf("marshal request: %v", err)
+		t.Fatalf("[%s] marshal request: %v", label, err)
 	}
 
 	counter := client.requestCounter.Add(1)
@@ -447,36 +480,24 @@ func TestLiveDiagnosePaginatedWorld(t *testing.T) {
 
 	res, err := client.session.Fetch(ctx, http.MethodPost, reqURL, headers, reqBody)
 	if err != nil {
-		t.Fatalf("Fetch paginated_world: %v", err)
+		t.Fatalf("[%s] Fetch paginated_world: %v", label, err)
 	}
-
 	body := res.Body
-	t.Logf("HTTP status=%d content-type=%q body_len=%d", res.StatusCode, res.Header.Get("Content-Type"), len(body))
 
-	prefixN := 48
+	var resp pb.PaginatedWorldResponse
+	rawErr := proto.Unmarshal(body, &resp)
+	if rawErr != nil {
+		// Fall back to base64 (matches unmarshalAPIResponse) just in case.
+		if decoded, b64Err := base64.StdEncoding.DecodeString(string(bytes.TrimSpace(body))); b64Err == nil {
+			proto.Reset(&resp)
+			rawErr = proto.Unmarshal(decoded, &resp)
+		}
+	}
+	prefixN := 24
 	if len(body) < prefixN {
 		prefixN = len(body)
 	}
-	t.Logf("body[:%d] hex   = %s", prefixN, hex.EncodeToString(body[:prefixN]))
-	t.Logf("body[:%d] ascii = %q", prefixN, string(body[:prefixN]))
-
-	// Path A: raw binary (what unmarshalAPIResponse tries first).
-	var rawResp pb.PaginatedWorldResponse
-	rawErr := proto.Unmarshal(body, &rawResp)
-	t.Logf("PATH A raw proto.Unmarshal: err=%v world_items=%d", rawErr, len(rawResp.GetWorldItems()))
-
-	// Path B: base64-decode then binary (the fallback).
-	decoded, b64Err := base64.StdEncoding.DecodeString(string(bytes.TrimSpace(body)))
-	if b64Err != nil {
-		t.Logf("PATH B base64 decode: NOT valid base64 (%v) -> body is genuine binary", b64Err)
-	} else {
-		var b64Resp pb.PaginatedWorldResponse
-		b64ProtoErr := proto.Unmarshal(decoded, &b64Resp)
-		t.Logf("PATH B base64 decode OK (decoded_len=%d) then proto.Unmarshal: err=%v world_items=%d",
-			len(decoded), b64ProtoErr, len(b64Resp.GetWorldItems()))
-	}
-
-	t.Log("VERDICT GUIDE: if PATH A items=0/err=nil AND PATH B items>0 -> base64 mis-parse (api.go:238); " +
-		"if both 0 and body is short binary -> genuinely empty; " +
-		"if PATH A items=0 on sizable binary that is NOT base64 -> proto field drift.")
+	t.Logf("VARIANT %s: status=%d body_len=%d hex[:%d]=%s unmarshal_err=%v WORLD_ITEMS=%d SECTIONS=%d",
+		label, res.StatusCode, len(body), prefixN, hex.EncodeToString(body[:prefixN]),
+		rawErr, len(resp.GetWorldItems()), len(resp.GetWorldSectionResponses()))
 }
