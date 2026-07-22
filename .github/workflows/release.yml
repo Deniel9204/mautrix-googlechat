@@ -31,7 +31,7 @@ jobs:
           mv dist/linux_amd64/mautrix-googlechat out/mautrix-googlechat-amd64
           mv dist/linux_arm64/mautrix-googlechat out/mautrix-googlechat-arm64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-binaries
           path: out/
@@ -53,7 +53,7 @@ jobs:
             -o mautrix-googlechat-darwin-arm64 ./cmd/mautrix-googlechat
           ./mautrix-googlechat-darwin-arm64 --version
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: darwin-binary
           path: mautrix-googlechat-darwin-arm64
@@ -65,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
           path: assets
