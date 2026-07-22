@@ -3,7 +3,7 @@
 # clang toolchain. CGO is required (mattn/go-sqlite3 + mautrix's mxmain
 # reference sqlite3.Error), so CGO_ENABLED=1 with xx's target musl-dev/gcc; this
 # is far faster than QEMU-emulating the whole cgo build.
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.6.1 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.9.0 AS xx
 
 FROM --platform=$BUILDPLATFORM golang:1-alpine AS builder
 COPY --from=xx / /
