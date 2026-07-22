@@ -520,9 +520,12 @@ func probeWorld(t *testing.T, ctx context.Context, client *Client, label string,
 // Requires GCHAT_LIVE_SPACE_ID = a plain space id (no space: prefix) the
 // account can rename; renaming may require a space-manager role, in which case
 // a plain member gets a clean error here (which is itself a useful result).
-// Skips if unset.
+// Skips if unset. Optionally set GCHAT_LIVE_SPACE_ORIG_NAME to the space's
+// current name to skip the get_group read-back (and thus verify update_group
+// even if get_group is unavailable for the account).
 //
 //	export GCHAT_LIVE_SPACE_ID='AAAAxxxxxxx'
+//	# optional: export GCHAT_LIVE_SPACE_ORIG_NAME='My Space'
 //	go test -tags 'goolm live' -run TestLiveRoomName -v -count=1 ./pkg/gchatmeow/
 func TestLiveRoomName(t *testing.T) {
 	cookies := liveCookies(t)
@@ -541,16 +544,29 @@ func TestLiveRoomName(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// Read the current name so we can restore it.
-	gg, err := client.GetGroup(ctx, &pb.GetGroupRequest{
-		GroupId:      PartsToGroupID(spaceID, false),
-		FetchOptions: []pb.GetGroupRequest_FetchOptions{pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME},
-	})
-	if err != nil {
-		t.Fatalf("get_group (reading current name): %v", err)
+	// The original name is needed so the rename can be restored (net-zero).
+	// Prefer an explicitly provided name (GCHAT_LIVE_SPACE_ORIG_NAME) so the
+	// rename RPC can be verified even if get_group is unavailable; otherwise
+	// read it via get_group, mirroring production's exact request shape
+	// (chatinfo.go: MEMBERS + INCLUDE_DYNAMIC_GROUP_NAME + IncludeInviteDms).
+	orig := os.Getenv("GCHAT_LIVE_SPACE_ORIG_NAME")
+	if orig == "" {
+		gg, err := client.GetGroup(ctx, &pb.GetGroupRequest{
+			GroupId: PartsToGroupID(spaceID, false),
+			FetchOptions: []pb.GetGroupRequest_FetchOptions{
+				pb.GetGroupRequest_MEMBERS,
+				pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME,
+			},
+			IncludeInviteDms: proto.Bool(true),
+		})
+		if err != nil {
+			t.Fatalf("get_group (reading current name) failed: %v\n"+
+				"  - check GCHAT_LIVE_SPACE_ID is a PLAIN space id (no \"space:\" prefix) for a space this account is a member of;\n"+
+				"  - or set GCHAT_LIVE_SPACE_ORIG_NAME=<current name> to skip the read-back and test update_group directly.", err)
+		}
+		orig = gg.GetGroup().GetName()
 	}
-	orig := gg.GetGroup().GetName()
-	t.Logf("current space name = %q", orig)
+	t.Logf("original space name = %q", orig)
 
 	rename := func(name string) error {
 		_, err := client.UpdateGroup(ctx, &pb.UpdateGroupRequest{
