@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Run Renovate
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Self-hosted so it actually runs hourly (the hosted app decides its
       # own cadence). Repo-level behavior (patch automerge etc.) lives in
