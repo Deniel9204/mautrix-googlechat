@@ -333,6 +333,17 @@ type GChatClient struct {
 	// harness) -- mirrors getMessageFn/addPendingToIgnoreFn's own reasoning
 	// above.
 	getIntentForFn func(ctx context.Context, portal *bridgev2.Portal, sender bridgev2.EventSender, evtType bridgev2.RemoteEventType) (bridgev2.MatrixAPI, bool)
+
+	// createMembershipFn / removeMembershipsFn / updateGroupFn issue the
+	// create_membership / remove_memberships / update_group RPCs that
+	// handlemembership.go and handleroomname.go need for outbound membership
+	// actions and space renames. Each defaults to the matching conn.* method;
+	// overridden in tests so those handlers' request construction (space id,
+	// member/invitee id selection, name + update mask) can be asserted without
+	// a live gchatmeow.Client connection -- mirrors createTopicFn et al.
+	createMembershipFn  func(ctx context.Context, req *pb.CreateMembershipRequest) (*pb.CreateMembershipResponse, error)
+	removeMembershipsFn func(ctx context.Context, req *pb.RemoveMembershipsRequest) (*pb.RemoveMembershipsResponse, error)
+	updateGroupFn       func(ctx context.Context, req *pb.UpdateGroupRequest) (*pb.UpdateGroupResponse, error)
 }
 
 var _ bridgev2.NetworkAPI = (*GChatClient)(nil)
