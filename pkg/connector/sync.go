@@ -37,6 +37,12 @@ const syncMaxAttempts = 3
 // attempt: attempt 1 waits this long, attempt 2 waits 2x, and so on.
 const defaultSyncRetryBackoffBase = 500 * time.Millisecond
 
+// worldSectionPageSize is the page_size on the world_section_requests entry
+// that fetchWorldWithRetry must send for paginated_world to return any
+// world_items at all (see the request builder below). Matches the maintained
+// purple-googlechat client's value.
+const worldSectionPageSize = 999
+
 // syncChatItem pairs one (post-filter) world item with whether it's within
 // this login's initial_chat_sync cap.
 type syncChatItem struct {
@@ -212,9 +218,20 @@ func (c *GChatClient) fetchWorldWithRetry(ctx context.Context, fetch func(contex
 		backoffBase = defaultSyncRetryBackoffBase
 	}
 
+	// A world_section_requests entry is REQUIRED: as of 2026 Google's
+	// paginated_world returns world_items only when the request carries at
+	// least one section with a page_size. Without it the server responds with
+	// a ~2-byte stub (no world_items), so syncChats sees zero chats and no new
+	// conversation ever auto-creates a portal (verified live 2026-07-22; the
+	// maintained purple-googlechat client sends page_size=999,
+	// googlechat_conversation.c:1173-1178, while the older Python bridge --
+	// which omitted it on full sync -- predates this server change). page_size
+	// caps the returned world; 999 matches purple and covers any realistic
+	// personal account in one page.
 	req := &pb.PaginatedWorldRequest{
-		FetchFromUserSpaces: proto.Bool(true),
-		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		FetchFromUserSpaces:  proto.Bool(true),
+		FetchOptions:         []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		WorldSectionRequests: []*pb.WorldSectionRequest{{PageSize: proto.Int32(worldSectionPageSize)}},
 	}
 
 	var resp *pb.PaginatedWorldResponse

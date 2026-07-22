@@ -104,8 +104,9 @@ func TestLiveProtocol(t *testing.T) {
 
 	// 3. PaginatedWorld -> world sync.
 	world, err := client.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
-		FetchFromUserSpaces: boolPtr(true),
-		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		FetchFromUserSpaces:  boolPtr(true),
+		FetchOptions:         []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		WorldSectionRequests: []*pb.WorldSectionRequest{{PageSize: proto.Int32(999)}}, // required: server returns empty world without a section
 	})
 	if err != nil {
 		t.Fatalf("FAIL PaginatedWorld (world sync / drift): %v", err)
@@ -183,8 +184,9 @@ func TestLiveSendReceive(t *testing.T) {
 
 	// Find a group/DM to post into.
 	world, err := client.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
-		FetchFromUserSpaces: boolPtr(true),
-		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		FetchFromUserSpaces:  boolPtr(true),
+		FetchOptions:         []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		WorldSectionRequests: []*pb.WorldSectionRequest{{PageSize: proto.Int32(999)}}, // required: server returns empty world without a section
 	})
 	if err != nil {
 		t.Fatalf("PaginatedWorld: %v", err)
@@ -326,8 +328,9 @@ func TestLiveUpload(t *testing.T) {
 	// with no reader once the deferred connCancel() unblocks it -- no leak.
 
 	world, err := client.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
-		FetchFromUserSpaces: boolPtr(true),
-		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		FetchFromUserSpaces:  boolPtr(true),
+		FetchOptions:         []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+		WorldSectionRequests: []*pb.WorldSectionRequest{{PageSize: proto.Int32(999)}}, // required: server returns empty world without a section
 	})
 	if err != nil {
 		t.Fatalf("PaginatedWorld: %v", err)

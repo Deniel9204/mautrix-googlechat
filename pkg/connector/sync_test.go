@@ -257,6 +257,41 @@ func TestSyncChatsRetriesThenSucceeds(t *testing.T) {
 	}
 }
 
+// TestSyncChatsRequestIncludesWorldSection guards the fix for the empty
+// world-sync bug: Google's paginated_world returns world_items only when the
+// request carries at least one world_section_requests entry with a page_size
+// (verified live 2026-07-22 -- without one the server returns a ~2-byte stub
+// and syncChats sees zero chats, so new conversations never auto-create
+// portals). fetchWorldWithRetry must always send one.
+func TestSyncChatsRequestIncludesWorldSection(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	var gotReq *pb.PaginatedWorldRequest
+	gc := &GChatClient{
+		UserLogin: login,
+		Main:      &GChatConnector{Config: *newTestConfig(t)},
+		paginatedWorldFn: func(_ context.Context, req *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
+			gotReq = req
+			return &pb.PaginatedWorldResponse{}, nil
+		},
+		queueChatResyncFn: func(*simplevent.ChatResync) bridgev2.EventHandlingResult {
+			return bridgev2.EventHandlingResultQueued
+		},
+	}
+
+	gc.syncChats(context.Background())
+
+	if gotReq == nil {
+		t.Fatal("paginatedWorldFn was never called")
+	}
+	sections := gotReq.GetWorldSectionRequests()
+	if len(sections) == 0 {
+		t.Fatal("paginated_world request has no world_section_requests -- the server returns an empty world without one (empty world-sync bug)")
+	}
+	if ps := sections[0].GetPageSize(); ps <= 0 {
+		t.Errorf("world_section_requests[0].page_size = %d, want > 0", ps)
+	}
+}
+
 // TestSyncChatsSuccessKeepsLatch is the control case: an immediately
 // successful sync must not retry, must queue every planned entry, and must
 // leave the one-time latch consumed (unlike the two failure tests above).
