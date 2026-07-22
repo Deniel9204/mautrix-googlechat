@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Build & push image
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Git tags are v0.YYMM.PATCH (mautrix CalVer); docker version tags use
       # the v-prefixed calendar form like upstream mautrix bridges
