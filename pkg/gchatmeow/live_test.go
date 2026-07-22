@@ -258,7 +258,13 @@ func TestLiveSendReceive(t *testing.T) {
 // whether outbound media upload works today. A 500 here == #114 also affects
 // our shape; a pass == #114 is a Python-maugclib bug we don't share.
 //
-//	go test -tags 'goolm live' -run TestLiveUpload -v -timeout 5m ./pkg/gchatmeow/
+// The account whose cookies you export MUST have at least one Google Chat
+// conversation (a DM or space) — the upload is scoped to a group_id. A
+// throwaway test account with no chats will skip. -count=1 is REQUIRED: Go
+// caches test results on inputs it can see, but Google's server state isn't
+// one of them, so without it a stale skip/pass is replayed.
+//
+//	go test -tags 'goolm live' -run TestLiveUpload -v -count=1 -timeout 5m ./pkg/gchatmeow/
 func TestLiveUpload(t *testing.T) {
 	cookies := liveCookies(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -282,12 +288,15 @@ func TestLiveUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PaginatedWorld: %v", err)
 	}
+	items := world.GetWorldItems()
+	var withGroup int
 	var groupID string
-	for _, item := range world.GetWorldItems() {
+	for _, item := range items {
 		gid := item.GetGroupId()
 		if gid == nil {
 			continue
 		}
+		withGroup++
 		if dm := gid.GetDmId().GetDmId(); dm != "" {
 			groupID = dm
 		} else if sp := gid.GetSpaceId().GetSpaceId(); sp != "" {
@@ -298,8 +307,13 @@ func TestLiveUpload(t *testing.T) {
 		}
 	}
 	if groupID == "" {
-		t.Skip("live upload skipped: the test account has no conversation to upload into -- " +
-			"have another user DM the account first, then re-run")
+		// Distinguish "account genuinely has no chats" (0 items / 0 with a
+		// group id) from a discovery bug (items exist but none yielded a
+		// plain id) so a skip is diagnosable without guessing.
+		t.Skipf("live upload skipped: no conversation to upload into "+
+			"(world items=%d, with group id=%d) -- if this is 0/0 the account "+
+			"has no chats: DM it from another account first, then re-run with "+
+			"-count=1 (live tests must bypass Go's result cache)", len(items), withGroup)
 	}
 
 	// A 1x1 transparent PNG -- the smallest valid image, well under #114's
