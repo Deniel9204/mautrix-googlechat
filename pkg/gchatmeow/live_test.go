@@ -33,11 +33,19 @@
 package gchatmeow
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
+	"fmt"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"testing"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
@@ -373,4 +381,102 @@ func runUploadProbe(t *testing.T, ctx context.Context, client *Client, groupID s
 	}
 	t.Logf("PASS UploadFile (group_id=%s) -- #114 does NOT affect our shape: attachment_token=%q content_type=%q",
 		groupID, meta.GetAttachmentToken(), meta.GetContentType())
+}
+
+// TestLiveDiagnosePaginatedWorld gathers evidence for the "PaginatedWorld
+// returns 0 world items even though the account has chats" bug WITHOUT any
+// hypothesis baked in: it issues the exact paginated_world request
+// doRequestOnce would, captures the RAW response body, and reports enough to
+// tell apart three root causes at a glance:
+//
+//   - base64 mis-parse: the server base64-encoded the body (because of the
+//     X-Goog-Encode-Response-If-Executable header), and unmarshalAPIResponse's
+//     "try raw binary first" step parses that ASCII as a valid-but-EMPTY proto
+//     with no error (the residual risk documented at api.go:238). Signature:
+//     body is printable base64, raw-unmarshal err=nil items=0, but
+//     base64-then-unmarshal yields items>0.
+//   - genuinely empty: body is short binary, both paths give items=0. The
+//     account really has no world items from this endpoint.
+//   - proto drift: body is sizable binary, raw-unmarshal err=nil items=0, and
+//     it is NOT valid base64. World data is on the wire under field numbers our
+//     schema doesn't map -> inspect proto.Message unknown fields next.
+//
+// Run: go test -tags 'goolm live' -run TestLiveDiagnosePaginatedWorld -v -count=1 ./pkg/gchatmeow/
+func TestLiveDiagnosePaginatedWorld(t *testing.T) {
+	cookies := liveCookies(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	// Build the request exactly like PaginatedWorld -> doRequestOnce.
+	req := &pb.PaginatedWorldRequest{
+		RequestHeader:       newRequestHeader(),
+		FetchFromUserSpaces: boolPtr(true),
+		FetchOptions:        []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
+	}
+	reqBody, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	counter := client.requestCounter.Add(1)
+	params := url.Values{}
+	params.Set("c", strconv.FormatInt(counter, 10))
+	params.Set("rt", "b")
+	params.Set("alt", "proto")
+	params.Set("key", apiKey)
+	base := client.baseURL
+	if base == "" {
+		base = apiBaseURL
+	}
+	reqURL := fmt.Sprintf("%s/api/paginated_world?%s", base, params.Encode())
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/x-protobuf")
+	headers.Set("X-Goog-Encode-Response-If-Executable", "base64")
+	if tok := client.XSRFToken(); tok != "" {
+		headers.Set("x-framework-xsrf-token", tok)
+	}
+
+	res, err := client.session.Fetch(ctx, http.MethodPost, reqURL, headers, reqBody)
+	if err != nil {
+		t.Fatalf("Fetch paginated_world: %v", err)
+	}
+
+	body := res.Body
+	t.Logf("HTTP status=%d content-type=%q body_len=%d", res.StatusCode, res.Header.Get("Content-Type"), len(body))
+
+	prefixN := 48
+	if len(body) < prefixN {
+		prefixN = len(body)
+	}
+	t.Logf("body[:%d] hex   = %s", prefixN, hex.EncodeToString(body[:prefixN]))
+	t.Logf("body[:%d] ascii = %q", prefixN, string(body[:prefixN]))
+
+	// Path A: raw binary (what unmarshalAPIResponse tries first).
+	var rawResp pb.PaginatedWorldResponse
+	rawErr := proto.Unmarshal(body, &rawResp)
+	t.Logf("PATH A raw proto.Unmarshal: err=%v world_items=%d", rawErr, len(rawResp.GetWorldItems()))
+
+	// Path B: base64-decode then binary (the fallback).
+	decoded, b64Err := base64.StdEncoding.DecodeString(string(bytes.TrimSpace(body)))
+	if b64Err != nil {
+		t.Logf("PATH B base64 decode: NOT valid base64 (%v) -> body is genuine binary", b64Err)
+	} else {
+		var b64Resp pb.PaginatedWorldResponse
+		b64ProtoErr := proto.Unmarshal(decoded, &b64Resp)
+		t.Logf("PATH B base64 decode OK (decoded_len=%d) then proto.Unmarshal: err=%v world_items=%d",
+			len(decoded), b64ProtoErr, len(b64Resp.GetWorldItems()))
+	}
+
+	t.Log("VERDICT GUIDE: if PATH A items=0/err=nil AND PATH B items>0 -> base64 mis-parse (api.go:238); " +
+		"if both 0 and body is short binary -> genuinely empty; " +
+		"if PATH A items=0 on sizable binary that is NOT base64 -> proto field drift.")
 }
