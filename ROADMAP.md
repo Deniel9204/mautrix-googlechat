@@ -21,12 +21,12 @@
   * [x] Typing notifications
   * [x] Read receipts
   * [ ] Membership actions
-    * [x] Invite‡
+    * [x] Invite
     * [ ] Join (accept invite)
-    * [x] Kick‡
-    * [x] Leave‡
-  * [x] Room metadata changes‡
-    * [x] Name‡
+    * [x] Kick
+    * [x] Leave
+  * [x] Room metadata changes
+    * [x] Name
 * Google Chat → Matrix
   * [x] Message content
     * [x] Text
@@ -70,13 +70,6 @@
   * [ ] Private chat creation by inviting Matrix puppet of Google Chat user to new room
   * [x] Option to use own Matrix account for messages sent from other Google Chat clients (double puppeting)
   * [x] One-shot migration from the Python bridge's database (`--migrate-from-python`)
-
-‡ Implemented but **not yet verified against a live Google Chat account**: the
-outbound membership actions (invite/kick/leave, spaces only) and space rename.
-The endpoint strings and request shapes match the maintained
-[purple-googlechat](https://github.com/EionRobb/purple-googlechat) client; a
-live spike confirming permissions and the exact request shapes is pending (see
-[#11](https://github.com/Deniel9204/mautrix-googlechat/issues/11)).
 
 † Outbound media upload is implemented and **verified working against Google's
 live endpoint (2026-07-22)**. Some clients have hit an HTTP 500 on upload

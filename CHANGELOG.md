@@ -11,9 +11,8 @@ mautrix bridges.
 ### Added
 
 - Outbound (Matrix → Google Chat) membership actions — invite, kick, and leave
-  — and space rename, for spaces/group chats. Implemented against endpoints
-  matching the purple-googlechat client; not yet verified against a live
-  Google Chat account (see
+  — and space rename, for spaces/group chats. Live-verified against Google
+  Chat (see
   [#11](https://github.com/Deniel9204/mautrix-googlechat/issues/11)).
 
 ## [26.07.4] - 2026-07-22

@@ -353,18 +353,16 @@ an undelivered event.
 | Read receipts | both | `HandleMatrixReadReceipt` (`handlereceipt.go`) / `queueReadReceiptChanged` + `queueGroupViewed` |
 | Media | both | `media.go` (download via `get_attachment_url` with manual cookie-aware redirects; upload via resumable protocol → `UPLOAD_METADATA` annotation) |
 | Membership / renames / topic | GC→Matrix | `systemmessage.go` → `ChatInfoChange` |
-| Membership actions (invite/kick/leave) | Matrix→GC (spaces) | `HandleMatrixMembership` (`handlemembership.go`) → `create_membership` / `remove_memberships` ‡ |
-| Space rename | Matrix→GC (spaces) | `HandleMatrixRoomName` (`handleroomname.go`) → `update_group` ‡ |
+| Membership actions (invite/kick/leave) | Matrix→GC (spaces) | `HandleMatrixMembership` (`handlemembership.go`) → `create_membership` / `remove_memberships` |
+| Space rename | Matrix→GC (spaces) | `HandleMatrixRoomName` (`handleroomname.go`) → `update_group` |
 | Chat / user metadata | GC→Matrix | `GetChatInfo` (`chatinfo.go`) / `GetUserInfo` (`userinfo.go`); ghost avatars via `avatar.go` |
 | Backfill & catch-up | GC→Matrix | `FetchMessages` (`backfill.go`, `list_topics`/`list_messages`) + revision catch-up (§4) |
 | Login | — | `CreateLogin` → `GChatLogin.SubmitCookies` (`login.go`), cookie flow |
 | Relay mode | — | framework-provided; config default off |
 | Multi-user / shared spaces | — | DM portals scoped per login, spaces global (§6) |
 
-‡ Matrix→GC membership actions and space rename are implemented but not yet
-verified against a live Google Chat account (endpoints match the maintained
-purple-googlechat client; a live spike confirming permissions and the exact
-request shapes is pending).
+Matrix→GC membership actions and space rename are space-only (the proto has no
+DM arm) and are live-verified against Google Chat (2026-07-22).
 
 Deliberately unsupported: presence (bridgev2 has no model for it), Matrix→GC
 topic/avatar changes, and DM creation from Matrix (Google Chat requires DMs to
