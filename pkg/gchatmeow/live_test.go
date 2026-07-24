@@ -741,3 +741,80 @@ func spaceMemberGaias(ctx context.Context, client *Client, spaceID string) (map[
 	}
 	return set, nil
 }
+
+// TestLiveDumpLinkAnnotations is a diagnostic for the "inbound links are not
+// links in Matrix" bug: it fetches recent messages from a conversation and
+// dumps, for every message containing a URL, the raw annotation data --
+// crucially whether chip_render_type is SET at all and what value it holds.
+//
+// gchatfmt only renders a url_metadata annotation as <a href> when
+// chip_render_type == DO_NOT_RENDER; an unset field decodes as UNKNOWN(0) and
+// is skipped, leaving the URL as plain text. This probe says which case real
+// Google Chat traffic actually hits.
+//
+//	export GCHAT_LIVE_GROUP_ID='<a dm or space id with a link in it>'
+//	go test -tags 'goolm live' -run TestLiveDumpLinkAnnotations -v -count=1 ./pkg/gchatmeow/
+func TestLiveDumpLinkAnnotations(t *testing.T) {
+	cookies := liveCookies(t)
+	groupID := os.Getenv("GCHAT_LIVE_GROUP_ID")
+	if groupID == "" {
+		t.Skip("set GCHAT_LIVE_GROUP_ID to a conversation containing a link")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	// The id may be a DM or a space; try DM first, fall back to space.
+	var resp *pb.ListTopicsResponse
+	for _, isDM := range []bool{true, false} {
+		resp, err = client.ListTopics(ctx, &pb.ListTopicsRequest{
+			GroupId:           PartsToGroupID(groupID, isDM),
+			PageSizeForTopics: proto.Int32(40),
+		})
+		if err == nil {
+			t.Logf("list_topics OK (isDM=%v): %d topics", isDM, len(resp.GetTopics()))
+			break
+		}
+		t.Logf("list_topics with isDM=%v failed: %v%s", isDM, err, errDetail(err))
+	}
+	if err != nil {
+		t.Fatalf("list_topics failed for both DM and space forms: %v%s", err, errDetail(err))
+	}
+
+	var withURL int
+	for _, topic := range resp.GetTopics() {
+		for _, msg := range topic.GetReplies() {
+			text := msg.GetTextBody()
+			anns := msg.GetAnnotations()
+			hasHTTP := strings.Contains(strings.ToLower(text), "http")
+			var hasURLAnn bool
+			for _, a := range anns {
+				if a.GetUrlMetadata() != nil {
+					hasURLAnn = true
+				}
+			}
+			if !hasHTTP && !hasURLAnn {
+				continue
+			}
+			withURL++
+			t.Logf("--- message: text=%q  annotations=%d", text, len(anns))
+			for i, a := range anns {
+				t.Logf("      [%d] type=%v chip_render_type=%v (field_set=%v) start=%d len=%d url=%q",
+					i, a.GetType(), a.GetChipRenderType(), a.ChipRenderType != nil,
+					a.GetStartIndex(), a.GetLength(), a.GetUrlMetadata().GetUrl().GetUrl())
+			}
+		}
+	}
+	if withURL == 0 {
+		t.Log("NOTE: no message with a URL found in the fetched topics -- send a link in that " +
+			"conversation from Google Chat, then re-run with -count=1")
+	}
+	t.Logf("DONE: %d message(s) with a URL inspected", withURL)
+}
