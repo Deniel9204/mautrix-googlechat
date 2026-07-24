@@ -139,13 +139,19 @@ func TestParse(t *testing.T) {
 			wantHTML: "hey @room check this out",
 		},
 		{
-			name: "non-DO_NOT_RENDER chip is skipped, text stays plain",
-			text: "see http://example.com here",
+			// Non-url_metadata annotations carrying a RENDER /
+			// RENDER_IF_POSSIBLE chip are preview chips (upload previews and
+			// the like), rendered separately from inline formatting, so the
+			// underlying text stays plain and unwrapped. url_metadata is
+			// exempt from this rule -- see
+			// TestParse_InboundURLLinkifiedRegardlessOfChipRenderType.
+			name: "non-DO_NOT_RENDER chip on a non-URL annotation is skipped, text stays plain",
+			text: "see bold here",
 			annotations: []*pb.Annotation{
-				gchatfmt.MakeURLAnnotation(4, 19, "http://example.com", pb.Annotation_RENDER),
+				renderChip(gchatfmt.MakeFormatAnnotation(4, 4, pb.FormatMetadata_BOLD)),
 			},
-			wantBody: "see http://example.com here",
-			wantHTML: "see http://example.com here",
+			wantBody: "see bold here",
+			wantHTML: "see bold here",
 		},
 		{
 			name:        "empty text, no annotations",
@@ -533,5 +539,69 @@ func TestParse_NoAnnotationsEmptyMentions(t *testing.T) {
 	_, _, mentions := gchatfmt.Parse(context.Background(), "plain text", nil, mustResolve)
 	if len(mentions.UserIDs) != 0 || mentions.Room {
 		t.Errorf("mentions = %+v, want empty for a message with no annotations", mentions)
+	}
+}
+
+// TestParse_InboundURLLinkifiedRegardlessOfChipRenderType is the regression
+// test for the "inbound links are not links in Matrix" bug.
+//
+// Real Google Chat sets chip_render_type=RENDER_IF_POSSIBLE on the URL
+// annotation of a plainly-pasted link (captured live: text "https://index.hu",
+// one URL annotation, start=0 len=16, chip_render_type=RENDER_IF_POSSIBLE).
+// Only DO_NOT_RENDER used to be rendered inline, so every received link
+// arrived as unlinkified plain text. Outbound was unaffected because
+// matrixfmt always sets DO_NOT_RENDER itself.
+//
+// A url_metadata annotation must therefore produce an <a href> for EVERY
+// chip_render_type, including the proto2 zero value (UNKNOWN) that an unset
+// field decodes to.
+func TestParse_InboundURLLinkifiedRegardlessOfChipRenderType(t *testing.T) {
+	for _, chip := range []pb.Annotation_ChipRenderType{
+		pb.Annotation_UNKNOWN,
+		pb.Annotation_RENDER,
+		pb.Annotation_RENDER_IF_POSSIBLE,
+		pb.Annotation_DO_NOT_RENDER,
+	} {
+		t.Run(chip.String(), func(t *testing.T) {
+			const url = "https://index.hu"
+			annotations := []*pb.Annotation{
+				gchatfmt.MakeURLAnnotation(0, 16, url, chip),
+			}
+
+			body, html, _ := gchatfmt.Parse(context.Background(), url, annotations, nil)
+
+			if body != url {
+				t.Errorf("body = %q, want %q (plain body is never rewritten)", body, url)
+			}
+			want := `<a href="https://index.hu">https://index.hu</a>`
+			if html != want {
+				t.Errorf("html = %q, want %q", html, want)
+			}
+		})
+	}
+}
+
+// renderChip flips an annotation's chip_render_type to RENDER, so a test can
+// build the "preview chip" shape (which inline rendering skips) out of the
+// ordinary Make*Annotation helpers, all of which default to DO_NOT_RENDER.
+func renderChip(a *pb.Annotation) *pb.Annotation {
+	a.ChipRenderType = pb.Annotation_RENDER.Enum()
+	return a
+}
+
+// TestParse_ZeroLengthPreviewChipURLNotLinkified guards the edge case opened
+// up by linkifying non-DO_NOT_RENDER url_metadata: a RENDER /
+// RENDER_IF_POSSIBLE chip need not cover any text at all (a preview card
+// attached to the message rather than to a span). Wrapping an empty span
+// would emit a stray, empty <a href></a>, so a zero-length chip stays skipped.
+func TestParse_ZeroLengthPreviewChipURLNotLinkified(t *testing.T) {
+	annotations := []*pb.Annotation{
+		gchatfmt.MakeURLAnnotation(0, 0, "https://x.test", pb.Annotation_RENDER_IF_POSSIBLE),
+	}
+
+	_, html, _ := gchatfmt.Parse(context.Background(), "hello world", annotations, nil)
+
+	if strings.Contains(html, "<a ") {
+		t.Errorf("html = %q, want no anchor for a zero-length preview chip", html)
 	}
 }

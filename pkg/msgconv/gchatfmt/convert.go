@@ -50,8 +50,12 @@
 //     with annotations[i+1:] as the candidate nested set (this is what lets
 //     BOLD-containing-ITALIC render as nested tags), then wrap the recursed
 //     text per annotation type. chip_render_type != DO_NOT_RENDER
-//     annotations (link/upload preview chips) are skipped entirely
-//     (`continue`) -- they render separately. relative_offset <
+//     annotations (upload/preview chips) are skipped entirely (`continue`)
+//     -- they render separately. The ONE exception is a url_metadata
+//     annotation covering text (inlineURLChip): Google Chat stamps
+//     RENDER_IF_POSSIBLE on an ordinary pasted link, so hyperlinks are
+//     rendered for every chip_render_type or received links would arrive as
+//     plain, unlinkified text. relative_offset <
 //     last_offset annotations (fully consumed by a wider sibling already
 //     rendered) are also skipped. The start+length <= offset+length bounds
 //     check returns an error here rather than panicking on malformed/out-of-
@@ -379,10 +383,21 @@ func renderAnnotations(
 		if start >= offset+length {
 			break
 		}
-		if annotation.GetChipRenderType() != pb.Annotation_DO_NOT_RENDER {
+		if annotation.GetChipRenderType() != pb.Annotation_DO_NOT_RENDER && !inlineURLChip(annotation) {
 			// RENDER / RENDER_IF_POSSIBLE chips (link previews, upload
-			// previews, etc.) are rendered separately from formatting --
-			// M5. Leave the underlying text as plain, unwrapped content.
+			// previews, etc.) are rendered separately from formatting.
+			// Leave the underlying text as plain, unwrapped content.
+			//
+			// url_metadata is deliberately exempt: Google Chat sets
+			// chip_render_type=RENDER_IF_POSSIBLE on the URL annotation of an
+			// ordinary pasted link (verified live), and an unset field decodes
+			// to the proto2 zero value UNKNOWN -- so gating links on
+			// DO_NOT_RENDER left every RECEIVED link as unlinkified plain text
+			// while sent links worked (matrixfmt sets DO_NOT_RENDER itself).
+			// Rendering it inline cannot double-render: linkappend.go never
+			// appends a url_metadata URL to the body, and this package never
+			// renders a preview chip, so the inline <a href> below is the only
+			// rendering a url_metadata span ever gets.
 			continue
 		}
 		// spanWithinParent is the shared int64-promoted bounds gate (see its
@@ -608,4 +623,17 @@ func renderMention(out *strings.Builder, mention MentionResolver, m *pb.UserMent
 	} else {
 		out.WriteString(label)
 	}
+}
+
+// inlineURLChip reports whether a non-DO_NOT_RENDER annotation should still be
+// rendered inline as a hyperlink: a url_metadata annotation that actually
+// covers text.
+//
+// Google Chat sets chip_render_type=RENDER_IF_POSSIBLE on the URL annotation
+// of an ordinary pasted link, so gating hyperlinks on DO_NOT_RENDER alone left
+// every received link as plain, unlinkified text. The length check keeps a
+// preview chip that covers NO text (a card attached to the message rather than
+// to a span) from emitting a stray, empty <a href></a>.
+func inlineURLChip(a *pb.Annotation) bool {
+	return a.GetUrlMetadata() != nil && a.GetLength() > 0
 }

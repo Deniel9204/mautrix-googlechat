@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [Unreleased]
+
+### Fixed
+
+- Links received from Google Chat are now rendered as clickable links in
+  Matrix. Google Chat stamps `chip_render_type=RENDER_IF_POSSIBLE` on the URL
+  annotation of an ordinary pasted link, but only `DO_NOT_RENDER` annotations
+  were rendered inline, so every inbound link arrived as plain, unlinkified
+  text. Sending links from Matrix was unaffected.
+
 ## [26.07.5] - 2026-07-22
 
 ### Added
