@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
-## [Unreleased]
+## [26.07.6] - 2026-07-24
 
 ### Fixed
 
