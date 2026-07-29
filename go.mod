@@ -6,7 +6,7 @@ tool go.mau.fi/util/cmd/maubuild
 
 require (
 	github.com/lib/pq v1.12.3
-	github.com/mattn/go-sqlite3 v1.14.48
+	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/util v0.9.11
 	golang.org/x/net v0.57.0
