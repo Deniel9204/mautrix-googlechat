@@ -10,7 +10,7 @@ require (
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/util v0.9.11
 	golang.org/x/net v0.57.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	maunium.net/go/mauflag v1.0.0
 	maunium.net/go/mautrix v0.29.0
 )
