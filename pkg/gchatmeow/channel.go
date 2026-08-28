@@ -99,6 +99,19 @@ type Channel struct {
 	// holding mu.
 	mu sync.Mutex
 
+	// sendMu serializes the forward channel. ofs is a strict sequence the
+	// server rejects out of order, so assigning the numbers under mu is not
+	// enough: the requests must also REACH THE WIRE in that order, which
+	// means the POST itself has to be inside the critical section. It is
+	// therefore deliberately held across network I/O -- forward-channel
+	// sends are rare and short, and the alternative is a protocol violation.
+	//
+	// It also spans the whole SID-adoption sequence (adoptSID): the counter
+	// reset, the ack round trip and the initial ping are one indivisible
+	// unit, or a concurrent send could consume ofs=0 and push the ping to
+	// ofs=1. Lock ordering is sendMu -> mu; never the reverse.
+	sendMu sync.Mutex
+
 	// Connection state. onConnectCalled makes the first-ever connect fire
 	// OnConnect exactly once.
 	isConnected     bool
@@ -394,42 +407,8 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("parse SID response: %w", err)
 		}
-		ch.mu.Lock()
-		changed := ch.sid != sid
-		if changed {
-			ch.sid = sid
-			ch.aid = 0
-			ch.ofs = 0
-		}
-		curSID, curAID := ch.sid, ch.aid
-		ch.mu.Unlock()
-
-		if changed {
-			// Ack GET: required, unclear why.
-			ackParams := url.Values{
-				"VER":  {channelProtocolVersion},
-				"RID":  {"rpc"},
-				"SID":  {curSID},
-				"AID":  {strconv.Itoa(curAID)},
-				"CI":   {"0"},
-				"TYPE": {"xmlhttp"},
-				"zx":   {uniqueID()},
-				"t":    {"1"},
-			}
-			ackResp, err := ch.session.FetchRaw(ctx, http.MethodGet, ch.eventsURL(ackParams), nil, nil)
-			if err != nil {
-				if ctxErr := ctx.Err(); ctxErr != nil {
-					return ctxErr
-				}
-				return &NetworkError{Err: err}
-			}
-			_, _ = io.Copy(io.Discard, ackResp.Body)
-			ackResp.Body.Close()
-
-			// Initial ping: without it the server never streams events.
-			if err := ch.sendInitialPing(ctx); err != nil {
-				return err
-			}
+		if err := ch.adoptSID(ctx, sid); err != nil {
+			return err
 		}
 	}
 
@@ -633,7 +612,62 @@ func (ch *Channel) onPushData(ctx context.Context, data []byte) error {
 	return nil
 }
 
+// adoptSID installs a newly issued SID and, when it actually changed, runs
+// the ack round trip and initial ping the server requires before it will
+// stream anything.
+//
+// The whole sequence is held under sendMu. The counters were just reset to
+// zero for the new SID, and the ack is a network round trip, so without the
+// lock a concurrent SendStreamEvent would slot into that window, take ofs=0
+// and leave the ping with ofs=1 -- which the server rejects. A rejected ping
+// means the server never starts streaming, so the channel would sit
+// "connected" and permanently eventless until the read-idle watchdog gave
+// up 60s later.
+func (ch *Channel) adoptSID(ctx context.Context, sid string) error {
+	ch.sendMu.Lock()
+	defer ch.sendMu.Unlock()
+
+	ch.mu.Lock()
+	changed := ch.sid != sid
+	if changed {
+		ch.sid = sid
+		ch.aid = 0
+		ch.ofs = 0
+	}
+	curSID, curAID := ch.sid, ch.aid
+	ch.mu.Unlock()
+
+	if !changed {
+		return nil
+	}
+
+	// Ack GET: required, unclear why.
+	ackParams := url.Values{
+		"VER":  {channelProtocolVersion},
+		"RID":  {"rpc"},
+		"SID":  {curSID},
+		"AID":  {strconv.Itoa(curAID)},
+		"CI":   {"0"},
+		"TYPE": {"xmlhttp"},
+		"zx":   {uniqueID()},
+		"t":    {"1"},
+	}
+	ackResp, err := ch.session.FetchRaw(ctx, http.MethodGet, ch.eventsURL(ackParams), nil, nil)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return &NetworkError{Err: err}
+	}
+	_, _ = io.Copy(io.Discard, ackResp.Body)
+	ackResp.Body.Close()
+
+	// Initial ping: without it the server never streams events.
+	return ch.sendInitialPing(ctx)
+}
+
 // sendInitialPing sends the PingEvent that kicks off the event stream.
+// Callers must already hold sendMu (only adoptSID sends this).
 func (ch *Channel) sendInitialPing(ctx context.Context) error {
 	ping := &pb.PingEvent{
 		State:                      pb.PingEvent_ACTIVE.Enum(),
@@ -641,11 +675,19 @@ func (ch *Channel) sendInitialPing(ctx context.Context) error {
 		ClientInteractiveState:     pb.PingEvent_INTERACTIVE.Enum(),
 		ClientNotificationsEnabled: proto.Bool(true),
 	}
-	return ch.SendStreamEvent(ctx, &pb.StreamEventsRequest{PingEvent: ping})
+	return ch.sendStreamEventLocked(ctx, &pb.StreamEventsRequest{PingEvent: ping})
 }
 
-// SendStreamEvent POSTs a StreamEventsRequest on the forward channel.
+// SendStreamEvent POSTs a StreamEventsRequest on the forward channel,
+// serialized against every other forward-channel send (see sendMu).
 func (ch *Channel) SendStreamEvent(ctx context.Context, ev *pb.StreamEventsRequest) error {
+	ch.sendMu.Lock()
+	defer ch.sendMu.Unlock()
+	return ch.sendStreamEventLocked(ctx, ev)
+}
+
+// sendStreamEventLocked is SendStreamEvent's body; callers must hold sendMu.
+func (ch *Channel) sendStreamEventLocked(ctx context.Context, ev *pb.StreamEventsRequest) error {
 	// pblite.Marshal already returns the JSON-encoded array bytes (it both
 	// encodes to a list and serializes it to a string). Do NOT json.Marshal it
 	// again -- megabridge double-encoded here. Done before taking mu (no
@@ -658,6 +700,13 @@ func (ch *Channel) SendStreamEvent(ctx context.Context, ev *pb.StreamEventsReque
 	// Snapshot + advance the sequence counters under mu so a concurrent
 	// SendStreamEvent / longpollRequest can't interleave rid/ofs.
 	ch.mu.Lock()
+	// register() clears the SID for the whole re-register round trip, so a
+	// send landing in that window would put an empty SID on the wire and be
+	// rejected. Tell the caller instead of burning an ofs on it.
+	if ch.sid == "" {
+		ch.mu.Unlock()
+		return ErrChannelNotReady
+	}
 	// Query params.
 	params := url.Values{
 		"VER": {channelProtocolVersion},
@@ -681,10 +730,23 @@ func (ch *Channel) SendStreamEvent(ctx context.Context, ev *pb.StreamEventsReque
 	if err != nil {
 		return fmt.Errorf("send stream event: %w", err)
 	}
-	// Drain+close the response body to release the connection back to the
-	// pool.
+	defer resp.Body.Close()
+
+	// FetchRaw does no status mapping of its own, so without this check any
+	// rejection (400 Unknown SID, 401, 5xx) would be indistinguishable from
+	// a delivered send. That matters most for the initial ping: swallowing
+	// its rejection leaves the poll looking healthy while the server never
+	// streams a single event.
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxReadBytes))
+		return &UnexpectedStatusError{
+			URL:    ch.baseURL + "events",
+			Status: resp.StatusCode,
+			Body:   truncateBody(body),
+		}
+	}
+	// Drain the body to release the connection back to the pool.
 	_, _ = io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
 	return nil
 }
 

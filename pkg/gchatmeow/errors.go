@@ -9,7 +9,13 @@ var (
 	ErrNotLoggedIn            = errors.New("not logged in")            // /mole/world shows AccountsSignInUi
 	ErrChannelLifetimeExpired = errors.New("channel lifetime expired") // intentional 1.5h recycle
 	ErrSIDExpiring            = errors.New("SID expiring")             // payload error -> re-register, no backoff
-	ErrSIDInvalid             = errors.New("SID invalid")              // HTTP 400 "Unknown SID"
+
+	// ErrChannelNotReady is returned by SendStreamEvent when the channel
+	// has no SID yet -- either before the first register completes or during
+	// a re-register, which clears the SID for the whole round trip. Sending
+	// in that window would put an empty SID on the wire.
+	ErrChannelNotReady = errors.New("gchatmeow: channel is not ready to send (no SID)")
+	ErrSIDInvalid      = errors.New("SID invalid") // HTTP 400 "Unknown SID"
 
 	// ErrFileTooLarge is returned when an attachment's Content-Length -- or,
 	// absent that, its actual body size -- exceeds the caller-supplied
