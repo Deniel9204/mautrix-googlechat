@@ -25,10 +25,8 @@
 //     pkg/msgconv/from-gchat.go and the test
 //     TestToMatrix_NoAnnotationsStaysPlain, pkg/msgconv/from-gchat_test.go).
 //   - Once formatted, literal "\n" is replaced with "<br/>" in the final
-//     HTML string -- a blanket string replace done AFTER rendering, not
-//     HTML/context aware (e.g. it would also rewrite a newline that happened
-//     to land inside a <pre><code> block). Done in Parse below; deliberately
-//     not "fixed" here.
+//     HTML string (newlinesToBR, below), EXCEPT inside <pre> blocks, whose
+//     whitespace is already significant and is copied through verbatim.
 //   - The overlapping-span normalization algorithm: sort by (start_index
 //     asc, length desc), then for each annotation in turn treat it as the
 //     "current" span and walk forward through the remaining (already-sorted)
@@ -183,10 +181,47 @@ func Parse(ctx context.Context, text string, annotations []*pb.Annotation, menti
 		return body, "", mentions
 	}
 
-	// literal newlines become <br/> in the final HTML string. A blanket
-	// post-hoc replace, not HTML-context-aware (see package doc comment).
-	html = strings.ReplaceAll(rendered, "\n", "<br/>")
+	html = newlinesToBR(rendered)
 	return body, html, mentions
+}
+
+// newlinesToBR turns literal newlines in the rendered HTML into <br/>, but
+// leaves the contents of <pre> blocks alone: a preformatted block already
+// renders its own whitespace, so injecting <br/> there produces doubled or
+// literal breaks depending on the client.
+//
+// Scanning the output for "<pre>" is safe precisely because this package
+// generates it: every piece of message text goes through escapeUnits first,
+// which turns a "<" in user content into "&lt;", so the only unescaped <pre>
+// tags in the string are the ones renderFormat emitted itself.
+//
+// An unterminated <pre> cannot occur in this package's own output (renderFormat
+// always writes the pair together); it is copied through verbatim rather than
+// treated as an error, since silently mangling output is worse than leaving
+// an impossible case alone.
+func newlinesToBR(rendered string) string {
+	const openTag, closeTag = "<pre>", "</pre>"
+
+	var out strings.Builder
+	rest := rendered
+	for {
+		start := strings.Index(rest, openTag)
+		if start < 0 {
+			out.WriteString(strings.ReplaceAll(rest, "\n", "<br/>"))
+			return out.String()
+		}
+		out.WriteString(strings.ReplaceAll(rest[:start], "\n", "<br/>"))
+
+		block := rest[start:]
+		end := strings.Index(block, closeTag)
+		if end < 0 {
+			out.WriteString(block)
+			return out.String()
+		}
+		end += len(closeTag)
+		out.WriteString(block[:end]) // verbatim: whitespace is significant here
+		rest = block[end:]
+	}
 }
 
 // spanWithinParent reports whether an annotation covering [start, start+length)
