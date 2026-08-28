@@ -818,3 +818,107 @@ func TestLiveDumpLinkAnnotations(t *testing.T) {
 	}
 	t.Logf("DONE: %d message(s) with a URL inspected", withURL)
 }
+
+// TestLiveCreateDm verifies the create_dm request shape against the real
+// server. Like the membership RPCs before it, the exact shape is guesswork
+// until it round-trips: this is the test that turns it into a fact.
+//
+// SAFE TO REPEAT: a DM is unique per pair on Google Chat, so create_dm with
+// someone you already have a DM with returns THAT DM rather than making a
+// second one. Running this twice does not litter the account.
+//
+//	export GCHAT_LIVE_INVITE_GAIA='1234567890'      # or:
+//	export GCHAT_LIVE_INVITE_EMAIL='someone@example.com'
+//	go test -tags 'goolm live' -run TestLiveCreateDm -v -count=1 ./pkg/gchatmeow/
+func TestLiveCreateDm(t *testing.T) {
+	cookies := liveCookies(t)
+	gaia := os.Getenv("GCHAT_LIVE_INVITE_GAIA")
+	email := os.Getenv("GCHAT_LIVE_INVITE_EMAIL")
+	if gaia == "" && email == "" {
+		t.Skip("set GCHAT_LIVE_INVITE_GAIA or GCHAT_LIVE_INVITE_EMAIL to someone this account may DM")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	req := &pb.CreateDmRequest{}
+	switch {
+	case gaia != "":
+		req.Members = []*pb.UserId{UserID(gaia)}
+		t.Logf("creating/finding a DM with gaia %s", gaia)
+	default:
+		req.Invitees = []*pb.InviteeInfo{EmailInvitee(email)}
+		t.Logf("creating/finding a DM with email %s", email)
+	}
+
+	resp, err := client.CreateDm(ctx, req)
+	if err != nil {
+		t.Fatalf("create_dm failed: %v%s", err, errDetail(err))
+	}
+	id, isDM, ok := GroupIDToParts(resp.GetDm().GetGroupId())
+	if !ok || id == "" {
+		t.Fatalf("create_dm returned no usable group id: %+v", resp.GetDm())
+	}
+	t.Logf("PASS create_dm -> id=%s isDM=%v memberships=%d", id, isDM, len(resp.GetMemberships()))
+	for _, m := range resp.GetMemberships() {
+		t.Logf("  member gaia=%s", m.GetId().GetMemberId().GetUserId().GetId())
+	}
+	if !isDM {
+		t.Errorf("create_dm returned a group id that is not a DM (id=%s)", id)
+	}
+}
+
+// TestLiveCreateGroup verifies the create_group request shape.
+//
+// NOT SAFE TO REPEAT BLINDLY: this creates a REAL space every run, and there
+// is no delete_group RPC wired in this bridge, so each run leaves a space
+// behind for you to remove by hand. It is therefore gated on its own opt-in
+// variable rather than running with the rest of the live suite.
+//
+//	export GCHAT_LIVE_CREATE_SPACE_NAME='mautrix-go live test (delete me)'
+//	# optional: export GCHAT_LIVE_INVITE_GAIA='1234567890'
+//	go test -tags 'goolm live' -run TestLiveCreateGroup -v -count=1 ./pkg/gchatmeow/
+func TestLiveCreateGroup(t *testing.T) {
+	cookies := liveCookies(t)
+	name := os.Getenv("GCHAT_LIVE_CREATE_SPACE_NAME")
+	if name == "" {
+		t.Skip("set GCHAT_LIVE_CREATE_SPACE_NAME to opt in -- this creates a REAL space you must delete by hand")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	info := &pb.SpaceCreationInfo{Name: &name}
+	if gaia := os.Getenv("GCHAT_LIVE_INVITE_GAIA"); gaia != "" {
+		info.InviteeMemberInfos = []*pb.InviteeMemberInfo{UserInviteeMemberInfo(gaia)}
+	}
+
+	resp, err := client.CreateGroup(ctx, &pb.CreateGroupRequest{
+		CreationInfo: &pb.CreateGroupRequest_Space{Space: info},
+	})
+	if err != nil {
+		t.Fatalf("create_group failed: %v%s", err, errDetail(err))
+	}
+	id, isDM, ok := GroupIDToParts(resp.GetGroup().GetGroupId())
+	if !ok || id == "" {
+		t.Fatalf("create_group returned no usable group id: %+v", resp.GetGroup())
+	}
+	t.Logf("PASS create_group -> id=%s isDM=%v name=%q -- REMEMBER TO DELETE THIS SPACE", id, isDM, name)
+	if isDM {
+		t.Errorf("create_group returned a DM id (id=%s), want a space", id)
+	}
+}
