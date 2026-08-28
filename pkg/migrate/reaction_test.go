@@ -458,3 +458,118 @@ func TestMigrateReactions_NoIndexZeroRow_WarnsAndSkips(t *testing.T) {
 		t.Errorf("warning = %q, want it to mention msgNoIndexZero", warnings[0])
 	}
 }
+
+// TestMigrateReactions_PortalNotMigrated_WarnsAndSkips covers the FK the
+// other guards miss.
+//
+// migrateReactions checks the reaction -> message FK with
+// messagePartExistsInTarget, which matches on (id, part_id, room_receiver)
+// and deliberately NOT on room_id. That is fine on its own, but the row it
+// inserts also carries room_id, covered by reaction_room_fkey. So when the
+// source contains the same gcid under two different chats -- one migrated,
+// one not -- the message guard is satisfied by the MIGRATED chat's row while
+// the reaction's own portal is absent, and the insert violates the room FK.
+//
+// Because a failed insert returns an error rather than a warning, that
+// aborted (and rolled back) the entire --migrate-from-python run over a
+// single orphan row, contrary to this package's warn-and-skip-per-row rule.
+func TestMigrateReactions_PortalNotMigrated_WarnsAndSkips(t *testing.T) {
+	const (
+		collidingGCID  = "collidingMsgID"
+		unmigratedChat = "space:NeverMigrated"
+	)
+
+	path := filepath.Join(t.TempDir(), "reaction_dangling_portal_source.db")
+	setup, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatalf("opening fixture source for setup: %v", err)
+	}
+	if _, err := setup.Exec(fixtureSchemaSQL); err != nil {
+		t.Fatalf("creating fixture schema: %v", err)
+	}
+	// Only ONE portal exists in the source; unmigratedChat deliberately has
+	// no portal row at all, so nothing for it reaches the target.
+	_, err = setup.Exec(
+		`INSERT INTO portal (gcid, gc_receiver, other_user_id, mxid, name, avatar_mxc, description, name_set, avatar_set, description_set, encrypted, revision, threads_only, threads_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		msgFixturePortalGCID, msgFixturePortalReceiver, nil, "!room:example.com", "Team", nil, nil, true, false, false, false, nil, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("seeding portal row: %v", err)
+	}
+	_, err = setup.Exec(
+		`INSERT INTO puppet (gcid, name, photo_id, photo_mxc, photo_hash, name_set, avatar_set, contact_info_set, is_registered, custom_mxid, access_token, next_batch, base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		msgFixtureSenderGaiaID, "Sender", nil, nil, nil, true, false, false, false, nil, nil, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("seeding puppet row: %v", err)
+	}
+	// Same gcid in both chats. The first migrates (its portal exists); the
+	// second is skipped by migrateMessages because its portal does not.
+	_, err = setup.Exec(msgFixtureInsertMessageSQ,
+		"$mMigrated:example.com", "!room:example.com", collidingGCID, msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 0, int64(1700000009000000), "m.text",
+	)
+	if err != nil {
+		t.Fatalf("seeding migrated message row: %v", err)
+	}
+	_, err = setup.Exec(msgFixtureInsertMessageSQ,
+		"$mOrphan:example.com", "!other:example.com", collidingGCID, unmigratedChat, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 0, int64(1700000009100000), "m.text",
+	)
+	if err != nil {
+		t.Fatalf("seeding orphan message row: %v", err)
+	}
+	// The reaction belongs to the chat that never migrated.
+	_, err = setup.Exec(
+		`INSERT INTO reaction (mxid, mx_room, emoji, gc_sender, gc_msgid, gc_chat, gc_receiver, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"$rOrphanPortal:example.com", "!other:example.com", reactionFixtureBareThumbsUp, msgFixtureSenderGaiaID, collidingGCID, unmigratedChat, msgFixturePortalReceiver, int64(1700000009150000),
+	)
+	if err != nil {
+		t.Fatalf("seeding orphan reaction row: %v", err)
+	}
+	if err := setup.Close(); err != nil {
+		t.Fatalf("closing fixture setup connection: %v", err)
+	}
+
+	source, err := OpenSource(path)
+	if err != nil {
+		t.Fatalf("OpenSource(%q): %v", path, err)
+	}
+	t.Cleanup(func() { _ = source.Close() })
+
+	deps := &Deps{
+		Source:          source,
+		Target:          newFixtureTargetDB(t),
+		FormatGhostMXID: testFormatGhostMXID,
+	}
+	ctx := context.Background()
+
+	if _, _, err := migratePortals(ctx, deps, Options{}); err != nil {
+		t.Fatalf("migratePortals: %v", err)
+	}
+	if _, _, err := migrateGhosts(ctx, deps, Options{}); err != nil {
+		t.Fatalf("migrateGhosts: %v", err)
+	}
+	msgCount, _, err := migrateMessages(ctx, deps, Options{})
+	if err != nil {
+		t.Fatalf("migrateMessages: %v", err)
+	}
+	if msgCount != 1 {
+		t.Fatalf("expected exactly the migrated chat's message to be written, got count=%d", msgCount)
+	}
+
+	count, warnings, err := migrateReactions(ctx, deps, Options{})
+	if err != nil {
+		t.Fatalf("migrateReactions: %v (an orphan reaction whose PORTAL was not migrated must warn-and-skip, not abort the whole migration)", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 reactions migrated, got %d", count)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("expected exactly 1 warning, got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], unmigratedChat) {
+		t.Errorf("warning = %q, want it to name the chat that was not migrated (%q)", warnings[0], unmigratedChat)
+	}
+	if n := countReactionRows(t, deps.Target, collidingGCID); n != 0 {
+		t.Errorf("expected 0 reaction rows written, got %d", n)
+	}
+}

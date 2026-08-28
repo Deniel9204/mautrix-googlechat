@@ -107,6 +107,23 @@ func migrateReactions(ctx context.Context, deps *Deps, opts Options) (int, []str
 			continue
 		}
 
+		// reaction_room_fkey guard. The message check above matches on
+		// (id, part_id, room_receiver) and deliberately NOT on room_id, so a
+		// gcid that appears under two different chats -- one migrated, one not
+		// -- satisfies it via the MIGRATED chat's row while this reaction's own
+		// portal is absent from the target. The insert below carries room_id,
+		// so without this the FK fails and the error return aborts (and rolls
+		// back) the ENTIRE migration over one orphan row, instead of skipping
+		// it the way every other dangling-reference case here does.
+		portalOK, err := portalExistsInTarget(ctx, deps.Target, chat, receiver)
+		if err != nil {
+			return count, warnings, fmt.Errorf("migrate: checking target portal for reaction (mxid=%q, gc_msgid=%q, gc_chat=%q): %w", r.MXID, msgID, chat, err)
+		}
+		if !portalOK {
+			warnings = append(warnings, fmt.Sprintf("reaction (mxid=%q, gc_msgid=%q, gc_chat=%q, gc_receiver=%q): target portal row was not migrated, skipping orphan reaction", r.MXID, msgID, chat, receiver))
+			continue
+		}
+
 		senderID := gcid.MakeUserID(senderStr)
 
 		// reaction_sender_fkey guard -- see ghostExistsInTarget's doc comment.
