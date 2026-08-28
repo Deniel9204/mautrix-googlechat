@@ -605,3 +605,43 @@ func TestParse_ZeroLengthPreviewChipURLNotLinkified(t *testing.T) {
 		t.Errorf("html = %q, want no anchor for a zero-length preview chip", html)
 	}
 }
+
+// TestParse_NewlinesInsideCodeBlockArePreserved: the newline -> <br/> pass is
+// a post-hoc string replace over the rendered HTML, so it used to rewrite
+// newlines that had landed INSIDE a <pre><code> block too. A <pre> block
+// already renders its own whitespace, so the injected tags show up as literal
+// markup or doubled breaks depending on the client. Newlines outside the
+// block must still become <br/>.
+func TestParse_NewlinesInsideCodeBlockArePreserved(t *testing.T) {
+	// indices: "intro"=0..4, \n=5, "x"=6, \n=7, "y"=8, \n=9, "end"=10..12
+	const text = "intro\nx\ny\nend"
+	annotations := []*pb.Annotation{
+		gchatfmt.MakeFormatAnnotation(6, 3, pb.FormatMetadata_MONOSPACE_BLOCK), // covers "x\ny"
+	}
+
+	_, gotHTML, _ := gchatfmt.Parse(context.Background(), text, annotations, nil)
+
+	const wantHTML = "intro<br/><pre><code>x\ny</code></pre><br/>end"
+	if gotHTML != wantHTML {
+		t.Errorf("Parse() html =\n  %q\nwant\n  %q", gotHTML, wantHTML)
+	}
+}
+
+// TestParse_NewlinesInsideInlineCodeArePreserved covers the same rule for an
+// inline <code> span nested inside a block, which the <pre> skip must also
+// cover since it is emitted inside the same region.
+func TestParse_MultipleCodeBlocksEachPreserveNewlines(t *testing.T) {
+	// "a\nb" = 0..2, "|" = 3, "c\nd" = 4..6
+	const text = "a\nb|c\nd"
+	annotations := []*pb.Annotation{
+		gchatfmt.MakeFormatAnnotation(0, 3, pb.FormatMetadata_MONOSPACE_BLOCK),
+		gchatfmt.MakeFormatAnnotation(4, 3, pb.FormatMetadata_MONOSPACE_BLOCK),
+	}
+
+	_, gotHTML, _ := gchatfmt.Parse(context.Background(), text, annotations, nil)
+
+	const wantHTML = "<pre><code>a\nb</code></pre>|<pre><code>c\nd</code></pre>"
+	if gotHTML != wantHTML {
+		t.Errorf("Parse() html =\n  %q\nwant\n  %q", gotHTML, wantHTML)
+	}
+}
