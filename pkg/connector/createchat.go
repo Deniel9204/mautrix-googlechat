@@ -49,7 +49,28 @@ var (
 // for resolution only. See this file's doc comment: there is no email-to-gaia
 // lookup, so the only way to learn the user behind an address is to open the
 // DM, which a resolve-only call must not do as a side effect.
-var ErrCannotResolveEmailWithoutCreating = errors.New("googlechat: an email address can only be resolved by starting the chat (Google Chat has no email lookup)")
+//
+// The deliberate rejections in this file are bridgev2.RespError VALUES (never
+// pointers, and never type-annotated `error`), matching login.go's sentinels.
+// The type is what makes the provisioning API answer 400 with the message
+// below instead of 500 "Internal error resolving identifier": RespondWithError
+// looks for a WritableError, which RespError satisfies by value. It stays
+// invisible on the bot-command path, because bridgev2.RespError.Error()
+// returns only the message, without the errcode.
+//
+// Value, not pointer, is load-bearing twice over. RespError contains maps, so
+// declaring these concrete turns an accidental `err == ErrX` into a compile
+// error rather than a runtime panic -- and RespError.Is falls back to
+// comparing ERRCODES when handed a pointer, which would silently conflate two
+// sentinels that share one. errors.Is is safe throughout: it skips its `==`
+// fast path for a non-comparable target and still consults RespError.Is.
+// Status codes are literals so this package imports no HTTP client (see
+// ErrLoginCookiesInvalid).
+var ErrCannotResolveEmailWithoutCreating = bridgev2.RespError{
+	ErrCode:    "FI.MAU.GOOGLECHAT.EMAIL_REQUIRES_CREATE",
+	Err:        "googlechat: an email address can only be resolved by starting the chat (Google Chat has no email lookup)",
+	StatusCode: 400,
+}
 
 // ErrIdentifierNotSingle is returned when an identifier contains internal
 // whitespace.
@@ -61,7 +82,11 @@ var ErrCannotResolveEmailWithoutCreating = errors.New("googlechat: an email addr
 // as one string with a space in it. Shipping that to Google produces a bare
 // HTTP 500 that says nothing about the real problem, so it is caught here
 // with an explanation instead.
-var ErrIdentifierNotSingle = errors.New("googlechat: identifier contains whitespace -- pass exactly one identifier (start-chat's optional first argument is a login ID, not the sender)")
+var ErrIdentifierNotSingle = bridgev2.RespError{
+	ErrCode:    "FI.MAU.GOOGLECHAT.IDENTIFIER_NOT_SINGLE",
+	Err:        "googlechat: identifier contains whitespace -- pass exactly one identifier (start-chat's optional first argument is a login ID, not the sender)",
+	StatusCode: 400,
+}
 
 // ErrCannotDMYourself is returned when the identifier names the acting
 // account itself. Google Chat has no self-DM through create_dm; it answers
@@ -72,7 +97,11 @@ var ErrIdentifierNotSingle = errors.New("googlechat: identifier contains whitesp
 // acting account without an email-to-gaia lookup, which the private API does
 // not provide -- so a self-DM by address still reaches the server, and
 // createDM's error names this as a likely cause.
-var ErrCannotDMYourself = errors.New("googlechat: that is your own account, and Google Chat cannot open a direct message with yourself")
+var ErrCannotDMYourself = bridgev2.RespError{
+	ErrCode:    "FI.MAU.GOOGLECHAT.CANNOT_DM_SELF",
+	Err:        "googlechat: that is your own account, and Google Chat cannot open a direct message with yourself",
+	StatusCode: 400,
+}
 
 // ErrIdentifierMissing is returned when no identifier survives argument
 // parsing.
@@ -84,13 +113,32 @@ var ErrCannotDMYourself = errors.New("googlechat: that is your own account, and 
 // bridgev2 consumes the first argument as a login selector whenever it names
 // one of this user's logins, which means `start-chat <your-own-login-id>`
 // has its ONLY argument eaten and arrives here empty.
-var ErrIdentifierMissing = errors.New("googlechat: no identifier left to resolve -- on Google Chat a login ID is also a user id, so a bare id that is one of your own logins is taken as the login selector; pass the target after it, as `start-chat <your-login-id> <target-id>`")
+var ErrIdentifierMissing = bridgev2.RespError{
+	ErrCode:    "FI.MAU.GOOGLECHAT.IDENTIFIER_MISSING",
+	Err:        "googlechat: no identifier left to resolve -- on Google Chat a login ID is also a user id, so a bare id that is one of your own logins is taken as the login selector; pass the target after it, as `start-chat <your-login-id> <target-id>`",
+	StatusCode: 400,
+}
 
 // ErrNotAGoogleChatIdentifier is returned for something that is clearly a
 // Matrix identifier rather than a Google Chat one. Both contain "@", which
 // was previously the whole test for an email, so these used to be forwarded
 // to create_dm and come back as an opaque server rejection.
-var ErrNotAGoogleChatIdentifier = errors.New("googlechat: that looks like a Matrix ID, not a Google Chat identifier -- pass an email address or a numeric Google Chat user id")
+var ErrNotAGoogleChatIdentifier = bridgev2.RespError{
+	ErrCode:    "FI.MAU.GOOGLECHAT.NOT_A_GOOGLECHAT_IDENTIFIER",
+	Err:        "googlechat: that looks like a Matrix ID, not a Google Chat identifier -- pass an email address or a numeric Google Chat user id",
+	StatusCode: 400,
+}
+
+// ErrGhostUnidentified is CreateChatWithGhost's own missing-input rejection.
+// It gets its own errcode rather than sharing ErrIdentifierMissing's: they are
+// different callers with different remedies, and two sentinels sharing an
+// errcode is exactly the pair that would conflate first if these ever became
+// pointers.
+var ErrGhostUnidentified = bridgev2.RespError{
+	ErrCode:    "FI.MAU.GOOGLECHAT.GHOST_UNIDENTIFIED",
+	Err:        "googlechat: cannot start a chat with an unidentified user",
+	StatusCode: 400,
+}
 
 // selfDMError reports a self-DM in a way that lets bridgev2 try the user's
 // OTHER logins before giving up.
@@ -195,7 +243,11 @@ func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, 
 	}
 
 	if !strings.Contains(identifier, "@") {
-		return nil, fmt.Errorf("googlechat: %q is neither a Google Chat user id nor an email address", identifier)
+		// Dynamic message, so it cannot be a package sentinel; the helper
+		// flattens it into the same 4xx-carrying shape.
+		return nil, bridgev2.WrapRespErrManual(
+			fmt.Errorf("googlechat: %q is neither a Google Chat user id nor an email address", identifier),
+			"FI.MAU.GOOGLECHAT.NOT_A_GOOGLECHAT_IDENTIFIER", 400)
 	}
 	if !createChat {
 		return nil, ErrCannotResolveEmailWithoutCreating
@@ -215,7 +267,7 @@ func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, 
 // is an identity mapping, see gcid's frozen-format doc comment).
 func (c *GChatClient) CreateChatWithGhost(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.CreateChatResponse, error) {
 	if ghost == nil || ghost.ID == "" {
-		return nil, fmt.Errorf("googlechat: cannot start a chat with an unidentified user")
+		return nil, ErrGhostUnidentified
 	}
 	if string(ghost.ID) == string(c.UserLogin.ID) {
 		return nil, selfDMError()
