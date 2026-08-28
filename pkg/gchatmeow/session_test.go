@@ -745,3 +745,64 @@ func TestFetchNonIdempotentStillRetries429(t *testing.T) {
 		t.Errorf("requests = %d, want 2", requests)
 	}
 }
+
+// TestFetchPopulatesUnexpectedStatusErrorBody: the error type has always had
+// a Body field, but nothing verified that fetch actually fills it -- setting
+// it to "" passed the whole suite. Now that Error() renders the body, the
+// capture and the rendering are pinned together, since either half alone is
+// useless.
+func TestFetchPopulatesUnexpectedStatusErrorBody(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		wantLen  int
+		wantShow string
+	}{
+		{
+			name:     "short body is kept whole and rendered",
+			body:     "service rejected: invitee not found",
+			wantLen:  len("service rejected: invitee not found"),
+			wantShow: "invitee not found",
+		},
+		{
+			// 512 is maxErrorBodyBytes, the cap on what the STRUCT retains --
+			// independent of maxErrorBodyMessageBytes, the cap on what
+			// Error() renders.
+			name:    "long body is cut to maxErrorBodyBytes on the struct",
+			body:    strings.Repeat("z", 700),
+			wantLen: maxErrorBodyBytes,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			sess, err := NewSession(nil, "")
+			if err != nil {
+				t.Fatalf("NewSession: %v", err)
+			}
+			sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+			_, err = sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil)
+			var use *UnexpectedStatusError
+			if !errors.As(err, &use) {
+				t.Fatalf("err = %v (%T), want *UnexpectedStatusError", err, err)
+			}
+			if len(use.Body) != tc.wantLen {
+				t.Errorf("len(Body) = %d, want %d", len(use.Body), tc.wantLen)
+			}
+			if tc.wantShow != "" {
+				if use.Body != tc.body {
+					t.Errorf("Body = %q, want %q", use.Body, tc.body)
+				}
+				if !strings.Contains(err.Error(), tc.wantShow) {
+					t.Errorf("error text %q does not surface the server's reason %q", err, tc.wantShow)
+				}
+			}
+		})
+	}
+}
