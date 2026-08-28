@@ -105,6 +105,18 @@ func (gc *GChatConnector) GetDBMetaTypes() database.MetaTypes {
 // colleague. LookupPhone and LookupUsername stay false: Google Chat has
 // neither concept.
 //
+// The framework does distinguish "there is a lookup" from "you can contact one
+// without a lookup" -- that is what AnyPhone is for, and mautrix-gmessages
+// encodes exactly this situation as LookupPhone:false + AnyPhone:true. There
+// is no AnyEmail counterpart, so Google Chat's case is inexpressible and
+// LookupEmail:true is the least-wrong encoding: LookupEmail:false would
+// advertise "gaia ids only", which is materially untrue. Nothing inside
+// mautrix-go reads the field -- it is only serialised on the capabilities
+// endpoint -- so this decides what a provisioning client offers, nothing else.
+// A resolve-only email lookup now fails with an explicit 400 +
+// FI.MAU.GOOGLECHAT.EMAIL_REQUIRES_CREATE telling the client to retry with
+// create_chat, rather than a bare 500 (createchat.go).
+//
 // GroupCreation is deliberately EMPTY. create_group is implemented at the RPC
 // layer but every request shape tried so far -- including the one
 // purple-googlechat uses -- is rejected with a bare, detail-free HTTP 400 by
