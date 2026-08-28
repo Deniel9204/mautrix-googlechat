@@ -93,10 +93,13 @@ var ErrIdentifierNotSingle = bridgev2.RespError{
 // with a bare HTTP 400 that says nothing about the cause, so the check is
 // made locally where the reason is still known.
 //
-// Only detectable for a gaia id. An EMAIL cannot be compared against the
-// acting account without an email-to-gaia lookup, which the private API does
-// not provide -- so a self-DM by address still reaches the server, and
-// createDM's error names this as a likely cause.
+// Detected two different ways. A gaia id is compared against the acting
+// login's id before the request goes out, which is exact. An EMAIL cannot be
+// resolved to a gaia id at all -- the private API has no such lookup -- so
+// that case is recognised the other way round: the request goes out, and if
+// Google rejects it with a 400, the address is compared against the acting
+// login's own (userinfo.go stores it). After the fact rather than before it,
+// so a stale or aliased address can never block a DM that would have worked.
 var ErrCannotDMYourself = bridgev2.RespError{
 	ErrCode:    "FI.MAU.GOOGLECHAT.CANNOT_DM_SELF",
 	Err:        "googlechat: that is your own account, and Google Chat cannot open a direct message with yourself",
@@ -211,6 +214,23 @@ func (gc *GChatConnector) ValidateUserID(userID networkid.UserID) bool {
 // request-shape symptom; replaying either once per login would repeat a
 // throttle or a bug N times over. Anything without a status at all -- a
 // timeout, a dead connection -- is not deferred either: fail closed.
+// isOwnEmail reports whether identifier is the acting login's OWN address, as
+// learned by updateOwnLoginProfile (userinfo.go). False whenever the address
+// is not known, which is the safe answer: it means "carry on and let the
+// server decide", i.e. exactly the behaviour that existed before this.
+//
+// Case-folded, and nothing else. Gmail's dot-and-plus aliasing
+// (foo.bar+x@gmail.com and foobar@gmail.com are one consumer mailbox) is
+// deliberately NOT normalised: the rule is @gmail.com-only, and on a Workspace
+// domain first.last@ and firstlast@ can be two different colleagues. The
+// asymmetry decides it -- a miss costs nothing (the request goes to the server
+// exactly as it does today), while a false match would mislabel a real
+// person's address as the user's own.
+func (c *GChatClient) isOwnEmail(identifier string) bool {
+	own := c.ownEmail()
+	return own != "" && strings.EqualFold(own, identifier)
+}
+
 func createDMRejectedTarget(err error) bool {
 	var status *gchatmeow.UnexpectedStatusError
 	if !errors.As(err, &status) {
@@ -275,6 +295,16 @@ func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, 
 		Invitees: []*pb.InviteeInfo{gchatmeow.EmailInvitee(identifier)},
 	})
 	if err != nil {
+		// Name the self-DM only AFTER the server has actually refused, not
+		// instead of asking it. Pre-empting would be one round trip cheaper
+		// and strictly worse: the stored address can be stale or an alias, and
+		// nobody has established that Google even refuses a self-DM -- Chat has
+		// a note-to-self conversation -- so a local refusal could block
+		// something that works. Reading a 400 this way costs nothing, because
+		// that request is issued today regardless.
+		if createDMRejectedTarget(err) && c.isOwnEmail(identifier) {
+			return nil, selfDMError()
+		}
 		return nil, err
 	}
 	return &bridgev2.ResolveIdentifierResponse{UserID: otherUser, Chat: chat}, nil
