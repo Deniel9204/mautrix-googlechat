@@ -405,3 +405,40 @@ func TestResolveIdentifierRejectsNonGoogleChatIdentifiers(t *testing.T) {
 		})
 	}
 }
+
+// --- ValidateUserID -------------------------------------------------------
+
+// TestValidateUserIDAcceptsGaiaIDsOnly pins the shape gate the framework uses
+// before it will materialise a ghost row or register a ghost on the
+// homeserver. The valid cases are the ones that would silently break if the
+// predicate were tightened: "999" is this repo's own BOT fixture id, and
+// "112233" is the acting login's own id, which must stay valid or the
+// multi-login self-DM deferral is killed.
+func TestValidateUserIDAcceptsGaiaIDsOnly(t *testing.T) {
+	gc := &GChatConnector{}
+	for _, valid := range []string{"0", "999", "112233", "123456789012345678901"} {
+		if !gc.ValidateUserID(gcid.MakeUserID(valid)) {
+			t.Errorf("ValidateUserID(%q) = false, want true", valid)
+		}
+	}
+	for _, invalid := range []string{
+		"", "notagaia", "112233abc", "112233:example.org",
+		"@googlechat_112233", "11 22", " 112233", "112233 ", "+112233", "112233.0",
+	} {
+		if gc.ValidateUserID(gcid.MakeUserID(invalid)) {
+			t.Errorf("ValidateUserID(%q) = true, want false", invalid)
+		}
+	}
+}
+
+// TestGChatConnectorImplementsIdentifierValidatingNetwork asserts through the
+// NetworkConnector static type, which is exactly the assertion the framework
+// performs. Without it, defining ValidateUserID on the wrong receiver compiles
+// cleanly and does nothing.
+func TestGChatConnectorImplementsIdentifierValidatingNetwork(t *testing.T) {
+	var network bridgev2.NetworkConnector = &GChatConnector{}
+	if _, ok := network.(bridgev2.IdentifierValidatingNetwork); !ok {
+		t.Fatal("*GChatConnector does not satisfy bridgev2.IdentifierValidatingNetwork; " +
+			"the framework looks this up on Bridge.Network, so a method on *GChatClient would never be called")
+	}
+}
