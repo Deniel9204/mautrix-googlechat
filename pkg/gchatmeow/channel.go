@@ -41,6 +41,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/pblite"
@@ -582,21 +583,37 @@ func (ch *Channel) onPushData(ctx context.Context, data []byte) error {
 		// chunk is a JSON container array of inner [array_id, data_array]
 		// pairs. Parse positionally with RawMessage to hand OnReceiveArray the
 		// data_array bytes verbatim (the caller decodes).
+		//
+		// Every decode failure below is logged and SKIPPED rather than
+		// returned. Returning would propagate out through readBody and
+		// longpollRequest into Listen's `default:` branch, which is terminal:
+		// one malformed element would tear down the whole poll session and
+		// discard the well-formed arrays beside it in the same chunk. That is
+		// exactly what this project's stream-decode invariant forbids, and it
+		// matches how the pblite payload decode one level down
+		// (client.go's onReceiveArray) and the frame parser one level up
+		// (ChunkParser's poison-byte resync) already behave. An error from
+		// OnReceiveArray itself stays terminal -- that is the documented
+		// contract of the callback, not a decode failure.
 		var container []json.RawMessage
 		if err := json.Unmarshal([]byte(chunk), &container); err != nil {
-			return fmt.Errorf("unmarshal container array: %w", err)
+			log.Warn().Err(err).Msg("gchatmeow: skipping undecodable webchannel container frame")
+			continue
 		}
 		for _, innerRaw := range container {
 			var inner []json.RawMessage
 			if err := json.Unmarshal(innerRaw, &inner); err != nil {
-				return fmt.Errorf("unmarshal inner array: %w", err)
+				log.Warn().Err(err).Msg("gchatmeow: skipping undecodable webchannel inner array")
+				continue
 			}
 			if len(inner) != 2 {
-				return fmt.Errorf("inner array length = %d, want 2", len(inner))
+				log.Warn().Int("length", len(inner)).Msg("gchatmeow: skipping webchannel inner array of unexpected length, want [array_id, data_array]")
+				continue
 			}
 			var arrayID int
 			if err := json.Unmarshal(inner[0], &arrayID); err != nil {
-				return fmt.Errorf("unmarshal array_id: %w", err)
+				log.Warn().Err(err).Msg("gchatmeow: skipping webchannel inner array with a non-numeric array_id")
+				continue
 			}
 			dataArray := inner[1]
 
