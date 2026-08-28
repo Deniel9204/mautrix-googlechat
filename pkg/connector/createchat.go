@@ -69,6 +69,39 @@ var ErrIdentifierNotSingle = errors.New("googlechat: identifier contains whitesp
 // createDM's error names this as a likely cause.
 var ErrCannotDMYourself = errors.New("googlechat: that is your own account, and Google Chat cannot open a direct message with yourself")
 
+// ErrIdentifierMissing is returned when no identifier survives argument
+// parsing.
+//
+// On Google Chat this has one cause worth naming. A login ID *is* a gaia id
+// -- gcid.MakeUserID and gcid.MakeUserLoginID are the same identity cast, and
+// login.go fills UserLogin.ID from get_self_user_status -- so every one of
+// the user's own login ids is also a syntactically valid identifier.
+// bridgev2 consumes the first argument as a login selector whenever it names
+// one of this user's logins, which means `start-chat <your-own-login-id>`
+// has its ONLY argument eaten and arrives here empty.
+var ErrIdentifierMissing = errors.New("googlechat: no identifier left to resolve -- on Google Chat a login ID is also a user id, so a bare id that is one of your own logins is taken as the login selector; pass the target after it, as `start-chat <your-login-id> <target-id>`")
+
+// ErrNotAGoogleChatIdentifier is returned for something that is clearly a
+// Matrix identifier rather than a Google Chat one. Both contain "@", which
+// was previously the whole test for an email, so these used to be forwarded
+// to create_dm and come back as an opaque server rejection.
+var ErrNotAGoogleChatIdentifier = errors.New("googlechat: that looks like a Matrix ID, not a Google Chat identifier -- pass an email address or a numeric Google Chat user id")
+
+// selfDMError reports a self-DM in a way that lets bridgev2 try the user's
+// OTHER logins before giving up.
+//
+// The target being THIS login's own account does not make it unreachable: two
+// Google accounts bridged by the same Matrix user can DM each other perfectly
+// well, and which login is "acting" is chosen by the framework rather than by
+// the user. Wrapping ErrResolveIdentifierTryNext is what the framework
+// documents for precisely this situation ("trying to resolve another login's
+// user ID"), so the request is retried against the other logins. The
+// explanation is kept in the message because, when there is no other login,
+// this is the text the user actually reads.
+func selfDMError() error {
+	return fmt.Errorf("%w: %w", ErrCannotDMYourself, bridgev2.ErrResolveIdentifierTryNext)
+}
+
 // isGaiaID reports whether identifier is a bare Google Chat user id, which is
 // always a run of digits. Anything else is treated as an email.
 func isGaiaID(identifier string) bool {
@@ -86,7 +119,7 @@ func isGaiaID(identifier string) bool {
 func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, createChat bool) (*bridgev2.ResolveIdentifierResponse, error) {
 	identifier = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(identifier), "mailto:"))
 	if identifier == "" {
-		return nil, fmt.Errorf("googlechat: empty identifier")
+		return nil, ErrIdentifierMissing
 	}
 	// Internal whitespace means two identifiers were run together; see
 	// ErrIdentifierNotSingle. Checked after trimming, so surrounding padding
@@ -94,10 +127,23 @@ func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, 
 	if strings.ContainsFunc(identifier, unicode.IsSpace) {
 		return nil, ErrIdentifierNotSingle
 	}
+	// A comma- or semicolon-joined list is the same mistake as the
+	// whitespace one, reached by a user who took "pass exactly one
+	// identifier" as an invitation to use a separator.
+	if strings.ContainsAny(identifier, ",;") {
+		return nil, ErrIdentifierNotSingle
+	}
+	// An MXID and a matrix.to link both contain "@", which is the entire
+	// test for an email below, so without this they would be forwarded to
+	// create_dm as if they were addresses. A ghost MXID never reaches here --
+	// bridgev2 resolves those to CreateChatWithGhost first.
+	if strings.HasPrefix(identifier, "@") || strings.Contains(identifier, "matrix.to/") {
+		return nil, ErrNotAGoogleChatIdentifier
+	}
 
 	if isGaiaID(identifier) {
 		if identifier == string(c.UserLogin.ID) {
-			return nil, ErrCannotDMYourself
+			return nil, selfDMError()
 		}
 		resp := &bridgev2.ResolveIdentifierResponse{UserID: gcid.MakeUserID(identifier)}
 		if !createChat {
@@ -135,7 +181,7 @@ func (c *GChatClient) CreateChatWithGhost(ctx context.Context, ghost *bridgev2.G
 		return nil, fmt.Errorf("googlechat: cannot start a chat with an unidentified user")
 	}
 	if string(ghost.ID) == string(c.UserLogin.ID) {
-		return nil, ErrCannotDMYourself
+		return nil, selfDMError()
 	}
 	chat, _, err := c.createDM(ctx, &pb.CreateDmRequest{
 		Members: []*pb.UserId{gchatmeow.UserID(string(ghost.ID))},

@@ -321,3 +321,87 @@ func TestCreateDMFailureNamesLikelyCauses(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveIdentifierOwnAccountDefersToOtherLogin: refusing a self-DM must
+// not be TERMINAL. A gaia id that is this login's own may still be a
+// perfectly ordinary DM target for one of the user's OTHER logins -- two
+// accounts bridged by the same Matrix user can legitimately DM each other.
+// bridgev2 only tries the next login when the error wraps
+// ErrResolveIdentifierTryNext, which the framework documents for exactly this
+// case ("trying to resolve another login's user ID").
+func TestResolveIdentifierOwnAccountDefersToOtherLogin(t *testing.T) {
+	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
+	own := string(gc.UserLogin.ID)
+
+	_, err := gc.ResolveIdentifier(context.Background(), own, true)
+	if !errors.Is(err, bridgev2.ErrResolveIdentifierTryNext) {
+		t.Fatalf("error = %v, want it to wrap ErrResolveIdentifierTryNext so the other login is tried", err)
+	}
+	// The explanation must survive too: when there is no other login, this is
+	// the text the user actually reads.
+	if !errors.Is(err, ErrCannotDMYourself) {
+		t.Errorf("error = %v, want it to still identify the self-DM cause", err)
+	}
+}
+
+func TestCreateChatWithGhostOwnAccountDefersToOtherLogin(t *testing.T) {
+	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
+	self := ghostWithID(string(gc.UserLogin.ID))
+
+	_, err := gc.CreateChatWithGhost(context.Background(), self)
+	if !errors.Is(err, bridgev2.ErrResolveIdentifierTryNext) {
+		t.Fatalf("error = %v, want it to wrap ErrResolveIdentifierTryNext", err)
+	}
+	if !errors.Is(err, ErrCannotDMYourself) {
+		t.Errorf("error = %v, want it to still identify the self-DM cause", err)
+	}
+}
+
+// TestResolveIdentifierEmptyIdentifierExplainsArgFolding: on Google Chat a
+// login ID *is* a gaia id, so `start-chat <your-own-login-id>` has its only
+// argument consumed as the login selector and arrives here empty. "empty
+// identifier" describes neither the cause nor the workaround.
+func TestResolveIdentifierEmptyIdentifierExplainsArgFolding(t *testing.T) {
+	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
+
+	_, err := gc.ResolveIdentifier(context.Background(), "   ", true)
+	if !errors.Is(err, ErrIdentifierMissing) {
+		t.Fatalf("error = %v, want ErrIdentifierMissing", err)
+	}
+	if !strings.Contains(err.Error(), "login ID") {
+		t.Errorf("error %q should explain that the first argument is taken as a login ID", err.Error())
+	}
+}
+
+// TestResolveIdentifierRejectsNonGoogleChatIdentifiers: "contains @" was the
+// only test for an email, so a Matrix ID or a comma-joined pair sailed
+// through to create_dm and came back as an opaque server error.
+func TestResolveIdentifierRejectsNonGoogleChatIdentifiers(t *testing.T) {
+	cases := []struct {
+		identifier string
+		want       error
+	}{
+		{"@someone:example.org", ErrNotAGoogleChatIdentifier},
+		{"https://matrix.to/#/@someone:example.org", ErrNotAGoogleChatIdentifier},
+		{"alice@example.com,bob@example.com", ErrIdentifierNotSingle},
+		{"alice@example.com;bob@example.com", ErrIdentifierNotSingle},
+	}
+	for _, tc := range cases {
+		t.Run(tc.identifier, func(t *testing.T) {
+			called := false
+			gc := &GChatClient{
+				UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+				createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+					called = true
+					return dmResponse("dm1"), nil
+				},
+			}
+			if _, err := gc.ResolveIdentifier(context.Background(), tc.identifier, true); !errors.Is(err, tc.want) {
+				t.Fatalf("ResolveIdentifier(%q) error = %v, want %v", tc.identifier, err, tc.want)
+			}
+			if called {
+				t.Errorf("create_dm was sent for %q", tc.identifier)
+			}
+		})
+	}
+}
