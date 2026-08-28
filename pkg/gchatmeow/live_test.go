@@ -838,12 +838,20 @@ func TestLiveDumpLinkAnnotations(t *testing.T) {
 //	go test -tags 'goolm live' -run TestLiveCreateDm -v -count=1 ./pkg/gchatmeow/
 func TestLiveCreateDm(t *testing.T) {
 	cookies := liveCookies(t)
-	gaia := os.Getenv("GCHAT_LIVE_INVITE_GAIA")
-	email := os.Getenv("GCHAT_LIVE_INVITE_EMAIL")
+	gaia := strings.TrimSpace(os.Getenv("GCHAT_LIVE_INVITE_GAIA"))
+	email := strings.TrimSpace(os.Getenv("GCHAT_LIVE_INVITE_EMAIL"))
+
+	// Report what was actually seen before doing anything. A stale export
+	// from an earlier run has already produced a misleading 400 once during
+	// this feature's investigation, and "which branch ran?" is not something
+	// the reader should have to infer.
+	t.Logf("env: GCHAT_LIVE_INVITE_GAIA=%s  GCHAT_LIVE_INVITE_EMAIL=%s",
+		presence(gaia), presence(email))
 	if gaia == "" && email == "" {
-		t.Skip("set GCHAT_LIVE_INVITE_GAIA or GCHAT_LIVE_INVITE_EMAIL to someone this account may DM")
+		t.Skip("set GCHAT_LIVE_INVITE_GAIA and/or GCHAT_LIVE_INVITE_EMAIL to someone this account may DM")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
@@ -854,31 +862,66 @@ func TestLiveCreateDm(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	req := &pb.CreateDmRequest{}
-	switch {
-	case gaia != "":
-		req.Members = []*pb.UserId{UserID(gaia)}
-		t.Logf("creating/finding a DM with gaia %s", gaia)
-	default:
-		req.Invitees = []*pb.InviteeInfo{EmailInvitee(email)}
-		t.Logf("creating/finding a DM with email %s", email)
+	// Both branches run when both are configured: they exercise DIFFERENT
+	// request shapes (members vs invitees) and running only one has twice
+	// left the other unverified.
+	cases := []struct {
+		name string
+		skip bool
+		req  *pb.CreateDmRequest
+	}{
+		{"gaia (members)", gaia == "", &pb.CreateDmRequest{Members: []*pb.UserId{UserID(gaia)}}},
+		{"email (invitees)", email == "", &pb.CreateDmRequest{Invitees: []*pb.InviteeInfo{EmailInvitee(email)}}},
 	}
 
-	resp, err := client.CreateDm(ctx, req)
-	if err != nil {
-		t.Fatalf("create_dm failed: %v%s", err, errDetail(err))
+	ids := make(map[string]string)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.skip {
+				t.Skip("not configured")
+			}
+			resp, err := client.CreateDm(ctx, tc.req)
+			if err != nil {
+				t.Fatalf("create_dm failed: %v%s\n(a bare 400 here usually means the id is not someone this account can DM, not a bad request -- both envelopes were verified against a known-good id)", err, errDetail(err))
+			}
+			id, isDM, ok := GroupIDToParts(resp.GetDm().GetGroupId())
+			if !ok || id == "" {
+				t.Fatalf("create_dm returned no usable group id: %+v", resp.GetDm())
+			}
+			t.Logf("PASS create_dm -> id=%s isDM=%v memberships=%d", id, isDM, len(resp.GetMemberships()))
+			for _, m := range resp.GetMemberships() {
+				t.Logf("  member gaia=%s", m.GetId().GetMemberId().GetUserId().GetId())
+			}
+			if !isDM {
+				t.Errorf("create_dm returned a group id that is not a DM (id=%s)", id)
+			}
+			ids[tc.name] = id
+		})
 	}
-	id, isDM, ok := GroupIDToParts(resp.GetDm().GetGroupId())
-	if !ok || id == "" {
-		t.Fatalf("create_dm returned no usable group id: %+v", resp.GetDm())
+
+	// Both shapes addressing the same person must land on the same DM --
+	// that find-existing behaviour is what stops ResolveIdentifier from
+	// creating a second conversation every time someone starts a chat.
+	if len(ids) == 2 {
+		var seen []string
+		for _, id := range ids {
+			seen = append(seen, id)
+		}
+		if seen[0] != seen[1] {
+			t.Logf("NOTE: the two branches returned different DMs (%s vs %s) -- expected only if the gaia and the email are different people", seen[0], seen[1])
+		} else {
+			t.Logf("PASS both branches returned the same DM (%s): create_dm finds the existing one", seen[0])
+		}
 	}
-	t.Logf("PASS create_dm -> id=%s isDM=%v memberships=%d", id, isDM, len(resp.GetMemberships()))
-	for _, m := range resp.GetMemberships() {
-		t.Logf("  member gaia=%s", m.GetId().GetMemberId().GetUserId().GetId())
+}
+
+// presence reports whether a live-test variable is set without ever echoing
+// its value into the log.
+func presence(v string) string {
+	if v == "" {
+		return "unset"
 	}
-	if !isDM {
-		t.Errorf("create_dm returned a group id that is not a DM (id=%s)", id)
-	}
+	return "set"
 }
 
 // TestLiveCreateGroup verifies the create_group request shape.
