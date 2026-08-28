@@ -631,6 +631,25 @@ func (c *GChatClient) updateMetadata(ctx context.Context, mutate func(*UserLogin
 	return c.save(ctx)
 }
 
+// updateProfile is updateMetadata's sibling for the login's OWN profile fields
+// (RemoteName / RemoteProfile), which live on database.UserLogin rather than in
+// UserLoginMetadata but are persisted by the very same Save.
+//
+// It takes the SAME metaMu, and that is the whole point: c.save marshals
+// remote_profile AND metadata in one UPDATE, so a profile write that did not
+// hold metaMu would marshal meta.Cookies while persistCookies was writing that
+// map. Both are reachable at once -- handleConnState persists rotated cookies
+// on conn's supervision goroutine while the first Connected transition's
+// syncChats goroutine is still running.
+func (c *GChatClient) updateProfile(ctx context.Context, mutate func() (persist bool)) error {
+	c.metaMu.Lock()
+	defer c.metaMu.Unlock()
+	if !mutate() {
+		return nil
+	}
+	return c.save(ctx)
+}
+
 // reportState maps state/err to a BridgeState (bridgestate.go) and both sends
 // it and updates the cached last-seen state IsLoggedIn reads. Used both by
 // Connect's pre-flight missing-cookie check (no live conn yet) and by

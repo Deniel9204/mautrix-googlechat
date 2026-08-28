@@ -3,7 +3,9 @@ package connector
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -12,6 +14,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
@@ -343,5 +346,67 @@ func TestUpdateOwnLoginProfile_NoChangeNoSave(t *testing.T) {
 	c.updateOwnLoginProfile(context.Background())
 	if saved {
 		t.Error("expected no save when RemoteName is unchanged")
+	}
+}
+
+// TestUpdateOwnLoginProfileRaceWithConcurrentCookiePersist is the regression
+// test for the profile write racing a metadata write. Both land in the SAME
+// user_login row -- c.save marshals remote_profile and metadata in one UPDATE
+// -- so updateOwnLoginProfile must take metaMu just as every metadata writer
+// does. The two goroutines here are the real pair: handleConnState persists
+// rotated cookies on conn's supervision goroutine while the first Connected
+// transition's syncChats goroutine is still running.
+//
+// Run under `-race` (CI does, for this package). Looped so a single lucky
+// ordering cannot hide the bug, and both outcomes are pinned so the fix
+// cannot be "drop one of the writes".
+func TestUpdateOwnLoginProfileRaceWithConcurrentCookiePersist(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
+		if err != nil {
+			t.Fatalf("NewClient: %v", err)
+		}
+		meta := &UserLoginMetadata{}
+		login := newTestUserLogin(meta)
+		gc := &GChatClient{
+			UserLogin: login,
+			conn:      client,
+			// The stand-in for UserLogin.Save must actually READ what the real
+			// one marshals -- remote_profile and metadata, in one statement.
+			// A no-op saveFn touches neither, so the race the lock exists to
+			// prevent would never be observed and this test would pass with
+			// or without metaMu.
+			saveFn: func(context.Context) error {
+				if _, err := json.Marshal(login.Metadata); err != nil {
+					return err
+				}
+				_, err := json.Marshal(login.RemoteProfile)
+				return err
+			},
+			getMembersFn: func(context.Context, *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
+				return &pb.GetMembersResponse{Members: []*pb.Member{{Profile: &pb.Member_User{User: &pb.User{
+					Name: proto.String("Ada Lovelace"),
+				}}}}}, nil
+			},
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			gc.updateOwnLoginProfile(context.Background())
+		}()
+		go func() {
+			defer wg.Done()
+			gc.persistCookies(context.Background())
+		}()
+		wg.Wait()
+
+		if meta.Cookies == nil {
+			t.Fatalf("iteration %d: Metadata.Cookies = nil, want persisted cookies", i)
+		}
+		if login.RemoteName != "Ada Lovelace" {
+			t.Fatalf("iteration %d: RemoteName = %q, want the profile write to have landed too", i, login.RemoteName)
+		}
 	}
 }
