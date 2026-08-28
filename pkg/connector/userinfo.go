@@ -85,22 +85,45 @@ func (c *GChatClient) updateOwnLoginProfile(ctx context.Context) {
 	if name == "" {
 		name = user.GetEmail()
 	}
+	// The acting account's OWN address, kept so createchat.go can recognise a
+	// self-DM typed as an email -- there is no email-to-gaia lookup, so
+	// without this the only signal is a bare 400 from the server.
+	// RemoteProfile.Email rather than UserLoginMetadata: it is the framework's
+	// own field for this, it rides the same Save, and -- unlike Metadata,
+	// which a cookie re-submit replaces wholesale -- RemoteProfile is merged,
+	// so the address is not lost every time the user refreshes their session.
+	email := strings.TrimSpace(user.GetEmail())
+
+	// Two INDEPENDENT change checks, deliberately not one combined early
+	// return. A login whose RemoteName is already correct is the common case
+	// -- it is every login that has connected before -- and a single
+	// "name unchanged, nothing to do" guard would mean such a login never
+	// learns its own address at all.
+	//
 	// The write goes through updateProfile rather than a bare c.save: this
 	// marshals the same row persistCookies writes, and both can be in flight
 	// at once (see updateProfile).
 	err = c.updateProfile(ctx, func() (persist bool) {
-		if name == "" || (c.UserLogin.RemoteName == name && c.UserLogin.RemoteProfile.Name == name) {
-			return false
+		changed := false
+		if name != "" && (c.UserLogin.RemoteName != name || c.UserLogin.RemoteProfile.Name != name) {
+			c.UserLogin.RemoteName = name
+			c.UserLogin.RemoteProfile.Name = name
+			changed = true
 		}
-		c.UserLogin.RemoteName = name
-		c.UserLogin.RemoteProfile.Name = name
-		return true
+		// Only ever WRITE a non-empty address: a get_members response that
+		// omits the email must not erase one already learned.
+		if email != "" && c.UserLogin.RemoteProfile.Email != email {
+			c.UserLogin.RemoteProfile.Email = email
+			changed = true
+		}
+		return changed
 	})
 	if err != nil {
 		log.Warn().Err(err).Msg("googlechat: failed to save own login profile")
 		return
 	}
-	log.Debug().Str("remote_name", name).Msg("googlechat: updated own login profile (RemoteName)")
+	log.Debug().Str("remote_name", name).Bool("has_email", email != "").
+		Msg("googlechat: updated own login profile")
 }
 
 func strPtr(s string) *string { return &s }

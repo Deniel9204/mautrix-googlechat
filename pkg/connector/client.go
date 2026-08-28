@@ -650,6 +650,22 @@ func (c *GChatClient) updateProfile(ctx context.Context, mutate func() (persist 
 	return c.save(ctx)
 }
 
+// ownEmail returns the acting login's own Google address, or "" when it has
+// not been learned yet -- a fresh login, a migrated one, a get_members that
+// failed or carried no email, or simply a login that has not connected since
+// this was added. Callers must treat "" as "unknown", never as "no match".
+//
+// metaMu-guarded because updateOwnLoginProfile writes it from the syncChats
+// goroutine while a start-chat command reads it from another.
+func (c *GChatClient) ownEmail() string {
+	c.metaMu.Lock()
+	defer c.metaMu.Unlock()
+	if c.UserLogin == nil {
+		return ""
+	}
+	return c.UserLogin.RemoteProfile.Email
+}
+
 // reportState maps state/err to a BridgeState (bridgestate.go) and both sends
 // it and updates the cached last-seen state IsLoggedIn reads. Used both by
 // Connect's pre-flight missing-cookie check (no live conn yet) and by

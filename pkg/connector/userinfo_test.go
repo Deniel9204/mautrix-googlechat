@@ -410,3 +410,59 @@ func TestUpdateOwnLoginProfileRaceWithConcurrentCookiePersist(t *testing.T) {
 		}
 	}
 }
+
+// TestUpdateOwnLoginProfileLearnsEmailForAnAlreadyNamedLogin is the trap-guard
+// for this feature. Every login that has connected before already has the
+// right RemoteName, so a single combined "nothing changed, return" guard would
+// leave the address unlearned on exactly the logins that matter -- while a
+// fresh-login test passed. The two checks must be independent.
+func TestUpdateOwnLoginProfileLearnsEmailForAnAlreadyNamedLogin(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	login.RemoteName = "Ada Lovelace"
+	login.RemoteProfile.Name = "Ada Lovelace"
+	login.RemoteProfile.Email = ""
+
+	saved := false
+	c := &GChatClient{
+		UserLogin: login,
+		getMembersFn: func(context.Context, *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
+			return &pb.GetMembersResponse{Members: []*pb.Member{{Profile: &pb.Member_User{User: &pb.User{
+				Name:  proto.String("Ada Lovelace"), // unchanged
+				Email: proto.String("ada@example.com"),
+			}}}}}, nil
+		},
+		saveFn: func(context.Context) error { saved = true; return nil },
+	}
+	c.updateOwnLoginProfile(context.Background())
+
+	if login.RemoteProfile.Email != "ada@example.com" {
+		t.Errorf("RemoteProfile.Email = %q, want ada@example.com", login.RemoteProfile.Email)
+	}
+	if !saved {
+		t.Error("the login was not saved, so the address would be lost on restart")
+	}
+}
+
+// TestUpdateOwnLoginProfileKeepsAKnownEmail: a response that omits the email
+// must not erase one already learned. get_members has several ways to return
+// a User with no email, and losing the address would silently disable the
+// self-DM explanation.
+func TestUpdateOwnLoginProfileKeepsAKnownEmail(t *testing.T) {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	login.RemoteProfile.Email = "ada@example.com"
+
+	c := &GChatClient{
+		UserLogin: login,
+		getMembersFn: func(context.Context, *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
+			return &pb.GetMembersResponse{Members: []*pb.Member{{Profile: &pb.Member_User{User: &pb.User{
+				Name: proto.String("Ada Lovelace"),
+			}}}}}, nil
+		},
+		saveFn: func(context.Context) error { return nil },
+	}
+	c.updateOwnLoginProfile(context.Background())
+
+	if login.RemoteProfile.Email != "ada@example.com" {
+		t.Errorf("RemoteProfile.Email = %q, want the previously learned address to survive", login.RemoteProfile.Email)
+	}
+}

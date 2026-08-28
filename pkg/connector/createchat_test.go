@@ -542,3 +542,130 @@ func TestCreateDMErrorRemainsClassifiableByStatus(t *testing.T) {
 		})
 	}
 }
+
+// --- self-DM by email -----------------------------------------------------
+
+// newLoginWithOwnEmail builds a login that has already learned its own address,
+// which is what updateOwnLoginProfile does on connect.
+func newLoginWithOwnEmail(email string) *bridgev2.UserLogin {
+	login := newTestUserLogin(&UserLoginMetadata{})
+	login.RemoteProfile.Email = email
+	return login
+}
+
+// TestResolveIdentifierOwnEmailExplainsA400: Google refuses a self-DM with a
+// bare 400 that says nothing. The acting login's own address is known, so the
+// cause can be named -- but only once the server has actually refused.
+func TestResolveIdentifierOwnEmailExplainsA400(t *testing.T) {
+	sent := false
+	gc := &GChatClient{
+		UserLogin: newLoginWithOwnEmail("ada@example.com"),
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			sent = true
+			return nil, &gchatmeow.UnexpectedStatusError{Status: 400}
+		},
+	}
+	_, err := gc.ResolveIdentifier(context.Background(), "ADA@Example.com", true)
+	if !errors.Is(err, ErrCannotDMYourself) {
+		t.Fatalf("error = %v, want ErrCannotDMYourself", err)
+	}
+	if !errors.Is(err, bridgev2.ErrResolveIdentifierTryNext) {
+		t.Error("the self-DM answer must still let bridgev2 try the user's other logins")
+	}
+	if !sent {
+		t.Error("create_dm was never sent: the check must classify the server's refusal, not pre-empt it")
+	}
+}
+
+// TestResolveIdentifierOwnEmailDoesNotPreemptASuccess is the regression guard
+// for the tempting version of this fix. Nothing establishes that Google
+// refuses a self-DM -- Chat has a note-to-self conversation -- so a local
+// refusal could block something that works.
+func TestResolveIdentifierOwnEmailDoesNotPreemptASuccess(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin: newLoginWithOwnEmail("ada@example.com"),
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			return dmResponse("dm-self"), nil
+		},
+	}
+	resp, err := gc.ResolveIdentifier(context.Background(), "ada@example.com", true)
+	if err != nil {
+		t.Fatalf("ResolveIdentifier refused an address the server accepted: %v", err)
+	}
+	if resp.Chat == nil {
+		t.Fatal("Chat = nil, want the DM the server created")
+	}
+}
+
+// TestResolveIdentifierOwnEmailOnlyClaimsSelfDMForA400: a transport failure or
+// a server error must not be relabelled "that is your own account".
+func TestResolveIdentifierOwnEmailOnlyClaimsSelfDMForA400(t *testing.T) {
+	for _, failure := range []error{
+		&gchatmeow.UnexpectedStatusError{Status: 500},
+		&gchatmeow.UnexpectedStatusError{Status: 429},
+		errors.New("connection reset"),
+	} {
+		gc := &GChatClient{
+			UserLogin: newLoginWithOwnEmail("ada@example.com"),
+			createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+				return nil, failure
+			},
+		}
+		_, err := gc.ResolveIdentifier(context.Background(), "ada@example.com", true)
+		if errors.Is(err, ErrCannotDMYourself) {
+			t.Errorf("a %v failure was reported as a self-DM", failure)
+		}
+	}
+}
+
+// TestResolveIdentifierOtherEmailIsNotSelf: a 400 for somebody ELSE's address
+// keeps the server's own explanation instead of being blamed on the user.
+func TestResolveIdentifierOtherEmailIsNotSelf(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin: newLoginWithOwnEmail("ada@example.com"),
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			return nil, &gchatmeow.UnexpectedStatusError{Status: 400, Body: "INVALID_ARGUMENT"}
+		},
+	}
+	_, err := gc.ResolveIdentifier(context.Background(), "grace@example.com", true)
+	if errors.Is(err, ErrCannotDMYourself) {
+		t.Fatalf("a stranger's address was reported as the user's own: %v", err)
+	}
+	if !strings.Contains(err.Error(), "create_dm failed") {
+		t.Errorf("error = %v, want the create_dm failure to survive", err)
+	}
+}
+
+// TestResolveIdentifierUnknownOwnEmailChangesNothing: until the login has
+// connected and learned its own address, every email behaves exactly as it did
+// before. An unknown address must never be treated as a match.
+func TestResolveIdentifierUnknownOwnEmailChangesNothing(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}), // RemoteProfile.Email == ""
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			return nil, &gchatmeow.UnexpectedStatusError{Status: 400}
+		},
+	}
+	_, err := gc.ResolveIdentifier(context.Background(), "someone@example.com", true)
+	if errors.Is(err, ErrCannotDMYourself) {
+		t.Fatalf("an unknown own-address was treated as a match: %v", err)
+	}
+}
+
+// TestIsOwnEmailDoesNotNormaliseAliases pins the deliberate non-normalisation.
+// Dot/plus folding is a @gmail.com rule; on a Workspace domain first.last@ and
+// firstlast@ can be two different colleagues, so folding them would mislabel a
+// real person's address as the user's own.
+func TestIsOwnEmailDoesNotNormaliseAliases(t *testing.T) {
+	gc := &GChatClient{UserLogin: newLoginWithOwnEmail("foo.bar@gmail.com")}
+	for _, match := range []string{"foo.bar@gmail.com", "FOO.BAR@GMAIL.COM", "Foo.Bar@Gmail.com"} {
+		if !gc.isOwnEmail(match) {
+			t.Errorf("isOwnEmail(%q) = false, want true (case must fold)", match)
+		}
+	}
+	for _, notMatch := range []string{"foobar@gmail.com", "foo.bar+work@gmail.com", "foo.bar@example.com", ""} {
+		if gc.isOwnEmail(notMatch) {
+			t.Errorf("isOwnEmail(%q) = true; aliases are deliberately not normalised", notMatch)
+		}
+	}
+}
