@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -45,6 +46,29 @@ var (
 // DM, which a resolve-only call must not do as a side effect.
 var ErrCannotResolveEmailWithoutCreating = errors.New("googlechat: an email address can only be resolved by starting the chat (Google Chat has no email lookup)")
 
+// ErrIdentifierNotSingle is returned when an identifier contains internal
+// whitespace.
+//
+// This is almost always the same mistake: `start-chat`'s optional first
+// argument is a LOGIN ID, not a sender, and bridgev2 folds it back into the
+// identifier when it is not one it recognises (commands/startchat.go's
+// getClientForStartingChat). So `start-chat me@x.com them@y.com` arrives here
+// as one string with a space in it. Shipping that to Google produces a bare
+// HTTP 500 that says nothing about the real problem, so it is caught here
+// with an explanation instead.
+var ErrIdentifierNotSingle = errors.New("googlechat: identifier contains whitespace -- pass exactly one identifier (start-chat's optional first argument is a login ID, not the sender)")
+
+// ErrCannotDMYourself is returned when the identifier names the acting
+// account itself. Google Chat has no self-DM through create_dm; it answers
+// with a bare HTTP 400 that says nothing about the cause, so the check is
+// made locally where the reason is still known.
+//
+// Only detectable for a gaia id. An EMAIL cannot be compared against the
+// acting account without an email-to-gaia lookup, which the private API does
+// not provide -- so a self-DM by address still reaches the server, and
+// createDM's error names this as a likely cause.
+var ErrCannotDMYourself = errors.New("googlechat: that is your own account, and Google Chat cannot open a direct message with yourself")
+
 // isGaiaID reports whether identifier is a bare Google Chat user id, which is
 // always a run of digits. Anything else is treated as an email.
 func isGaiaID(identifier string) bool {
@@ -64,8 +88,17 @@ func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, 
 	if identifier == "" {
 		return nil, fmt.Errorf("googlechat: empty identifier")
 	}
+	// Internal whitespace means two identifiers were run together; see
+	// ErrIdentifierNotSingle. Checked after trimming, so surrounding padding
+	// is still forgiven.
+	if strings.ContainsFunc(identifier, unicode.IsSpace) {
+		return nil, ErrIdentifierNotSingle
+	}
 
 	if isGaiaID(identifier) {
+		if identifier == string(c.UserLogin.ID) {
+			return nil, ErrCannotDMYourself
+		}
 		resp := &bridgev2.ResolveIdentifierResponse{UserID: gcid.MakeUserID(identifier)}
 		if !createChat {
 			return resp, nil
@@ -101,6 +134,9 @@ func (c *GChatClient) CreateChatWithGhost(ctx context.Context, ghost *bridgev2.G
 	if ghost == nil || ghost.ID == "" {
 		return nil, fmt.Errorf("googlechat: cannot start a chat with an unidentified user")
 	}
+	if string(ghost.ID) == string(c.UserLogin.ID) {
+		return nil, ErrCannotDMYourself
+	}
 	chat, _, err := c.createDM(ctx, &pb.CreateDmRequest{
 		Members: []*pb.UserId{gchatmeow.UserID(string(ghost.ID))},
 	})
@@ -123,7 +159,10 @@ func (c *GChatClient) createDM(ctx context.Context, req *pb.CreateDmRequest) (*b
 
 	resp, err := send(ctx, req)
 	if err != nil {
-		return nil, "", fmt.Errorf("googlechat: create_dm failed: %w", err)
+		// The server's rejections here are opaque -- an unusable target and a
+		// self-DM both come back as a bare 400 -- so name what is worth
+		// checking rather than leaving the reader with a status code.
+		return nil, "", fmt.Errorf("googlechat: create_dm failed (is the target reachable from this account, and not your own account?): %w", err)
 	}
 	id, isDM, ok := gchatmeow.GroupIDToParts(resp.GetDm().GetGroupId())
 	if !ok || id == "" {

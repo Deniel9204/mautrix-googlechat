@@ -11,6 +11,7 @@ import (
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
+	"strings"
 )
 
 func dmResponse(dmID string, memberGaias ...string) *pb.CreateDmResponse {
@@ -44,12 +45,14 @@ func TestResolveIdentifierGaiaWithoutCreatingMakesNoRequest(t *testing.T) {
 		},
 	}
 
-	resp, err := gc.ResolveIdentifier(context.Background(), "112233", false)
+	// Deliberately NOT the acting login's own id (112233): that is a self-DM
+	// and is refused separately, see TestResolveIdentifierRejectsOwnAccount.
+	resp, err := gc.ResolveIdentifier(context.Background(), "778899", false)
 	if err != nil {
 		t.Fatalf("ResolveIdentifier: %v", err)
 	}
-	if resp.UserID != gcid.MakeUserID("112233") {
-		t.Errorf("UserID = %q, want %q", resp.UserID, gcid.MakeUserID("112233"))
+	if resp.UserID != gcid.MakeUserID("778899") {
+		t.Errorf("UserID = %q, want %q", resp.UserID, gcid.MakeUserID("778899"))
 	}
 	if resp.Chat != nil {
 		t.Error("a resolve-only call returned a chat")
@@ -185,4 +188,136 @@ func TestCreateChatWithGhostRejectsUnidentified(t *testing.T) {
 // which IS the gaia id (gcid.MakeUserID is an identity mapping).
 func ghostWithID(gaia string) *bridgev2.Ghost {
 	return &bridgev2.Ghost{Ghost: &database.Ghost{ID: gcid.MakeUserID(gaia)}}
+}
+
+// TestResolveIdentifierRejectsWhitespaceIdentifier: `start-chat`'s optional
+// first argument is a LOGIN ID, and bridgev2 folds it back into the
+// identifier when it is not a recognised one (commands/startchat.go's
+// getClientForStartingChat). So `start-chat me@x.com them@y.com` arrives here
+// as the single string "me@x.com them@y.com", which used to be shipped
+// straight to Google and come back as a bare 500 with no hint about what was
+// wrong. Reject it locally with an explanation instead.
+func TestResolveIdentifierRejectsWhitespaceIdentifier(t *testing.T) {
+	for _, identifier := range []string{
+		"alice@example.com bob@example.com", // the real-world case: two emails
+		"445566778899 bob@example.com",
+		"me@example.com\tthem@example.com",
+	} {
+		t.Run(identifier, func(t *testing.T) {
+			called := false
+			gc := &GChatClient{
+				UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+				createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+					called = true
+					return dmResponse("dm1"), nil
+				},
+			}
+
+			_, err := gc.ResolveIdentifier(context.Background(), identifier, true)
+			if !errors.Is(err, ErrIdentifierNotSingle) {
+				t.Fatalf("ResolveIdentifier(%q) error = %v, want ErrIdentifierNotSingle", identifier, err)
+			}
+			if called {
+				t.Error("create_dm was sent for a multi-part identifier")
+			}
+		})
+	}
+}
+
+// TestResolveIdentifierAcceptsSurroundingWhitespace: only INTERNAL whitespace
+// signals two identifiers; padding is just sloppy typing and is trimmed.
+func TestResolveIdentifierAcceptsSurroundingWhitespace(t *testing.T) {
+	var gotReq *pb.CreateDmRequest
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		createDmFn: func(_ context.Context, req *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			gotReq = req
+			return dmResponse("dm1", "112233", "998877"), nil
+		},
+	}
+
+	if _, err := gc.ResolveIdentifier(context.Background(), "  someone@example.com  ", true); err != nil {
+		t.Fatalf("ResolveIdentifier: %v", err)
+	}
+	if got := gotReq.GetInvitees()[0].GetEmail(); got != "someone@example.com" {
+		t.Errorf("invitee email = %q, want it trimmed", got)
+	}
+}
+
+// TestResolveIdentifierRejectsOwnAccount: Google Chat has no self-DM through
+// create_dm -- it answers with a bare 400. Observed live: `start-chat
+// <own-login-id> <own-email>` produced exactly that, with nothing to tell the
+// user they had simply addressed themselves.
+func TestResolveIdentifierRejectsOwnAccount(t *testing.T) {
+	called := false
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			called = true
+			return dmResponse("dm1"), nil
+		},
+	}
+	own := string(gc.UserLogin.ID)
+
+	if _, err := gc.ResolveIdentifier(context.Background(), own, true); !errors.Is(err, ErrCannotDMYourself) {
+		t.Fatalf("ResolveIdentifier(own id) error = %v, want ErrCannotDMYourself", err)
+	}
+	if called {
+		t.Error("create_dm was sent for the acting account's own id")
+	}
+}
+
+// TestResolveIdentifierRejectsOwnAccountEvenWithoutCreating: resolving is
+// harmless, but answering "yes, that's a user you can chat with" about
+// yourself would just set up the failure one step later.
+func TestResolveIdentifierRejectsOwnAccountWithoutCreating(t *testing.T) {
+	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
+	own := string(gc.UserLogin.ID)
+
+	if _, err := gc.ResolveIdentifier(context.Background(), own, false); !errors.Is(err, ErrCannotDMYourself) {
+		t.Fatalf("ResolveIdentifier(own id, resolve-only) error = %v, want ErrCannotDMYourself", err)
+	}
+}
+
+func TestCreateChatWithGhostRejectsOwnAccount(t *testing.T) {
+	called := false
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			called = true
+			return dmResponse("dm1"), nil
+		},
+	}
+	self := ghostWithID(string(gc.UserLogin.ID))
+
+	if _, err := gc.CreateChatWithGhost(context.Background(), self); !errors.Is(err, ErrCannotDMYourself) {
+		t.Fatalf("CreateChatWithGhost(own ghost) error = %v, want ErrCannotDMYourself", err)
+	}
+	if called {
+		t.Error("create_dm was sent for the acting account's own ghost")
+	}
+}
+
+// TestCreateDMFailureNamesLikelyCauses: an email cannot be checked against the
+// acting account locally (there is no email-to-gaia lookup), so a self-DM by
+// EMAIL still reaches the server and comes back as a bare 400. The wrapped
+// error should at least name the causes worth checking, since the raw status
+// says nothing.
+func TestCreateDMFailureNamesLikelyCauses(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			return nil, errors.New("unexpected status 400")
+		},
+	}
+
+	_, err := gc.ResolveIdentifier(context.Background(), "someone@example.com", true)
+	if err == nil {
+		t.Fatal("ResolveIdentifier = nil error, want the create_dm failure surfaced")
+	}
+	for _, want := range []string{"400", "your own account"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err.Error(), want)
+		}
+	}
 }
