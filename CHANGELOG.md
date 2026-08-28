@@ -6,6 +6,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.08.1] - 2026-08-28
+
+### Security
+
+- Debug dumps are written owner-only
+  ([GHSA-4v86-j7x4-qrg8](https://github.com/Deniel9204/mautrix-googlechat/security/advisories/GHSA-4v86-j7x4-qrg8)). With `GCHAT_DEBUG_DUMP`
+  set, every wire chunk and decoded array -- raw message text, sender and room
+  ids -- was written mode 0644, i.e. world-readable under a normal umask, and
+  the capture-fixtures workflow points that variable at a real account. Files
+  are now 0600 and the directory is created 0700; a failed write is logged
+  rather than silently discarded.
+- Attachment downloads refuse hops that resolve to internal addresses
+  ([GHSA-3688-fgj4-649x](https://github.com/Deniel9204/mautrix-googlechat/security/advisories/GHSA-3688-fgj4-649x)). The host allowlist only
+  decided whether a hop received cookies, never whether it should be made, so
+  every redirect was followed wherever it pointed. Hops are now dialled
+  through the same guarded dialer the avatar path uses, refusing loopback,
+  link-local, private, CGNAT, multicast and unspecified addresses at connect
+  time. Unlike the avatar client this one still honours `$HTTPS_PROXY`, since
+  attachments are core functionality and the attachment URL is Google's own
+  fixed endpoint rather than a remote-supplied one.
+- The anti-CSRF token is withheld from an off-allowlist upload URL
+  ([GHSA-35vq-9q47-79xv](https://github.com/Deniel9204/mautrix-googlechat/security/advisories/GHSA-35vq-9q47-79xv)). The resumable upload
+  finalises against a server-supplied `x-goog-upload-url`, and every
+  caller-supplied header was attached regardless of host. The token is now
+  gated on the same host allowlist that gates cookies.
+- pblite decoding is depth-capped
+  ([GHSA-3fqp-w9q8-fwhj](https://github.com/Deniel9204/mautrix-googlechat/security/advisories/GHSA-3fqp-w9q8-fwhj)). `Message.last_reply` is
+  self-referential, so a crafted payload could nest arbitrarily deep with a
+  descriptor lookup and allocation per level; the codec was bounded only
+  incidentally by `encoding/json`. Depth is now capped at 64 and an over-deep
+  subtree is logged and skipped.
+
+### Fixed
+
+- Rejected forward-channel sends now surface instead of being treated as
+  success ([#22](https://github.com/Deniel9204/mautrix-googlechat/issues/22)).
+  `SendStreamEvent` never inspected the HTTP status, so a rejected initial
+  ping left the long poll looking healthy while the server streamed nothing,
+  until the 60s read-idle watchdog produced a misleading generic timeout.
+  Sends are also serialized now, so the `ofs` sequence reaches the wire in the
+  order it was assigned, and sending without a SID is refused outright.
+- A malformed webchannel envelope no longer tears down the channel
+  ([#23](https://github.com/Deniel9204/mautrix-googlechat/issues/23)). One
+  undecodable element discarded the whole poll session along with the
+  well-formed arrays beside it; each decode failure is now logged and skipped.
+- A superseded connection can no longer steal the initial-sync latch
+  ([#24](https://github.com/Deniel9204/mautrix-googlechat/issues/24)). A late
+  callback from a replaced connection could consume the one-shot sync slot and
+  run the chat-list sync under an already-cancelled context, leaving the
+  account connected with no portals until a later reconnect.
+- Rate limits are retried and message creates are not
+  ([#25](https://github.com/Deniel9204/mautrix-googlechat/issues/25)). HTTP
+  429 was previously not retried at all; it now is, paced by `Retry-After`.
+  Conversely `create_topic`/`create_message` are no longer retried on 5xx: a
+  500 can arrive after the server already accepted the message, so retrying
+  risked posting it twice. **Behaviour change:** a transient 5xx on send now
+  fails visibly instead of being silently retried. A visible failure you can
+  retry deliberately beats a duplicate you cannot undo.
+- Migration no longer aborts on an orphan reaction
+  ([#26](https://github.com/Deniel9204/mautrix-googlechat/issues/26)). A
+  reaction whose portal was not migrated failed a foreign key and rolled back
+  the entire `--migrate-from-python` run; it now warns and skips, like every
+  other dangling reference.
+- Newlines inside code blocks are preserved
+  ([#27](https://github.com/Deniel9204/mautrix-googlechat/issues/27)). The
+  newline-to-`<br/>` pass rewrote newlines inside `<pre><code>` too, which
+  renders as literal markup or doubled breaks depending on the client.
+
 ## [26.08.0] - 2026-08-28
 
 ### Security
