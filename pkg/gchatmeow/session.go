@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,11 @@ const (
 	// defaultUserAgent is the fallback User-Agent when the caller supplies
 	// none.
 	defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + latestChromeVersion + ".0.0.0 Safari/537.36"
+
+	// maxRetryAfter caps how long a server-supplied Retry-After can park a
+	// request. The wait is interruptible via ctx either way; the cap just
+	// stops an absurd or hostile value from stalling a whole RPC.
+	maxRetryAfter = 60 * time.Second
 
 	// maxErrorBodyBytes caps how much of a non-200 response body is kept in
 	// UnexpectedStatusError.Body (errors.go: "Body string // first 512
@@ -268,25 +274,54 @@ func (s *Session) absorbCookies(resp *http.Response) {
 }
 
 // Fetch performs a request with auth cookies, retrying transient failures
-// (maxRetries=3 total attempts, exponential backoff -- see
-// retryBackoffBase) before giving up with a *NetworkError. A response is
-// only ever treated as success on exact status 200 (not a generic 2xx
-// range): Google Chat's /api/* endpoints always answer 200 on success, so
-// anything else is an error path. A retryable 5xx status is retried like a
-// transport error; anything else (including 2xx-non-200, and all 4xx) is
-// returned immediately as an *UnexpectedStatusError carrying the status
-// code -- an explicit improvement that preserves the status instead of
-// collapsing every non-200 into a bare status-less NetworkError (see
-// errors.go's UnexpectedStatusError doc comment).
+// (maxRetries=3 total attempts, exponential backoff -- see retryBackoffBase)
+// before giving up with a *NetworkError. A response is only ever treated as
+// success on exact status 200 (not a generic 2xx range): Google Chat's
+// /api/* endpoints always answer 200 on success, so anything else is an
+// error path. Non-retryable statuses are returned immediately as an
+// *UnexpectedStatusError carrying the status code, rather than collapsing
+// every non-200 into a bare status-less NetworkError.
+//
+// Fetch is for IDEMPOTENT requests: it retries 5xx. A 5xx can be returned
+// after the origin already processed the request, so a retried create would
+// post the message twice; send-path callers must use FetchNonIdempotent
+// instead.
 func (s *Session) Fetch(ctx context.Context, method, urlStr string, headers http.Header, body []byte) (*Response, error) {
+	return s.fetch(ctx, method, urlStr, headers, body, true)
+}
+
+// FetchNonIdempotent is Fetch for a request that must not be repeated once
+// the origin may have acted on it -- the message-create RPCs. It behaves
+// identically except that a 5xx is surfaced rather than retried, because a
+// 500/502 can arrive after the message was already accepted and a retry
+// would duplicate it. A duplicate the user cannot undo is worse than a
+// visible send failure they can retry deliberately.
+//
+// 429 is still retried here: a rate-limit response means the request was
+// REJECTED rather than processed, so repeating it cannot duplicate anything.
+func (s *Session) FetchNonIdempotent(ctx context.Context, method, urlStr string, headers http.Header, body []byte) (*Response, error) {
+	return s.fetch(ctx, method, urlStr, headers, body, false)
+}
+
+// fetch is the shared retry loop. retryServerErrors selects the policy
+// described on Fetch and FetchNonIdempotent.
+func (s *Session) fetch(ctx context.Context, method, urlStr string, headers http.Header, body []byte, retryServerErrors bool) (*Response, error) {
 	var lastErr error
+	// retryAfter carries a server-supplied Retry-After into the next
+	// iteration's wait; the server's own pacing beats our blind backoff.
+	var retryAfter time.Duration
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if attempt > 0 {
-			if err := sleepOrDone(ctx, backoffDelay(attempt-1)); err != nil {
+			delay := backoffDelay(attempt - 1)
+			if retryAfter > delay {
+				delay = retryAfter
+			}
+			retryAfter = 0
+			if err := sleepOrDone(ctx, delay); err != nil {
 				return nil, err
 			}
 		}
@@ -330,7 +365,15 @@ func (s *Session) Fetch(ctx context.Context, method, urlStr string, headers http
 			ErrorCode: parseErrorCode(respBody),
 			Body:      truncateBody(respBody),
 		}
-		if isRetryableStatus(resp.StatusCode) {
+		switch {
+		case resp.StatusCode == http.StatusTooManyRequests:
+			// Rate limited: the request was rejected, not processed, so this
+			// is safe to repeat regardless of idempotency. Pace it by the
+			// server's own Retry-After when it supplies one.
+			retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+			lastErr = statusErr
+			continue
+		case retryServerErrors && isServerErrorStatus(resp.StatusCode):
 			lastErr = statusErr
 			continue
 		}
@@ -405,22 +448,44 @@ func sleepOrDone(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// isRetryableStatus reports whether a non-200 status should be retried
-// like a transport error rather than surfaced immediately. Deliberately
-// narrow (5xx only): googlechat-megabridge's session.go retried every
-// non-200 status including 401, hammering a dead session 3x and losing the
-// status code in the final error -- not replicated here.
+// isServerErrorStatus reports whether status is a 5xx.
 //
-// WARNING (double-send risk, for the API layer): all 5xx are retried
-// uniformly, but a 500/502 can be returned AFTER the origin already
-// processed the request -- so retrying a non-idempotent POST (create_topic,
-// create_message, ...) through Fetch may double-send the message. 502 must
-// be retried, so this is acceptable for idempotent/safe RPCs, but send-path
-// callers may eventually need a way to opt out of 5xx retry (or supply an
-// idempotency signal, like the protocol's local_id echo-dedup) rather than
-// relying on this blanket policy.
-func isRetryableStatus(status int) bool {
+// Only idempotent requests retry these: a 500/502 can be returned AFTER the
+// origin already processed the request, so repeating a non-idempotent send
+// risks a duplicate (see FetchNonIdempotent). 4xx is never retried here --
+// megabridge's session.go retried every non-200 including 401, hammering a
+// dead session three times and losing the status code in the final error --
+// with the single exception of 429, which fetch handles separately because a
+// rate-limit rejection means the request never took effect.
+func isServerErrorStatus(status int) bool {
 	return status >= 500 && status <= 599
+}
+
+// parseRetryAfter interprets a Retry-After header in either RFC 7231 form --
+// delay-seconds, or an HTTP-date -- relative to now, returning 0 when it is
+// absent, unparseable, or already in the past. The result is capped at
+// maxRetryAfter.
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	var d time.Duration
+	if secs, err := strconv.Atoi(value); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		d = time.Duration(secs) * time.Second
+	} else if t, err := http.ParseTime(value); err == nil {
+		d = t.Sub(now)
+	}
+	if d <= 0 {
+		return 0
+	}
+	if d > maxRetryAfter {
+		return maxRetryAfter
+	}
+	return d
 }
 
 // parseErrorCode extracts the top-level JSON "error" field from a response

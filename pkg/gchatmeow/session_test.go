@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // testServerHost returns the bare hostname (no port) of an httptest server's
@@ -573,5 +574,174 @@ func TestGoogleusercontentGetsNoCookies(t *testing.T) {
 	}
 	if got := sess.Cookies()["SID"]; got != "secret" {
 		t.Errorf(`Cookies()["SID"] = %q, want "secret" (Set-Cookie from a non-allowlisted host must not be absorbed)`, got)
+	}
+}
+
+// --- retry policy: 429 and non-idempotent sends --------------------------
+
+func TestParseRetryAfter(t *testing.T) {
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		in   string
+		want time.Duration
+	}{
+		{"absent", "", 0},
+		{"delay seconds", "5", 5 * time.Second},
+		{"delay seconds padded", "  7 ", 7 * time.Second},
+		{"zero", "0", 0},
+		{"negative ignored", "-3", 0},
+		{"garbage ignored", "soon", 0},
+		{"http date in the future", now.Add(9 * time.Second).Format(http.TimeFormat), 9 * time.Second},
+		{"http date in the past", now.Add(-time.Minute).Format(http.TimeFormat), 0},
+		{"absurd value capped", "999999", maxRetryAfter},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseRetryAfter(tc.in, now); got != tc.want {
+				t.Errorf("parseRetryAfter(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestFetchRetriesOn429 -- a 429 means the request was REJECTED, not
+// processed, so it is always safe to retry. Previously only 5xx was
+// retryable, so a rate-limited call failed outright with no backoff.
+func TestFetchRetriesOn429(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+		if n < 2 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	resp, err := sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil)
+	if err != nil {
+		t.Fatalf("Fetch: %v (a 429 must be retried, not surfaced immediately)", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests != 2 {
+		t.Errorf("requests = %d, want 2", requests)
+	}
+}
+
+// TestFetchWaitsForRetryAfter proves the header is actually wired into the
+// backoff, not merely parsed.
+func TestFetchWaitsForRetryAfter(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+		if n < 2 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	start := time.Now()
+	if _, err := sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	// The default backoff for the first retry is tens of milliseconds, so
+	// only honouring Retry-After can produce a wait near a second.
+	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
+		t.Errorf("retried after %v, want >= ~1s: Retry-After was ignored", elapsed)
+	}
+}
+
+// TestFetchNonIdempotentDoesNotRetry5xx is the double-send guard. A 5xx can
+// be returned AFTER the origin already processed the request, so retrying a
+// message-create risks posting it twice -- a duplicate the user cannot undo.
+// Surfacing the error instead lets them decide.
+func TestFetchNonIdempotentDoesNotRetry5xx(t *testing.T) {
+	var requests int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	_, err = sess.FetchNonIdempotent(context.Background(), http.MethodPost, srv.URL, nil, []byte("body"))
+	var statusErr *UnexpectedStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("error = %v (%T), want *UnexpectedStatusError", err, err)
+	}
+	if statusErr.Status != http.StatusInternalServerError {
+		t.Errorf("Status = %d, want 500", statusErr.Status)
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Errorf("requests = %d, want 1: a non-idempotent request must not be retried on 5xx", got)
+	}
+}
+
+// TestFetchNonIdempotentStillRetries429: rate limiting is a rejection, so
+// even a create is safe to retry.
+func TestFetchNonIdempotentStillRetries429(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+		if n < 2 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(nil, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	if _, err := sess.FetchNonIdempotent(context.Background(), http.MethodPost, srv.URL, nil, nil); err != nil {
+		t.Fatalf("FetchNonIdempotent: %v (429 is a rejection and must still be retried)", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests != 2 {
+		t.Errorf("requests = %d, want 2", requests)
 	}
 }
