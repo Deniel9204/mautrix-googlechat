@@ -14,6 +14,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
+	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
@@ -333,10 +334,27 @@ func TestHandleConnStateDoesNotResyncOnSecondConnected(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 	login := newTestUserLogin(&UserLoginMetadata{})
+
+	// Pin the sync goroutine inside its RPC for the duration of the test.
+	//
+	// Without this the assertion below is a RACE, and one this test loses on
+	// a loaded machine: handleConnState spawns syncChats, which on giving up
+	// calls resetSyncLatch (sync.go) so a later reconnect can retry -- that
+	// reset is deliberate production behaviour, and it frees the very slot
+	// this test is checking was consumed. Blocking the RPC means syncChats
+	// never reaches the give-up path, so the latch state is settled when it
+	// is read. Same technique as backfill_test.go's blocked-RPC tests.
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+
 	gc := &GChatClient{
 		UserLogin: login,
 		conn:      client,
 		saveFn:    func(context.Context) error { return nil },
+		paginatedWorldFn: func(ctx context.Context, _ *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
+			<-release
+			return nil, ctx.Err()
+		},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -347,7 +365,6 @@ func TestHandleConnStateDoesNotResyncOnSecondConnected(t *testing.T) {
 	if gc.shouldSyncOnConnect() {
 		t.Error("shouldSyncOnConnect() = true after two Connected transitions on the same conn, want false (the slot was already consumed by the first)")
 	}
-	time.Sleep(20 * time.Millisecond)
 }
 
 func TestHandleConnStateDoesNotPersistOnTransient(t *testing.T) {
