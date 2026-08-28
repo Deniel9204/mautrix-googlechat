@@ -40,6 +40,7 @@
     * [x] Mentions
     * [x] Threads
     * [x] Replies
+    * [x] Bot/app cards (text widgets and link buttons)
   * [x] Message deletions
   * [x] Message reactions
   * [x] Message editing (text only)
