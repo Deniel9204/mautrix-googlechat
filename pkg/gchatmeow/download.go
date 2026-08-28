@@ -219,24 +219,32 @@ func attachmentFilename(resp *http.Response, u *url.URL) string {
 // transfer) or understated -- read one more byte than the cap, then fail if
 // we got it.
 func readWithMaxSize(resp *http.Response, maxSize int64) ([]byte, error) {
+	return readBodyWithMaxSize(resp, maxSize, "attachment")
+}
+
+// readBodyWithMaxSize is readWithMaxSize with the noun used in error
+// messages made explicit, so the avatar path (avatar.go) does not report a
+// size failure as an "attachment" problem and send an operator debugging a
+// ghost-avatar sync down the wrong trail.
+func readBodyWithMaxSize(resp *http.Response, maxSize int64, what string) ([]byte, error) {
 	if maxSize <= 0 {
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("googlechat: reading attachment body: %w", err)
+			return nil, fmt.Errorf("googlechat: reading %s body: %w", what, err)
 		}
 		return data, nil
 	}
 
 	if resp.ContentLength > maxSize {
-		return nil, fmt.Errorf("googlechat: attachment Content-Length %d exceeds max %d: %w", resp.ContentLength, maxSize, ErrFileTooLarge)
+		return nil, fmt.Errorf("googlechat: %s Content-Length %d exceeds max %d: %w", what, resp.ContentLength, maxSize, ErrFileTooLarge)
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSize+1))
 	if err != nil {
-		return nil, fmt.Errorf("googlechat: reading attachment body: %w", err)
+		return nil, fmt.Errorf("googlechat: reading %s body: %w", what, err)
 	}
 	if int64(len(data)) > maxSize {
-		return nil, fmt.Errorf("googlechat: attachment body exceeds max %d bytes: %w", maxSize, ErrFileTooLarge)
+		return nil, fmt.Errorf("googlechat: %s body exceeds max %d bytes: %w", what, maxSize, ErrFileTooLarge)
 	}
 	return data, nil
 }
