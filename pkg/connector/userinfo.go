@@ -85,15 +85,18 @@ func (c *GChatClient) updateOwnLoginProfile(ctx context.Context) {
 	if name == "" {
 		name = user.GetEmail()
 	}
-	if name == "" {
-		return
-	}
-	if c.UserLogin.RemoteName == name && c.UserLogin.RemoteProfile.Name == name {
-		return
-	}
-	c.UserLogin.RemoteName = name
-	c.UserLogin.RemoteProfile.Name = name
-	if err := c.save(ctx); err != nil {
+	// The write goes through updateProfile rather than a bare c.save: this
+	// marshals the same row persistCookies writes, and both can be in flight
+	// at once (see updateProfile).
+	err = c.updateProfile(ctx, func() (persist bool) {
+		if name == "" || (c.UserLogin.RemoteName == name && c.UserLogin.RemoteProfile.Name == name) {
+			return false
+		}
+		c.UserLogin.RemoteName = name
+		c.UserLogin.RemoteProfile.Name = name
+		return true
+	})
+	if err != nil {
 		log.Warn().Err(err).Msg("googlechat: failed to save own login profile")
 		return
 	}
