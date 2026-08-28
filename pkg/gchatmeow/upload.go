@@ -168,11 +168,24 @@ func (c *Client) UploadFile(ctx context.Context, groupID string, data []byte, fi
 		return nil, fmt.Errorf("gchatmeow: upload start response missing x-goog-upload-url header")
 	}
 
+	// nextURL is SERVER-supplied (it came back in the start response's
+	// header), so it is treated the way every other server-supplied URL in
+	// this package is: Session-derived credentials are gated on the host
+	// allowlist. Session.buildRequest already does that for the Cookie
+	// header, but it attaches every caller-supplied header unconditionally,
+	// so the anti-CSRF token has to be gated here instead -- otherwise an
+	// upload URL pointing off google.com would be handed the token along
+	// with the file bytes.
+	nextParsed, err := url.Parse(nextURL)
+	if err != nil {
+		return nil, fmt.Errorf("gchatmeow: upload start response returned an unusable x-goog-upload-url %q: %w", nextURL, err)
+	}
+
 	finalizeHeaders := http.Header{}
 	finalizeHeaders.Set("x-goog-upload-command", "upload, finalize")
 	finalizeHeaders.Set("x-goog-upload-protocol", "resumable")
 	finalizeHeaders.Set("x-goog-upload-offset", "0")
-	if xsrfToken != "" {
+	if xsrfToken != "" && c.session.hostAllowed(nextParsed) {
 		finalizeHeaders.Set("x-framework-xsrf-token", xsrfToken)
 	}
 

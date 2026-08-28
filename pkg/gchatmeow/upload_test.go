@@ -428,3 +428,74 @@ func TestUploadFileContextCanceled(t *testing.T) {
 		t.Errorf("err = %v, want errors.Is(err, context.Canceled)", err)
 	}
 }
+
+// TestUploadFileWithholdsXSRFFromOffAllowlistUploadURL: the finalize target
+// comes from the START RESPONSE's x-goog-upload-url header, i.e. it is
+// server-supplied rather than something this client chose. Every other place
+// that follows a server-supplied URL gates Session-derived credentials on the
+// host allowlist (download.go's per-hop cookie decision); the anti-CSRF token
+// must be gated the same way, so it is never handed to a host outside the
+// allowlist.
+func TestUploadFileWithholdsXSRFFromOffAllowlistUploadURL(t *testing.T) {
+	var finalizeHeaders http.Header
+	// A SEPARATE server on a DIFFERENT loopback IP, standing in for an
+	// upload URL that points off the allowlist. It has to differ by host,
+	// not merely by port: hostAllowed matches on hostname, so two servers on
+	// 127.0.0.1 would both be allowlisted and the test would prove nothing.
+	elsewhere := newLoopbackServer(t, "127.0.0.2", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		finalizeHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, base64.StdEncoding.EncodeToString(mustMarshalUploadMetadata(t)))
+	}))
+	defer elsewhere.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-goog-upload-url", elsewhere.URL+"/take-my-token")
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := newTestUploadClient(t, srv, nil)
+	c.SetXSRFToken("secret-xsrf-token")
+
+	if _, err := c.UploadFile(context.Background(), "group1", []byte("data"), "f.jpg", "image/jpeg"); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+
+	if got := finalizeHeaders.Get("x-framework-xsrf-token"); got != "" {
+		t.Errorf("finalize request to an off-allowlist host carried x-framework-xsrf-token = %q, want it withheld", got)
+	}
+}
+
+// TestUploadFileSendsXSRFToAllowlistedUploadURL is the other half: the token
+// must still be sent on the normal path, where the upload URL stays on an
+// allowlisted host.
+func TestUploadFileSendsXSRFToAllowlistedUploadURL(t *testing.T) {
+	const token = "secret-xsrf-token"
+	var finalizeHeaders http.Header
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-goog-upload-url", srv.URL+"/uploads/continue")
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/uploads/continue", func(w http.ResponseWriter, r *http.Request) {
+		finalizeHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, base64.StdEncoding.EncodeToString(mustMarshalUploadMetadata(t)))
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := newTestUploadClient(t, srv, nil)
+	c.SetXSRFToken(token)
+
+	if _, err := c.UploadFile(context.Background(), "group1", []byte("data"), "f.jpg", "image/jpeg"); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	if got := finalizeHeaders.Get("x-framework-xsrf-token"); got != token {
+		t.Errorf("finalize x-framework-xsrf-token = %q, want %q", got, token)
+	}
+}
