@@ -451,11 +451,44 @@ func (c *GChatClient) wireAndStart(ctx context.Context, conn *gchatmeow.Client) 
 		// callback has no use for it and discards it.
 		c.handleGChatEvent(ctx, ev)
 	}
-	conn.OnConnectionState = func(state gchatmeow.ConnState, err error) {
-		c.handleConnState(ctx, state, err)
-	}
+	conn.OnConnectionState = c.connStateCallback(ctx, conn)
 	c.replaceConn(conn)
 	go conn.Connect(ctx)
+}
+
+// connStateCallback builds the OnConnectionState callback for conn,
+// discarding anything that arrives after conn has been superseded.
+//
+// The guard is needed because replacing a conn is not synchronous:
+// replaceConn swaps c.conn and then calls disconnect(old), but
+// gchatmeow.Client.Disconnect only cancels a context -- it does not wait for
+// that conn's supervision goroutine to exit. The old conn can therefore emit
+// one more transition after a new one is already installed and running.
+//
+// That matters because the state it would touch is shared and untagged:
+// initialSyncDone is a one-shot latch, so a late Connected from the OLD conn
+// could consume the slot belonging to the NEW conn's genuine first Connected.
+// The stale caller would then run syncChats under its own already-cancelled
+// context -- failing instantly and queueing zero portals -- while the new
+// conn, finding the latch spent, took the catch-up branch instead and issued
+// catch_up_user against a watermark no first sync ever established. The
+// account ends up CONNECTED with no portals. reportState is skipped for the
+// same reason: a superseded conn must not overwrite the live conn's bridge
+// state.
+//
+// Identity is compared by pointer against the currently-installed conn, which
+// is exactly the question being asked ("are you still the active connection?")
+// and needs no separate generation counter.
+func (c *GChatClient) connStateCallback(ctx context.Context, conn *gchatmeow.Client) func(gchatmeow.ConnState, error) {
+	return func(state gchatmeow.ConnState, err error) {
+		if c.getConn() != conn {
+			zerolog.Ctx(ctx).Debug().
+				Str("state", state.String()).
+				Msg("googlechat: ignoring connection-state callback from a superseded connection")
+			return
+		}
+		c.handleConnState(ctx, state, err)
+	}
 }
 
 // shouldSyncOnConnect reports whether the current Connected transition is
