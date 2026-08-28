@@ -6,7 +6,7 @@
     * [ ] Media†
       * [ ] Stickers
       * [x] Files†
-      * [ ] Voice messages
+      * [x] Voice messages†
       * [x] Videos†
       * [x] Images†
       * [ ] Locations

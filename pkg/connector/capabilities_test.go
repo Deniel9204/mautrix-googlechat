@@ -4,8 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 )
 
@@ -384,5 +386,115 @@ func TestGetCapabilitiesFormattingSameAcrossThreadModes(t *testing.T) {
 		if threaded.Formatting[key] != level {
 			t.Errorf("Formatting[%s]: flat=%v threaded=%v, want equal", key, level, threaded.Formatting[key])
 		}
+	}
+}
+
+// portalWithIDAndMeta builds a portal that has BOTH a real portal id (so the
+// DM-vs-space distinction is visible) and metadata.
+func portalWithIDAndMeta(id string, isDM bool, meta *PortalMetadata) *bridgev2.Portal {
+	var m any
+	if meta != nil {
+		m = meta
+	}
+	return &bridgev2.Portal{Portal: &database.Portal{
+		PortalKey: networkid.PortalKey{ID: gcid.MakePortalID(gcid.GroupID{ID: id, IsDM: isDM})},
+		Metadata:  m,
+	}}
+}
+
+// TestGetCapabilitiesSpaceAdvertisesMemberActions: invite/kick/leave are
+// implemented for spaces (handlemembership.go), but were never advertised, so
+// clients that gate their member UI on this field never offered them.
+func TestGetCapabilitiesSpaceAdvertisesMemberActions(t *testing.T) {
+	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{})
+
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	for _, action := range []event.MemberAction{event.MemberActionInvite, event.MemberActionKick, event.MemberActionLeave} {
+		if !caps.MemberActions[action].Full() {
+			t.Errorf("MemberActions[%s] = %v, want fully supported", action, caps.MemberActions[action])
+		}
+	}
+	// Ban has no Google Chat equivalent and HandleMatrixMembership rejects
+	// it, so advertising it would make clients offer an action that fails.
+	if _, present := caps.MemberActions[event.MemberActionBan]; present {
+		t.Error("MemberActions advertises ban, which HandleMatrixMembership rejects")
+	}
+}
+
+// TestGetCapabilitiesSpaceAdvertisesRoomName: HandleMatrixRoomName implements
+// m.room.name -> update_group(NAME) for spaces.
+func TestGetCapabilitiesSpaceAdvertisesRoomName(t *testing.T) {
+	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{})
+
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	feature := caps.State[event.StateRoomName.Type]
+	if feature == nil || !feature.Level.Full() {
+		t.Errorf("State[%s] = %v, want fully supported", event.StateRoomName.Type, feature)
+	}
+	// Only the name is wired: handleroomname.go sends the NAME update mask
+	// and nothing else, so advertising topic/avatar would be a lie.
+	if _, present := caps.State[event.StateTopic.Type]; present {
+		t.Error("State advertises m.room.topic, which is not implemented")
+	}
+	if _, present := caps.State[event.StateRoomAvatar.Type]; present {
+		t.Error("State advertises m.room.avatar, which is not implemented")
+	}
+}
+
+// TestGetCapabilitiesDMOmitsSpaceOnlyActions is the reason this cannot simply
+// be added to the shared flat capability set: HandleMatrixMembership and
+// HandleMatrixRoomName both reject DMs outright ("membership changes are not
+// supported in DMs", "cannot rename a DM"), so advertising either in a DM
+// would make clients offer actions that are guaranteed to fail.
+func TestGetCapabilitiesDMOmitsSpaceOnlyActions(t *testing.T) {
+	portal := portalWithIDAndMeta("dm1", true, &PortalMetadata{})
+
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	if len(caps.MemberActions) != 0 {
+		t.Errorf("MemberActions = %v for a DM, want none (they are rejected in DMs)", caps.MemberActions)
+	}
+	if len(caps.State) != 0 {
+		t.Errorf("State = %v for a DM, want none (a DM cannot be renamed)", caps.State)
+	}
+	// The rest of the DM's capabilities must be unchanged.
+	if !caps.Reply.Full() {
+		t.Error("Reply = not full for a DM, want fully supported")
+	}
+}
+
+// TestGetCapabilitiesThreadedSpaceKeepsMemberActions: the threaded variant is
+// still a space, so it must carry the space-only capabilities too.
+func TestGetCapabilitiesThreadedSpaceKeepsMemberActions(t *testing.T) {
+	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{ThreadsOnly: true})
+
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	if !caps.Thread.Full() {
+		t.Error("Thread = not full for a threaded space, want fully supported")
+	}
+	if !caps.MemberActions[event.MemberActionInvite].Full() {
+		t.Error("a threaded space lost MemberActions")
+	}
+	if f := caps.State[event.StateRoomName.Type]; f == nil || !f.Level.Full() {
+		t.Error("a threaded space lost the m.room.name capability")
+	}
+}
+
+// TestGetCapabilitiesUnparseablePortalIDOmitsSpaceOnlyActions: without a
+// usable id there is no way to know the portal is a space, so the
+// conservative choice is to advertise nothing that DMs would reject.
+func TestGetCapabilitiesUnparseablePortalIDOmitsSpaceOnlyActions(t *testing.T) {
+	portal := &bridgev2.Portal{Portal: &database.Portal{
+		PortalKey: networkid.PortalKey{ID: "not-a-valid-portal-id"},
+		Metadata:  &PortalMetadata{},
+	}}
+
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	if len(caps.MemberActions) != 0 || len(caps.State) != 0 {
+		t.Errorf("MemberActions=%v State=%v for an unparseable portal id, want neither", caps.MemberActions, caps.State)
 	}
 }
