@@ -16,6 +16,9 @@ import (
 	"testing"
 	"time"
 	"unicode/utf16"
+
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/pblite"
+	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -39,6 +42,8 @@ type fakeReq struct {
 	sid    string
 	aid    string
 	rid    string
+	ofs    string
+	data   string
 	at     time.Time
 }
 
@@ -113,6 +118,10 @@ func (f *fakeChannel) serve(w http.ResponseWriter, r *http.Request) {
 
 	case strings.HasSuffix(r.URL.Path, "/events") && r.Method == http.MethodPost:
 		rec.kind = "ping"
+		// ofs and the payload travel in the form body, not the query string.
+		_ = r.ParseForm()
+		rec.ofs = r.PostFormValue("ofs")
+		rec.data = r.PostFormValue("req0_data")
 		f.record(rec)
 		f.signalPing()
 		f.handlePing(w, r, f)
@@ -957,5 +966,204 @@ func TestMalformedInnerElementsSkipped(t *testing.T) {
 	want := []string{`["a"]`, `["c"]`}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// pingReqs returns the recorded forward-channel POSTs, in arrival order.
+func (f *fakeChannel) pingReqs() []fakeReq {
+	var out []fakeReq
+	for _, r := range f.snapshot() {
+		if r.kind == "ping" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// TestSendStreamEventNon200IsError: a rejected forward-channel POST must
+// surface. Returning nil for, say, a 400 makes a rejected send
+// indistinguishable from a delivered one.
+func TestSendStreamEventNon200IsError(t *testing.T) {
+	f := newFakeChannel(t)
+	f.handlePing = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
+		http.Error(w, "Unknown SID", http.StatusBadRequest)
+	}
+	ch := newTestChannel(t, f)
+	ch.mu.Lock()
+	ch.sid = f.sid
+	ch.mu.Unlock()
+
+	err := ch.SendStreamEvent(context.Background(), &pb.StreamEventsRequest{})
+	if err == nil {
+		t.Fatal("SendStreamEvent(400 response) = nil error, want non-nil")
+	}
+	var statusErr *UnexpectedStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("error = %v (%T), want *UnexpectedStatusError", err, err)
+	}
+	if statusErr.Status != http.StatusBadRequest {
+		t.Errorf("Status = %d, want %d", statusErr.Status, http.StatusBadRequest)
+	}
+}
+
+// TestSendStreamEventWithoutSIDIsError: register() clears the SID for the
+// whole re-register round trip. Sending in that window would put SID= on the
+// wire, which the server rejects; the caller must be told instead.
+func TestSendStreamEventWithoutSIDIsError(t *testing.T) {
+	f := newFakeChannel(t)
+	ch := newTestChannel(t, f)
+
+	err := ch.SendStreamEvent(context.Background(), &pb.StreamEventsRequest{})
+	if !errors.Is(err, ErrChannelNotReady) {
+		t.Fatalf("SendStreamEvent(no SID) error = %v, want ErrChannelNotReady", err)
+	}
+	if got := len(f.pingReqs()); got != 0 {
+		t.Errorf("%d forward-channel requests were sent with no SID, want 0", got)
+	}
+}
+
+// TestInitialPingRejectionPropagates: the ping is what makes the server start
+// streaming, so a rejected ping means no events will ever arrive. Swallowing
+// it leaves the poll looking healthy until the 60s read-idle watchdog fires,
+// hiding the real cause; it must fail fast instead.
+func TestInitialPingRejectionPropagates(t *testing.T) {
+	f := newFakeChannel(t)
+	f.handlePing = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
+		http.Error(w, "rejected", http.StatusBadRequest)
+	}
+	ch := newTestChannel(t, f)
+	ch.readIdleTimeout = 30 * time.Second // must not be what ends the test
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- ch.Listen(ctx, 0, 20*time.Millisecond) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Listen = nil error, want the rejected ping to surface")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Listen did not return; a rejected initial ping was swallowed")
+	}
+}
+
+// TestConcurrentSendStreamEventsAreSerialized: ofs is a strict sequence the
+// server rejects out of order. Assigning the numbers under a lock is not
+// enough -- the requests must also reach the wire in that order, so the sends
+// themselves have to be serialized.
+func TestConcurrentSendStreamEventsAreSerialized(t *testing.T) {
+	f := newFakeChannel(t)
+	var (
+		mu       sync.Mutex
+		inFlight int
+		maxSeen  int
+	)
+	f.handlePing = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
+		mu.Lock()
+		inFlight++
+		if inFlight > maxSeen {
+			maxSeen = inFlight
+		}
+		mu.Unlock()
+		time.Sleep(80 * time.Millisecond)
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}
+	ch := newTestChannel(t, f)
+	ch.mu.Lock()
+	ch.sid = f.sid
+	ch.mu.Unlock()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := ch.SendStreamEvent(context.Background(), &pb.StreamEventsRequest{}); err != nil {
+				t.Errorf("SendStreamEvent: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if maxSeen > 1 {
+		t.Errorf("%d forward-channel POSTs were in flight at once, want 1: ofs order is not preserved on the wire", maxSeen)
+	}
+}
+
+// TestInitialPingOwnsOfsZero: the counters are reset to zero for a fresh SID,
+// then an ack round trip happens before the ping is sent. A concurrent send
+// landing in that window would consume ofs=0 and push the ping to ofs=1,
+// which the server rejects -- and since a rejected ping means the server
+// never streams anything, the channel would sit connected but permanently
+// silent.
+//
+// The assertion identifies the ping by its PAYLOAD rather than by arrival
+// order: the racing send is what arrives first when the sequence is not
+// atomic, so "the first POST had ofs=0" would be satisfied by the very bug
+// this test exists to catch.
+func TestInitialPingOwnsOfsZero(t *testing.T) {
+	emptyBody, err := pblite.Marshal(&pb.StreamEventsRequest{})
+	if err != nil {
+		t.Fatalf("pblite.Marshal: %v", err)
+	}
+
+	f := newFakeChannel(t)
+	ackReached := make(chan struct{})
+	f.handleAck = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
+		close(ackReached)
+		// Hold the ack open to widen the window a racing send would use.
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}
+	ch := newTestChannel(t, f)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- ch.Listen(ctx, 3, 20*time.Millisecond) }()
+
+	// Fire an external forward-channel send while the ack is still open.
+	racer := make(chan struct{})
+	go func() {
+		defer close(racer)
+		<-ackReached
+		_ = ch.SendStreamEvent(ctx, &pb.StreamEventsRequest{})
+	}()
+
+	select {
+	case <-f.pingCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the initial ping")
+	}
+	<-racer
+	cancel()
+	<-done
+
+	var ping, racerReq *fakeReq
+	for i, r := range f.pingReqs() {
+		req := f.pingReqs()[i]
+		if r.data == string(emptyBody) {
+			if racerReq == nil {
+				racerReq = &req
+			}
+		} else if ping == nil {
+			ping = &req
+		}
+	}
+	if ping == nil {
+		t.Fatalf("no forward-channel POST carried the ping payload (%d POSTs recorded): a racing send took the slot the initial ping should have occupied", len(f.pingReqs()))
+	}
+	if ping.ofs != "0" {
+		t.Errorf("initial ping had ofs=%q, want %q: a concurrent send stole its slot", ping.ofs, "0")
+	}
+	if racerReq != nil && racerReq.ofs == "0" {
+		t.Errorf("the racing send took ofs=0, which belongs to the initial ping")
 	}
 }
