@@ -849,3 +849,113 @@ func TestChunkedTruncationReRegisters(t *testing.T) {
 		t.Fatalf("register count = %d, want >= 2 (re-register on chunked truncation)", registers)
 	}
 }
+
+// TestMalformedContainerFrameSkipped: a frame whose whole container array is
+// undecodable must be dropped on its own, leaving the channel live for the
+// frames that follow. Returning an error here instead would propagate through
+// readBody/longpollRequest into Listen's `default:` branch and tear the poll
+// session down, contrary to the project's log-and-skip invariant for stream
+// decode errors.
+func TestMalformedContainerFrameSkipped(t *testing.T) {
+	f := newFakeChannel(t)
+	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
+		writeInitialSID(w, f.sid)
+		writeFrame(w, `[[1,["a"]]]`)
+		writeFrame(w, `this is not a json array`)
+		writeFrame(w, `[[2,["b"]]]`)
+		<-r.Context().Done()
+	}
+	ch := newTestChannel(t, f)
+
+	var (
+		mu     sync.Mutex
+		got    []string
+		gotAll = make(chan struct{})
+	)
+	ch.OnReceiveArray = func(ctx context.Context, arr []byte) error {
+		mu.Lock()
+		got = append(got, string(arr))
+		if len(got) == 2 {
+			close(gotAll)
+		}
+		mu.Unlock()
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- ch.Listen(ctx, 3, 20*time.Millisecond) }()
+
+	select {
+	case <-gotAll:
+	case err := <-done:
+		t.Fatalf("Listen returned early (%v); a malformed frame killed the channel", err)
+	case <-time.After(3 * time.Second):
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("timed out; received %v, want the frames either side of the bad one", got)
+	}
+	cancel()
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{`["a"]`, `["b"]`}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// TestMalformedInnerElementsSkipped: within ONE container, a bad inner
+// element must cost only itself -- the well-formed pairs beside it, including
+// those after it, must still be delivered.
+func TestMalformedInnerElementsSkipped(t *testing.T) {
+	f := newFakeChannel(t)
+	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
+		writeInitialSID(w, f.sid)
+		// good pair, wrong-length inner, non-numeric array_id, good pair.
+		writeFrame(w, `[[1,["a"]],[2],["x",["ignored"],9],[3,["c"]]]`)
+		<-r.Context().Done()
+	}
+	ch := newTestChannel(t, f)
+
+	var (
+		mu     sync.Mutex
+		got    []string
+		gotAll = make(chan struct{})
+	)
+	ch.OnReceiveArray = func(ctx context.Context, arr []byte) error {
+		mu.Lock()
+		got = append(got, string(arr))
+		if len(got) == 2 {
+			close(gotAll)
+		}
+		mu.Unlock()
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- ch.Listen(ctx, 3, 20*time.Millisecond) }()
+
+	select {
+	case <-gotAll:
+	case err := <-done:
+		t.Fatalf("Listen returned early (%v); a malformed inner element killed the channel", err)
+	case <-time.After(3 * time.Second):
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("timed out; received %v, want both good pairs", got)
+	}
+	cancel()
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{`["a"]`, `["c"]`}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
