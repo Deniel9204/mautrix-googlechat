@@ -38,6 +38,11 @@ import (
 var (
 	_ bridgev2.IdentifierResolvingNetworkAPI = (*GChatClient)(nil)
 	_ bridgev2.GhostDMCreatingNetworkAPI     = (*GChatClient)(nil)
+	// On the CONNECTOR, not the client: the framework resolves this as
+	// login.Bridge.Network.(IdentifierValidatingNetwork), which is always the
+	// NetworkConnector. A ValidateUserID method on *GChatClient would compile
+	// and do nothing at all -- hence this assertion.
+	_ bridgev2.IdentifierValidatingNetwork = (*GChatConnector)(nil)
 )
 
 // ErrCannotResolveEmailWithoutCreating is returned when an email is offered
@@ -114,6 +119,38 @@ func isGaiaID(identifier string) bool {
 		}
 	}
 	return true
+}
+
+// ValidateUserID implements bridgev2.IdentifierValidatingNetwork: it reports
+// whether a networkid.UserID has the SHAPE of a Google Chat user id.
+// gcid.MakeUserID is an identity cast, so the test is isGaiaID on the raw
+// string.
+//
+// This matters because a ghost id LOOKS pre-validated but is user input on two
+// paths. The appservice ghost-MXID pattern matches an arbitrary localpart, so
+// anything a Matrix user types as @googlechat_<junk>:server becomes a
+// networkid.UserID -- reaching CreateChatWithGhost from provisionutil (the
+// start-chat command and the provisioning API) and from the ghost-DM invite
+// handler. This hook is the only place that can stop it EARLY: the framework
+// checks it before materialising the ghost row, and before the invite path
+// registers that ghost as a real appservice user and joins it to the room. A
+// guard inside CreateChatWithGhost fires after all of that has happened.
+//
+// Shape only, per the framework's contract -- deliberately no existence check
+// and, in particular, no rejection of the acting account's own id: self-DMs
+// are refused PER-LOGIN with ErrResolveIdentifierTryNext so bridgev2 can try
+// the user's other logins, and the connector has no login context to make
+// that call with anyway.
+//
+// Bots share the same UserId.id field as humans with no separate format, and
+// every bot id seen so far is numeric; if Google ever emits a non-numeric one,
+// this would refuse to START a chat with that bot from Matrix. Bridging an
+// existing bot DM is unaffected -- ValidateUserID has no inbound call sites --
+// and ResolveIdentifier already rejects any non-digit, non-"@" identifier, so
+// this makes the ghost-MXID path agree with the bare-id path rather than
+// adding a new limit.
+func (gc *GChatConnector) ValidateUserID(userID networkid.UserID) bool {
+	return isGaiaID(string(userID))
 }
 
 func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, createChat bool) (*bridgev2.ResolveIdentifierResponse, error) {
