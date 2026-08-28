@@ -827,6 +827,12 @@ func TestLiveDumpLinkAnnotations(t *testing.T) {
 // someone you already have a DM with returns THAT DM rather than making a
 // second one. Running this twice does not litter the account.
 //
+// Verified live: the email (invitees) and gaia (members) paths both succeed
+// and BOTH return the same existing DM id, confirming the find-existing
+// behaviour ResolveIdentifier depends on. A 400 here almost certainly means
+// the gaia is not a user this account can DM rather than a malformed
+// request -- both envelopes were checked against a known-good id.
+//
 //	export GCHAT_LIVE_INVITE_GAIA='1234567890'      # or:
 //	export GCHAT_LIVE_INVITE_EMAIL='someone@example.com'
 //	go test -tags 'goolm live' -run TestLiveCreateDm -v -count=1 ./pkg/gchatmeow/
