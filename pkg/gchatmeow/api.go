@@ -154,7 +154,21 @@ func newRequestHeader() *pb.RequestHeader {
 // second 401 after the refresh -- propagates to the caller unchanged. This
 // covers every /api/* RPC uniformly, not just the ones issued from Connect.
 func (c *Client) doRequest(ctx context.Context, endpoint string, requestPB, responsePB proto.Message) error {
-	err := c.doRequestOnce(ctx, endpoint, requestPB, responsePB)
+	return c.doRequestWithPolicy(ctx, endpoint, requestPB, responsePB, true)
+}
+
+// doRequestNonIdempotent is doRequest for an RPC that must not be repeated
+// once the server may have acted on it -- the message creates. Its only
+// difference is that a 5xx is surfaced instead of retried; see
+// Session.FetchNonIdempotent for why a duplicate message is the worse
+// outcome. The 401 refresh-and-retry below still applies: a 401 means the
+// request was rejected outright, so replaying it cannot duplicate anything.
+func (c *Client) doRequestNonIdempotent(ctx context.Context, endpoint string, requestPB, responsePB proto.Message) error {
+	return c.doRequestWithPolicy(ctx, endpoint, requestPB, responsePB, false)
+}
+
+func (c *Client) doRequestWithPolicy(ctx context.Context, endpoint string, requestPB, responsePB proto.Message, idempotent bool) error {
+	err := c.doRequestOnce(ctx, endpoint, requestPB, responsePB, idempotent)
 	if err == nil || !isUnauthorizedStatus(err) {
 		return err
 	}
@@ -164,7 +178,7 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, requestPB, resp
 		return err
 	}
 	proto.Reset(responsePB)
-	return c.doRequestOnce(ctx, endpoint, requestPB, responsePB)
+	return c.doRequestOnce(ctx, endpoint, requestPB, responsePB, idempotent)
 }
 
 // isUnauthorizedStatus reports whether err is (or wraps) an
@@ -191,7 +205,7 @@ func isUnauthorizedStatus(err error) bool {
 // Non-200 responses surface as *UnexpectedStatusError with the status
 // preserved (Session.Fetch's job), so callers can map a specific status
 // (e.g. 401 -> BAD_CREDENTIALS) instead of seeing an opaque network error.
-func (c *Client) doRequestOnce(ctx context.Context, endpoint string, requestPB, responsePB proto.Message) error {
+func (c *Client) doRequestOnce(ctx context.Context, endpoint string, requestPB, responsePB proto.Message, idempotent bool) error {
 	reqBody, err := proto.Marshal(requestPB)
 	if err != nil {
 		return fmt.Errorf("gchatmeow: failed to marshal %s request: %w", endpoint, err)
@@ -218,7 +232,11 @@ func (c *Client) doRequestOnce(ctx context.Context, endpoint string, requestPB, 
 		headers.Set("x-framework-xsrf-token", token)
 	}
 
-	res, err := c.session.Fetch(ctx, http.MethodPost, reqURL, headers, reqBody)
+	fetch := c.session.Fetch
+	if !idempotent {
+		fetch = c.session.FetchNonIdempotent
+	}
+	res, err := fetch(ctx, http.MethodPost, reqURL, headers, reqBody)
 	if err != nil {
 		return err
 	}
@@ -324,7 +342,8 @@ func (c *Client) MarkGroupReadstate(ctx context.Context, req *pb.MarkGroupReadst
 func (c *Client) CreateTopic(ctx context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.CreateTopicResponse{}
-	return resp, c.doRequest(ctx, "create_topic", req, resp)
+	// Non-idempotent: retrying after a 5xx could post the message twice.
+	return resp, c.doRequestNonIdempotent(ctx, "create_topic", req, resp)
 }
 
 // CreateMessage sends a message into an existing thread.
@@ -332,7 +351,8 @@ func (c *Client) CreateTopic(ctx context.Context, req *pb.CreateTopicRequest) (*
 func (c *Client) CreateMessage(ctx context.Context, req *pb.CreateMessageRequest) (*pb.CreateMessageResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.CreateMessageResponse{}
-	return resp, c.doRequest(ctx, "create_message", req, resp)
+	// Non-idempotent: retrying after a 5xx could post the message twice.
+	return resp, c.doRequestNonIdempotent(ctx, "create_message", req, resp)
 }
 
 // UpdateReaction adds/removes an emoji reaction.

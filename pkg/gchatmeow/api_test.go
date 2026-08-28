@@ -13,6 +13,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
+	"sync"
+	"sync/atomic"
 )
 
 // newTestClient builds a Client wired to an httptest server via the
@@ -394,5 +396,72 @@ func TestAllRPCsSetEndpointAndRequestHeader(t *testing.T) {
 				t.Errorf("%s: request_header not set on outgoing request", tt.name)
 			}
 		})
+	}
+}
+
+// TestCreateTopicDoesNotRetryOn5xx pins that the message-create RPCs route
+// through the non-idempotent path: a 502 returned after the server already
+// accepted the message would otherwise be retried and post it twice.
+func TestCreateTopicDoesNotRetryOn5xx(t *testing.T) {
+	var requests int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv, "tok")
+	if _, err := c.CreateTopic(context.Background(), &pb.CreateTopicRequest{}); err == nil {
+		t.Fatal("CreateTopic = nil error, want the 502 surfaced")
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Errorf("create_topic was sent %d times, want 1: retrying a create can duplicate the message", got)
+	}
+}
+
+func TestCreateMessageDoesNotRetryOn5xx(t *testing.T) {
+	var requests int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv, "tok")
+	if _, err := c.CreateMessage(context.Background(), &pb.CreateMessageRequest{}); err == nil {
+		t.Fatal("CreateMessage = nil error, want the 502 surfaced")
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Errorf("create_message was sent %d times, want 1", got)
+	}
+}
+
+// TestIdempotentRPCStillRetriesOn5xx: the change must not disable retry for
+// the read/idempotent RPCs, where a transient 502 should still be absorbed.
+func TestIdempotentRPCStillRetriesOn5xx(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+		if n < 2 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv, "tok")
+	if _, err := c.GetSelfUserStatus(context.Background(), &pb.GetSelfUserStatusRequest{}); err != nil {
+		t.Fatalf("GetSelfUserStatus: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests != 2 {
+		t.Errorf("requests = %d, want 2: idempotent RPCs must still retry a 5xx", requests)
 	}
 }
