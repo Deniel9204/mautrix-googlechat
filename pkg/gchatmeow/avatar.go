@@ -82,9 +82,9 @@ const (
 var avatarRequestTimeout = 30 * time.Second
 
 var (
-	// errBlockedAvatarAddress is returned (wrapped in the dial error) when an
+	// errBlockedAddress is returned (wrapped in the dial error) when an
 	// avatar URL resolves to an address the bridge must never connect to.
-	errBlockedAvatarAddress = errors.New("googlechat: avatar address is not permitted")
+	errBlockedAddress = errors.New("googlechat: avatar address is not permitted")
 
 	// errTooManyAvatarRedirects is returned when the redirect chain exceeds
 	// maxAvatarRedirects.
@@ -104,32 +104,38 @@ var (
 // the hook is actually wired up.
 var avatarHTTPClient = newAvatarHTTPClient()
 
-// newAvatarHTTPClient builds the hardened client described in this file's
-// doc comment: bounded in time, never following redirects on its own, and
-// refusing to connect to internal addresses.
-func newAvatarHTTPClient() *http.Client {
-	dialer := &net.Dialer{
-		Timeout: avatarConnectTimeout,
-		// Control runs after name resolution with the concrete address about
-		// to be dialed, which is precisely why it -- rather than a check on
-		// the URL's hostname -- is the right place for this: a hostname that
-		// resolves to an internal IP (DNS rebinding) is caught here too.
-		//
+// newGuardedDialer returns a dialer that refuses to connect to any address
+// isDisallowedIP rejects.
+//
+// Control runs after name resolution with the concrete address about to be
+// dialed, which is precisely why it -- rather than a check on the URL's
+// hostname -- is the right place for this: a hostname that resolves to an
+// internal IP (DNS rebinding) is caught here too. Shared by the avatar and
+// attachment download clients.
+func newGuardedDialer(connectTimeout time.Duration) *net.Dialer {
+	return &net.Dialer{
+		Timeout: connectTimeout,
 		Control: func(_, address string, _ syscall.RawConn) error {
 			host, _, err := net.SplitHostPort(address)
 			if err != nil {
-				return fmt.Errorf("%w: unparseable dial address %q", errBlockedAvatarAddress, address)
+				return fmt.Errorf("%w: unparseable dial address %q", errBlockedAddress, address)
 			}
 			ip := net.ParseIP(host)
 			if ip == nil {
-				return fmt.Errorf("%w: unresolvable dial address %q", errBlockedAvatarAddress, host)
+				return fmt.Errorf("%w: unresolvable dial address %q", errBlockedAddress, host)
 			}
 			if isDisallowedIP(ip) {
-				return fmt.Errorf("%w: %s", errBlockedAvatarAddress, ip)
+				return fmt.Errorf("%w: %s", errBlockedAddress, ip)
 			}
 			return nil
 		},
 	}
+}
+
+// newAvatarHTTPClient builds the hardened client described in this file's
+// doc comment: bounded in time, never following redirects on its own, and
+// refusing to connect to internal addresses.
+func newAvatarHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout: avatarRequestTimeout,
 		// Automatic redirect-following is disabled so DownloadAvatar's own
@@ -151,7 +157,7 @@ func newAvatarHTTPClient() *http.Client {
 			// cosmetic feature: an operator whose egress REQUIRES a proxy
 			// loses ghost avatars, rather than unknowingly losing the
 			// protection.
-			DialContext:         dialer.DialContext,
+			DialContext:         newGuardedDialer(avatarConnectTimeout).DialContext,
 			TLSHandshakeTimeout: avatarConnectTimeout,
 		},
 	}

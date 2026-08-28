@@ -120,6 +120,7 @@ func newTestDownloadClient(t *testing.T, cookies map[string]string, allowedHost 
 // followed to its final 200 response, and mime/filename/data are extracted
 // correctly (usually there are 4 redirects for files).
 func TestDownloadAttachmentRedirectChain(t *testing.T) {
+	useDownloadClient(t)
 	const body = "hello attachment bytes"
 	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/pdf")
@@ -161,6 +162,7 @@ func TestDownloadAttachmentRedirectChain(t *testing.T) {
 // never terminates is capped at maxDownloadRedirects hops and errors
 // instead of looping forever or silently falling off the end of the loop.
 func TestDownloadAttachmentRedirectCapExceeded(t *testing.T) {
+	useDownloadClient(t)
 	var hits int32
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +185,7 @@ func TestDownloadAttachmentRedirectCapExceeded(t *testing.T) {
 // already exceeds maxSize is rejected via ErrFileTooLarge before the body
 // would need to be read.
 func TestDownloadAttachmentMaxSizeContentLength(t *testing.T) {
+	useDownloadClient(t)
 	body := strings.Repeat("x", 1000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
@@ -203,6 +206,7 @@ func TestDownloadAttachmentMaxSizeContentLength(t *testing.T) {
 // upfront length to fast-path reject on) -- the "read one more byte than the
 // cap, then fail if we got it" safety net.
 func TestDownloadAttachmentMaxSizeChunked(t *testing.T) {
+	useDownloadClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fl, ok := w.(http.Flusher)
 		if !ok {
@@ -227,6 +231,7 @@ func TestDownloadAttachmentMaxSizeChunked(t *testing.T) {
 // disables the cap entirely -- the documented "unlimited" contract (see
 // download.go's DownloadAttachment doc comment).
 func TestDownloadAttachmentMaxSizeZeroMeansUnlimited(t *testing.T) {
+	useDownloadClient(t)
 	body := strings.Repeat("y", 5000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -248,6 +253,7 @@ func TestDownloadAttachmentMaxSizeZeroMeansUnlimited(t *testing.T) {
 // allowlisted host but withheld from one outside the allowlist -- the M5
 // download flow's core requirement (session.go's hostAllowed).
 func TestDownloadAttachmentCookiesPerHost(t *testing.T) {
+	useDownloadClient(t)
 	var allowedCookie, outsideCookie string
 	var allowedSeen, outsideSeen bool
 
@@ -300,6 +306,7 @@ func TestDownloadAttachmentCookiesPerHost(t *testing.T) {
 // redirect-following would instead permanently strip the Cookie header on
 // the first cross-host hop and never restore it.
 func TestDownloadAttachmentCookiesAcrossRedirectChain(t *testing.T) {
+	useDownloadClient(t)
 	var cookieAtHop1, cookieAtHop2, cookieAtHop3 string
 
 	var hop2, hop3 *httptest.Server
@@ -361,6 +368,7 @@ func TestDownloadAttachmentCookiesAcrossRedirectChain(t *testing.T) {
 // download.go's doc comment explicitly calls out as the reason it uses a
 // manual strings.Split instead of Go's path.Base.
 func TestDownloadAttachmentFilenameEmptyPathFallback(t *testing.T) {
+	useDownloadClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.WriteHeader(http.StatusOK)
@@ -381,6 +389,7 @@ func TestDownloadAttachmentFilenameEmptyPathFallback(t *testing.T) {
 // TestDownloadAttachmentFilenameFallback verifies the filename falls back to
 // the URL's last path segment when Content-Disposition is absent.
 func TestDownloadAttachmentFilenameFallback(t *testing.T) {
+	useDownloadClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.WriteHeader(http.StatusOK)
@@ -404,6 +413,7 @@ func TestDownloadAttachmentFilenameFallback(t *testing.T) {
 // TestDownloadAttachmentErrorStatus verifies a non-redirect, >=400 response
 // is surfaced as an error rather than being read as a successful body.
 func TestDownloadAttachmentErrorStatus(t *testing.T) {
+	useDownloadClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -412,5 +422,42 @@ func TestDownloadAttachmentErrorStatus(t *testing.T) {
 	c := newTestDownloadClient(t, nil, "")
 	if _, _, _, err := c.DownloadAttachment(context.Background(), srv.URL, 0); err == nil {
 		t.Fatal("DownloadAttachment = nil error, want an error for HTTP 404")
+	}
+}
+
+// useDownloadClient installs a plain client for the duration of the test.
+//
+// The shipped downloadHTTPClient refuses to dial internal addresses, which
+// every test in this file would otherwise trip: httptest servers live on
+// loopback. Swapping the client is the same seam avatar.go's tests use, and
+// it is safe for the redirect tests specifically because DownloadAttachment
+// imposes its own CheckRedirect per call rather than inheriting the
+// installed client's policy.
+func useDownloadClient(t *testing.T) {
+	t.Helper()
+	orig := downloadHTTPClient
+	downloadHTTPClient = &http.Client{}
+	t.Cleanup(func() { downloadHTTPClient = orig })
+}
+
+// TestDownloadAttachmentBlocksInternalHopWithProductionClient drives the REAL
+// shipped client at a loopback listener. The attachment URL itself is always
+// Google's fixed endpoint, so this is defence in depth: it is what stops a
+// redirect anywhere in the chain -- an open redirect on Google's side, a
+// compromised CDN hop, an on-path injection -- from steering the bridge at
+// its operator's own network.
+func TestDownloadAttachmentBlocksInternalHopWithProductionClient(t *testing.T) {
+	srv := newLoopbackServer(t, "127.0.0.20", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("server was reached; the dial should have been blocked")
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(ClientOpts{})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	_, _, _, err = c.DownloadAttachment(context.Background(), srv.URL, 0)
+	if !errors.Is(err, errBlockedAddress) {
+		t.Fatalf("DownloadAttachment(loopback) error = %v, want errBlockedAddress", err)
 	}
 }

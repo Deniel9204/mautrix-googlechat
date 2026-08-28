@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
@@ -56,10 +57,36 @@ const (
 // shouldCopyHeaderOnRedirect) and never restore it even if a later hop
 // lands back on an allowed host. Overridable in tests, same seam pattern as
 // avatar.go's avatarHTTPClient.
-var downloadHTTPClient = &http.Client{
-	CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	},
+var downloadHTTPClient = newDownloadHTTPClient()
+
+// downloadConnectTimeout bounds the TCP dial and TLS handshake for an
+// attachment hop. The overall transfer is deliberately left unbounded here
+// (a large attachment on a slow link is legitimate); the caller's ctx and
+// maxSize govern that.
+const downloadConnectTimeout = 30 * time.Second
+
+func newDownloadHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: &http.Transport{
+			// Proxy is KEPT here, unlike avatar.go which drops it. Attachments
+			// are core functionality, so an operator whose egress requires a
+			// proxy would lose all inbound media -- too high a price. The
+			// trade-off is the same one documented on avatar.go: with a proxy
+			// configured, net/http dials the PROXY and reaches the real target
+			// via CONNECT, so the guard below only inspects the proxy. That is
+			// acceptable on THIS path in a way it was not for avatars, because
+			// the attachment URL is always Google's own fixed endpoint rather
+			// than a remote-supplied one -- the guard here is defence against a
+			// hostile redirect mid-chain, not against an attacker-chosen
+			// destination.
+			Proxy:               http.ProxyFromEnvironment,
+			DialContext:         newGuardedDialer(downloadConnectTimeout).DialContext,
+			TLSHandshakeTimeout: downloadConnectTimeout,
+		},
+	}
 }
 
 // AttachmentURL builds the URL to fetch an UPLOAD_METADATA annotation's file
@@ -114,6 +141,15 @@ func (c *Client) AttachmentURL(meta *pb.UploadMetadata) (string, bool, error) {
 // the filename (from Content-Disposition, falling back to the URL's last
 // path segment).
 func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
+	// Copy the installed client so the manual-redirect contract holds even if
+	// the client it was handed would follow redirects itself -- the per-hop
+	// cookie decision below is only meaningful if this loop is the thing
+	// doing the following. Same reasoning as DownloadAvatar.
+	client := *downloadHTTPClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
 	depth := 0
 	for {
 		if depth >= maxDownloadRedirects {
@@ -142,7 +178,7 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 			return nil, "", "", fmt.Errorf("googlechat: building attachment request: %w", err)
 		}
 
-		resp, err := downloadHTTPClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return nil, "", "", fmt.Errorf("googlechat: attachment download failed: %w", err)
 		}

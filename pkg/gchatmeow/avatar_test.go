@@ -223,8 +223,8 @@ func TestDownloadAvatarBlocksLoopbackWithProductionClient(t *testing.T) {
 	defer srv.Close()
 
 	_, err := DownloadAvatar(context.Background(), srv.URL)
-	if !errors.Is(err, errBlockedAvatarAddress) {
-		t.Fatalf("DownloadAvatar(loopback) error = %v, want errBlockedAvatarAddress", err)
+	if !errors.Is(err, errBlockedAddress) {
+		t.Fatalf("DownloadAvatar(loopback) error = %v, want errBlockedAddress", err)
 	}
 }
 
