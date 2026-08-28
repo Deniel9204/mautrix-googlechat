@@ -333,3 +333,35 @@ func TestNullInsideRepeatedList(t *testing.T) {
 		t.Fatalf("expected 2 annotations [1 2] with the null element skipped, got %v", annotations)
 	}
 }
+
+// TestDecodeDepthIsCapped: googlechat.proto's Message is self-referential
+// (last_reply, field 12), so a crafted payload can nest it arbitrarily deep.
+// Decoding recurses once per level with a protoreflect lookup and a message
+// allocation each time, and this package had no limit of its own -- it was
+// bounded only incidentally by encoding/json's own nesting ceiling. A cap
+// here means the cost is bounded by this package regardless.
+func TestDecodeDepthIsCapped(t *testing.T) {
+	const nested = 300 // far beyond any legitimate reply chain
+
+	// last_reply is field 12 -> pblite array index 11.
+	payload := "[]"
+	for i := 0; i < nested; i++ {
+		payload = "[" + strings.Repeat("null,", 11) + payload + "]"
+	}
+
+	var msg pb.Message
+	if err := pblite.Unmarshal([]byte(payload), &msg); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	depth := 0
+	for m := msg.GetLastReply(); m != nil; m = m.GetLastReply() {
+		depth++
+	}
+	if depth > pblite.MaxDepth {
+		t.Errorf("decoded a last_reply chain %d deep, want it capped at %d", depth, pblite.MaxDepth)
+	}
+	if depth == 0 {
+		t.Error("decoded nothing at all; the cap must skip only the over-deep subtree")
+	}
+}

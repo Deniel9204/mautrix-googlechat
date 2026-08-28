@@ -155,10 +155,31 @@ func buildFieldEntries(arr []any) []fieldEntry {
 	return entries
 }
 
+// MaxDepth caps how deep decoding will recurse into nested messages.
+//
+// googlechat.proto contains self-referential messages -- Message.last_reply
+// is itself a Message -- so a crafted payload can nest arbitrarily deep, and
+// each level costs a protoreflect descriptor lookup plus a message
+// allocation. Without a cap of its own this package was bounded only
+// incidentally, by encoding/json's internal nesting ceiling, which is not a
+// limit this package controls. 64 is far beyond any real reply chain.
+const MaxDepth = 64
+
 // decodeMessage decodes a pblite array into an already-allocated protoreflect
 // message. It never returns an error: every problem it finds (unknown field
 // number, wrong-shaped value, bad base64, ...) is debug-logged and skipped.
 func decodeMessage(arr []any, m protoreflect.Message) {
+	decodeMessageAt(arr, m, 0)
+}
+
+// decodeMessageAt is decodeMessage with the current nesting depth threaded
+// through. Exceeding MaxDepth skips just that subtree, consistent with this
+// codec's log-and-skip contract for everything else it cannot handle.
+func decodeMessageAt(arr []any, m protoreflect.Message, depth int) {
+	if depth >= MaxDepth {
+		logDepthExceeded(m.Descriptor(), depth)
+		return
+	}
 	desc := m.Descriptor()
 	for _, entry := range buildFieldEntries(arr) {
 		if entry.value == nil {
@@ -178,15 +199,15 @@ func decodeMessage(arr []any, m protoreflect.Message) {
 			continue
 		}
 		if fd.IsList() {
-			decodeListField(m, fd, entry.value)
+			decodeListField(m, fd, entry.value, depth)
 		} else {
-			decodeSingularField(m, fd, entry.value)
+			decodeSingularField(m, fd, entry.value, depth)
 		}
 	}
 }
 
-func decodeSingularField(m protoreflect.Message, fd protoreflect.FieldDescriptor, value any) {
-	v, ok := decodeValue(value, m, nil, fd)
+func decodeSingularField(m protoreflect.Message, fd protoreflect.FieldDescriptor, value any, depth int) {
+	v, ok := decodeValue(value, m, nil, fd, depth)
 	if !ok {
 		logSkippedField(fd, value)
 		return
@@ -199,7 +220,7 @@ func decodeSingularField(m protoreflect.Message, fd protoreflect.FieldDescriptor
 // the stricter "undecodable single values are skipped" contract mandated
 // for this port: one malformed element in an otherwise-good repeated field
 // must not throw away the whole field.
-func decodeListField(m protoreflect.Message, fd protoreflect.FieldDescriptor, value any) {
+func decodeListField(m protoreflect.Message, fd protoreflect.FieldDescriptor, value any, depth int) {
 	items, ok := value.([]any)
 	if !ok {
 		logSkippedField(fd, value)
@@ -210,7 +231,7 @@ func decodeListField(m protoreflect.Message, fd protoreflect.FieldDescriptor, va
 		if item == nil {
 			continue
 		}
-		v, ok := decodeValue(item, m, list, fd)
+		v, ok := decodeValue(item, m, list, fd, depth)
 		if !ok {
 			logSkippedField(fd, item)
 			continue
@@ -225,7 +246,7 @@ func decodeListField(m protoreflect.Message, fd protoreflect.FieldDescriptor, va
 // allocated from it for MessageKind; otherwise a fresh field value is
 // allocated from ref. Returns ok=false (never an error) for anything that
 // doesn't match the expected shape -- the caller logs and skips.
-func decodeValue(value any, ref protoreflect.Message, insideList protoreflect.List, fd protoreflect.FieldDescriptor) (protoreflect.Value, bool) {
+func decodeValue(value any, ref protoreflect.Message, insideList protoreflect.List, fd protoreflect.FieldDescriptor, depth int) (protoreflect.Value, bool) {
 	switch fd.Kind() {
 	case protoreflect.MessageKind:
 		arr, ok := value.([]any)
@@ -238,7 +259,7 @@ func decodeValue(value any, ref protoreflect.Message, insideList protoreflect.Li
 		} else {
 			nested = ref.NewField(fd).Message()
 		}
-		decodeMessage(arr, nested)
+		decodeMessageAt(arr, nested, depth+1)
 		return protoreflect.ValueOfMessage(nested), true
 	case protoreflect.BytesKind:
 		str, ok := value.(string)
@@ -386,6 +407,14 @@ func toFloat64(value any) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// logDepthExceeded records a subtree skipped for exceeding MaxDepth.
+func logDepthExceeded(desc protoreflect.MessageDescriptor, depth int) {
+	log.Debug().
+		Str("message", string(desc.FullName())).
+		Int("depth", depth).
+		Msg("pblite: skipping nested message beyond the maximum decode depth")
 }
 
 func logSkippedField(fd protoreflect.FieldDescriptor, value any) {
