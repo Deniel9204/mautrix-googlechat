@@ -371,9 +371,19 @@ func (c *GChatClient) createDM(ctx context.Context, req *pb.CreateDmRequest) (*b
 }
 
 // otherMember picks the participant of a freshly created DM who is not this
-// login. Returns "" when the response listed no usable member, which is not
-// an error: the portal sync that follows resolves membership properly, and
-// the caller only uses this as a best-effort identity for the response.
+// login. Returns "" when the response listed no usable member, which is
+// deliberately not an error -- the DM the server just created is real and must
+// not be thrown away because the response did not name the peer.
+//
+// The portal is unaffected: createDM returns a CreateChatResponse with no
+// PortalInfo, and bridgev2's CreateMatrixRoom refetches chat info whenever the
+// info or its member list is nil, so membership is resolved from GetChatInfo
+// rather than from this. The cost of "" is confined to the caller's own
+// best-effort identity field: the bot's "Created chat with <id>" line, and the
+// provisioning response's id.
+//
+// A membership with no user id at all is skipped rather than returned as an
+// empty id, so an unresolvable entry cannot be mistaken for the peer.
 func (c *GChatClient) otherMember(memberships []*pb.Membership) networkid.UserID {
 	self := string(c.UserLogin.ID)
 	for _, m := range memberships {

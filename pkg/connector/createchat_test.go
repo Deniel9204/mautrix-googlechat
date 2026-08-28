@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
@@ -667,5 +668,71 @@ func TestIsOwnEmailDoesNotNormaliseAliases(t *testing.T) {
 		if gc.isOwnEmail(notMatch) {
 			t.Errorf("isOwnEmail(%q) = true; aliases are deliberately not normalised", notMatch)
 		}
+	}
+}
+
+// --- otherMember ----------------------------------------------------------
+
+// TestOtherMemberPicksThePeer pins the rule the email branch depends on: the
+// response's membership list is the only place the peer's gaia id ever
+// appears, and an entry that resolves to nothing must be skipped rather than
+// returned as an empty id.
+func TestOtherMemberPicksThePeer(t *testing.T) {
+	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})} // own id 112233
+	membership := func(gaia string) *pb.Membership {
+		return &pb.Membership{Id: &pb.MembershipId{MemberId: &pb.MemberId{
+			Id: &pb.MemberId_UserId{UserId: &pb.UserId{Id: proto.String(gaia)}},
+		}}}
+	}
+	tests := []struct {
+		name        string
+		memberships []*pb.Membership
+		want        networkid.UserID
+	}{
+		{"no memberships", nil, ""},
+		{"only this login", []*pb.Membership{membership("112233")}, ""},
+		{
+			name:        "a membership naming nobody is skipped, not returned empty",
+			memberships: []*pb.Membership{{Id: &pb.MembershipId{MemberId: &pb.MemberId{}}}},
+			want:        "",
+		},
+		{"peer after self", []*pb.Membership{membership("112233"), membership("998877")}, gcid.MakeUserID("998877")},
+		{"peer before self", []*pb.Membership{membership("998877"), membership("112233")}, gcid.MakeUserID("998877")},
+		{
+			name:        "an unresolvable entry does not mask a real peer",
+			memberships: []*pb.Membership{{Id: &pb.MembershipId{MemberId: &pb.MemberId{}}}, membership("998877")},
+			want:        gcid.MakeUserID("998877"),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gc.otherMember(tc.memberships); got != tc.want {
+				t.Errorf("otherMember = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveIdentifierKeepsADMWhoseMembersAreUnknown: when the server created
+// the DM but the response named nobody, the chat must still come back. The
+// portal resolves its own membership afterwards; discarding a real
+// conversation over a missing echo field would be far worse.
+func TestResolveIdentifierKeepsADMWhoseMembersAreUnknown(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			return dmResponse("dm5"), nil // no memberships at all
+		},
+	}
+	resp, err := gc.ResolveIdentifier(context.Background(), "someone@example.com", true)
+	if err != nil {
+		t.Fatalf("ResolveIdentifier: %v", err)
+	}
+	if resp.Chat == nil {
+		t.Fatal("Chat = nil: a DM the server actually created was discarded")
+	}
+	want := gcid.MakePortalKey(gcid.GroupID{ID: "dm5", IsDM: true}, gc.UserLogin.ID)
+	if resp.Chat.PortalKey != want {
+		t.Errorf("PortalKey = %+v, want %+v", resp.Chat.PortalKey, want)
 	}
 }

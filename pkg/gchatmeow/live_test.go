@@ -833,6 +833,13 @@ func TestLiveDumpLinkAnnotations(t *testing.T) {
 // the gaia is not a user this account can DM rather than a malformed
 // request -- both envelopes were checked against a known-good id.
 //
+// Now ASSERTED rather than logged: the response's memberships name somebody
+// other than this account. That is the only way the email branch ever learns
+// who it just started talking to, and it was previously an assumption.
+//
+// Two open questions this also settles, both opt-in because they need their
+// own targets -- see TestLiveSelfDm and TestLiveGetMembersUnknownID below.
+//
 //	export GCHAT_LIVE_INVITE_GAIA='1234567890'      # or:
 //	export GCHAT_LIVE_INVITE_EMAIL='someone@example.com'
 //	go test -tags 'goolm live' -run TestLiveCreateDm -v -count=1 ./pkg/gchatmeow/
@@ -862,6 +869,20 @@ func TestLiveCreateDm(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
+	// The peer's gaia id is the ONE thing the email branch of
+	// connector.ResolveIdentifier cannot get any other way -- there is no
+	// email-to-gaia lookup -- so "memberships names somebody other than me"
+	// is a load-bearing protocol fact rather than a detail. It used to be
+	// only logged; below it is asserted, which needs this account's own id.
+	selfResp, err := client.GetSelfUserStatus(ctx, &pb.GetSelfUserStatusRequest{})
+	if err != nil {
+		t.Fatalf("GetSelfUserStatus (needed to tell the peer from this account): %v", err)
+	}
+	self := selfResp.GetUserStatus().GetUserId().GetId()
+	if self == "" {
+		t.Fatal("get_self_user_status returned no gaia id")
+	}
+
 	// Both branches run when both are configured: they exercise DIFFERENT
 	// request shapes (members vs invitees) and running only one has twice
 	// left the other unverified.
@@ -888,12 +909,36 @@ func TestLiveCreateDm(t *testing.T) {
 			if !ok || id == "" {
 				t.Fatalf("create_dm returned no usable group id: %+v", resp.GetDm())
 			}
-			t.Logf("PASS create_dm -> id=%s isDM=%v memberships=%d", id, isDM, len(resp.GetMemberships()))
+			peers, blank := 0, 0
 			for _, m := range resp.GetMemberships() {
-				t.Logf("  member gaia=%s", m.GetId().GetMemberId().GetUserId().GetId())
+				memberGaia := m.GetId().GetMemberId().GetUserId().GetId()
+				switch {
+				case memberGaia == "":
+					blank++
+				case memberGaia == self:
+				default:
+					peers++
+				}
+				// Booleans, not the id itself: this repo is public and its
+				// test output gets pasted into issues.
+				t.Logf("  membership: has_user_id=%v is_self=%v state=%v",
+					memberGaia != "", memberGaia == self, m.GetMembershipState())
 			}
+			t.Logf("PASS create_dm -> id=%s isDM=%v memberships=%d peers=%d blank=%d",
+				id, isDM, len(resp.GetMemberships()), peers, blank)
 			if !isDM {
 				t.Errorf("create_dm returned a group id that is not a DM (id=%s)", id)
+			}
+			if blank > 0 {
+				t.Errorf("%d membership(s) carried no user id -- connector.otherMember skips those, "+
+					"so ResolveIdentifier's email branch would answer with an empty UserID", blank)
+			}
+			if peers == 0 {
+				t.Errorf("create_dm memberships named nobody but this account (%d memberships): "+
+					"ResolveIdentifier's email branch learns the peer's gaia id from exactly this "+
+					"response, so it would return an empty UserID. If the target is a Chat app "+
+					"rather than a person, this is expected -- bot memberships need their own "+
+					"fetch option.", len(resp.GetMemberships()))
 			}
 			ids[tc.name] = id
 		})
@@ -1072,4 +1117,123 @@ func TestLiveCreateGroupShape(t *testing.T) {
 		return
 	}
 	t.Fatal("no candidate shape was accepted; see the per-candidate errors above")
+}
+
+// TestLiveSelfDm answers a question the bridge currently only assumes: does
+// create_dm refuse a DM with the acting account itself?
+//
+// It matters because connector.ResolveIdentifier refuses a self-DM locally for
+// a gaia id, on the strength of a 400 that was observed once and attributed to
+// self-addressing. Google Chat the product has a note-to-self conversation, so
+// the opposite answer is entirely plausible -- and if it is the right one, that
+// local refusal is blocking something that works.
+//
+// Opt-in and separate from TestLiveCreateDm because, if the server ACCEPTS it,
+// this creates a real (if harmless and idempotent) note-to-self DM.
+//
+//	export GCHAT_LIVE_SELF_DM=1
+//	go test -tags 'goolm live' -run TestLiveSelfDm -v -count=1 ./pkg/gchatmeow/
+func TestLiveSelfDm(t *testing.T) {
+	cookies := liveCookies(t)
+	if os.Getenv("GCHAT_LIVE_SELF_DM") == "" {
+		t.Skip("set GCHAT_LIVE_SELF_DM=1 to probe whether create_dm accepts the acting account itself")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+	selfResp, err := client.GetSelfUserStatus(ctx, &pb.GetSelfUserStatusRequest{})
+	if err != nil {
+		t.Fatalf("GetSelfUserStatus: %v", err)
+	}
+	self := selfResp.GetUserStatus().GetUserId().GetId()
+	if self == "" {
+		t.Fatal("get_self_user_status returned no gaia id")
+	}
+
+	// Neither outcome is a failure -- the point is to record which one happens.
+	resp, err := client.CreateDm(ctx, &pb.CreateDmRequest{Members: []*pb.UserId{UserID(self)}})
+	if err != nil {
+		var ue *UnexpectedStatusError
+		if errors.As(err, &ue) {
+			t.Logf("RESULT create_dm(self) REFUSED with status %d%s -- the connector's local "+
+				"self-DM guard matches the server", ue.Status, errDetail(err))
+		} else {
+			t.Logf("RESULT create_dm(self) failed without a status: %v", err)
+		}
+		return
+	}
+	id, isDM, ok := GroupIDToParts(resp.GetDm().GetGroupId())
+	t.Logf("RESULT create_dm(self) SUCCEEDED -> id=%s isDM=%v usable_id=%v memberships=%d",
+		id, isDM, ok, len(resp.GetMemberships()))
+	t.Log("ACTION: Google allows a note-to-self DM, so connector.ResolveIdentifier's " +
+		"local self-DM refusal on the gaia path is blocking something that works and should " +
+		"become a classification of the server's answer, as the email path already is.")
+}
+
+// TestLiveGetMembersUnknownID answers the other open question: what does
+// get_members return for a gaia id that does not exist?
+//
+// connector.ResolveIdentifier answers "Found" for any run of digits, which is
+// wrong for a command whose stated job is to check whether an identifier is on
+// the network. Fixing that needs an existence check, and get_members is the
+// obvious candidate -- but only if a bogus id is distinguishable from a real
+// one that this account merely cannot see. Those must NOT be conflated: a
+// cross-domain colleague reported as "not found" is worse than the status quo.
+//
+//	export GCHAT_LIVE_BOGUS_GAIA='999999999999999999999'
+//	go test -tags 'goolm live' -run TestLiveGetMembersUnknownID -v -count=1 ./pkg/gchatmeow/
+func TestLiveGetMembersUnknownID(t *testing.T) {
+	cookies := liveCookies(t)
+	bogus := strings.TrimSpace(os.Getenv("GCHAT_LIVE_BOGUS_GAIA"))
+	t.Logf("env: GCHAT_LIVE_BOGUS_GAIA=%s", presence(bogus))
+	if bogus == "" {
+		t.Skip("set GCHAT_LIVE_BOGUS_GAIA to a numeric id that is not a real account")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	resp, err := client.GetMembers(ctx, &pb.GetMembersRequest{
+		MemberIds: []*pb.MemberId{{Id: &pb.MemberId_UserId{UserId: UserID(bogus)}}},
+	})
+	if err != nil {
+		var ue *UnexpectedStatusError
+		if errors.As(err, &ue) {
+			t.Logf("RESULT get_members(bogus) ERRORED with status %d%s", ue.Status, errDetail(err))
+		} else {
+			t.Logf("RESULT get_members(bogus) errored without a status: %v", err)
+		}
+		return
+	}
+	members := resp.GetMembers()
+	t.Logf("RESULT get_members(bogus) SUCCEEDED -> members=%d", len(members))
+	for i, m := range members {
+		u := m.GetUser()
+		// Shapes, never values: a bogus id could collide with a real account.
+		t.Logf("  member[%d]: has_user=%v has_name=%v has_email=%v has_user_id=%v",
+			i, u != nil, u.GetName() != "", u.GetEmail() != "", u.GetUserId().GetId() != "")
+	}
+	if len(members) == 0 {
+		t.Log("ACTION: an empty member list distinguishes a non-existent id, so " +
+			"connector.ResolveIdentifier could verify a gaia id before answering Found -- " +
+			"but only if a real-but-invisible user gives a DIFFERENT answer. Re-run this " +
+			"with GCHAT_LIVE_BOGUS_GAIA set to a real user outside your domain before " +
+			"relying on it.")
+	}
 }
