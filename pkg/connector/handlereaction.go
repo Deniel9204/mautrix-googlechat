@@ -172,6 +172,12 @@ func (c *GChatClient) HandleMatrixReaction(ctx context.Context, msg *bridgev2.Ma
 //     is always set here).
 //   - type: REMOVE, unconditionally.
 func (c *GChatClient) HandleMatrixReactionRemove(ctx context.Context, msg *bridgev2.MatrixReactionRemove) error {
+	// Relay mode only: refuse to remove a reaction another relayed user
+	// left (relayauth.go).
+	if err := checkRelayOwnership(msg.OrigSender, msg.TargetReaction.SenderMXID); err != nil {
+		return err
+	}
+
 	group, err := gcid.ParsePortalID(msg.Portal.ID)
 	if err != nil {
 		return fmt.Errorf("googlechat: %w", err)

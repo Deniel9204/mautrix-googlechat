@@ -81,6 +81,13 @@ var _ bridgev2.EditHandlingNetworkAPI = (*GChatClient)(nil)
 // bridge restart. A failed RPC leaves LastEditTime untouched (there is
 // nothing to dedup against since the edit never reached the server).
 func (c *GChatClient) HandleMatrixEdit(ctx context.Context, edit *bridgev2.MatrixEdit) error {
+	// Relay mode only: refuse to rewrite a message another relayed user
+	// sent. See relayauth.go for why Google's own authorization cannot
+	// make this distinction.
+	if err := checkRelayOwnership(edit.OrigSender, edit.EditTarget.SenderMXID); err != nil {
+		return err
+	}
+
 	// The "we don't support non-text edits yet" gate -- stricter than
 	// HandleMatrixMessage's own TEXT-or-NOTICE acceptance for brand new
 	// sends. bridgev2.ErrUnsupportedMessageType is the same sentinel
