@@ -16,6 +16,8 @@ import (
 
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
+
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
 // MaxTextLength is the outgoing text length bridgev2 will accept before
@@ -264,9 +266,45 @@ var gchatCapsFlat = &event.RoomFeatures{
 // explicit-thread-reply would.
 var gchatCapsThreaded *event.RoomFeatures
 
+// gchatCapsSpace / gchatCapsSpaceThreaded add the capabilities that only a
+// SPACE can honour, on top of the flat/threaded pair above.
+//
+// These are deliberately NOT on gchatCapsFlat, which DMs also use.
+// HandleMatrixMembership rejects a membership change in a DM outright
+// ("membership changes are not supported in DMs", handlemembership.go) and
+// HandleMatrixRoomName rejects a rename ("cannot rename a DM",
+// handleroomname.go) -- both because the underlying RPCs have no DM arm at
+// all. Advertising either in a DM would make a capability-aware client offer
+// an affordance that is guaranteed to fail.
+//
+// MemberActions lists exactly what HandleMatrixMembership implements: invite
+// (create_membership), kick and leave (remove_memberships). Ban is left out
+// because Google Chat has no equivalent and that handler rejects it, and
+// revoke_invite is left out because nothing maps it today.
+//
+// State lists only m.room.name: handleroomname.go sends the NAME update mask
+// and nothing else, so claiming topic or avatar would be a lie.
+var (
+	gchatCapsSpace         *event.RoomFeatures
+	gchatCapsSpaceThreaded *event.RoomFeatures
+)
+
 func init() {
 	gchatCapsThreaded = gchatCapsFlat.Clone()
 	gchatCapsThreaded.Thread = event.CapLevelFullySupported
+
+	gchatCapsSpace = gchatCapsFlat.Clone()
+	gchatCapsSpace.MemberActions = event.MemberFeatureMap{
+		event.MemberActionInvite: event.CapLevelFullySupported,
+		event.MemberActionKick:   event.CapLevelFullySupported,
+		event.MemberActionLeave:  event.CapLevelFullySupported,
+	}
+	gchatCapsSpace.State = event.StateFeatureMap{
+		event.StateRoomName.Type: {Level: event.CapLevelFullySupported},
+	}
+
+	gchatCapsSpaceThreaded = gchatCapsSpace.Clone()
+	gchatCapsSpaceThreaded.Thread = event.CapLevelFullySupported
 }
 
 // roomFeatures picks the RoomFeatures singleton for portal, reading
@@ -286,10 +324,33 @@ func roomFeatures(portal *bridgev2.Portal) *event.RoomFeatures {
 	if portal == nil {
 		return gchatCapsFlat
 	}
+
+	threaded := false
 	if meta, ok := portal.Metadata.(*PortalMetadata); ok && meta != nil && (meta.ThreadsOnly || meta.ThreadsEnabled) {
-		return gchatCapsThreaded
+		threaded = true
 	}
-	return gchatCapsFlat
+
+	// The space-only capabilities need the portal ID, not the metadata:
+	// "is this a DM" is encoded in the id itself (gcid.ParsePortalID), and a
+	// DM's metadata looks exactly like a flat space's. An id that will not
+	// parse falls back to the DM-safe set rather than guessing -- claiming a
+	// capability that turns out to be a DM's is the worse failure, since the
+	// client then offers an action the handler rejects.
+	isSpace := false
+	if group, err := gcid.ParsePortalID(portal.ID); err == nil {
+		isSpace = !group.IsDM
+	}
+
+	switch {
+	case isSpace && threaded:
+		return gchatCapsSpaceThreaded
+	case isSpace:
+		return gchatCapsSpace
+	case threaded:
+		return gchatCapsThreaded
+	default:
+		return gchatCapsFlat
+	}
 }
 
 // GetCapabilities implements bridgev2.NetworkAPI.GetCapabilities (formerly
