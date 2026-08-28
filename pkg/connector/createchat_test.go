@@ -8,8 +8,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
-	"maunium.net/go/mautrix/bridgev2/networkid"
-	"maunium.net/go/mautrix/event"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
@@ -180,69 +178,6 @@ func TestCreateChatWithGhostRejectsUnidentified(t *testing.T) {
 	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
 	if _, err := gc.CreateChatWithGhost(context.Background(), nil); err == nil {
 		t.Error("CreateChatWithGhost(nil) = nil error, want a rejection")
-	}
-}
-
-// --- CreateGroup ----------------------------------------------------------
-
-func TestCreateGroupSendsNameAndParticipants(t *testing.T) {
-	var gotReq *pb.CreateGroupRequest
-	gc := &GChatClient{
-		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
-		createGroupChatFn: func(_ context.Context, req *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
-			gotReq = req
-			return &pb.CreateGroupResponse{Group: &pb.Group{GroupId: &pb.GroupId{
-				Id: &pb.GroupId_SpaceId{SpaceId: &pb.SpaceId{SpaceId: proto.String("space9")}},
-			}}}, nil
-		},
-	}
-
-	resp, err := gc.CreateGroup(context.Background(), &bridgev2.GroupCreateParams{
-		Name:         &event.RoomNameEventContent{Name: "Team"},
-		Participants: []networkid.UserID{"111", "222"},
-	})
-	if err != nil {
-		t.Fatalf("CreateGroup: %v", err)
-	}
-	info := gotReq.GetSpace()
-	if info.GetName() != "Team" {
-		t.Errorf("name = %q, want %q", info.GetName(), "Team")
-	}
-	if len(info.GetInviteeMemberInfos()) != 2 {
-		t.Errorf("invitee_member_infos = %d entries, want 2", len(info.GetInviteeMemberInfos()))
-	}
-	// Deliberately unset: the caller asked for a NEW space, so quietly
-	// returning a pre-existing one would be a surprising answer.
-	if gotReq.GetShouldFindExistingSpace() {
-		t.Error("should_find_existing_space is set, want unset for an explicit create")
-	}
-	wantKey := gcid.MakePortalKey(gcid.GroupID{ID: "space9", IsDM: false}, gc.UserLogin.ID)
-	if resp.PortalKey != wantKey {
-		t.Errorf("PortalKey = %+v, want %+v", resp.PortalKey, wantKey)
-	}
-}
-
-// TestCreateGroupRequiresAName: Google Chat spaces are named, unlike DMs, so
-// a nameless create would fail server-side; refuse it before the round trip.
-func TestCreateGroupRequiresAName(t *testing.T) {
-	called := false
-	gc := &GChatClient{
-		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
-		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
-			called = true
-			return nil, nil
-		},
-	}
-	for _, params := range []*bridgev2.GroupCreateParams{
-		{},
-		{Name: &event.RoomNameEventContent{Name: "   "}},
-	} {
-		if _, err := gc.CreateGroup(context.Background(), params); err == nil {
-			t.Errorf("CreateGroup(%+v) = nil error, want a rejection", params)
-		}
-	}
-	if called {
-		t.Error("create_group was sent without a name")
 	}
 }
 

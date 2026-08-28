@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
@@ -38,7 +37,6 @@ import (
 var (
 	_ bridgev2.IdentifierResolvingNetworkAPI = (*GChatClient)(nil)
 	_ bridgev2.GhostDMCreatingNetworkAPI     = (*GChatClient)(nil)
-	_ bridgev2.GroupCreatingNetworkAPI       = (*GChatClient)(nil)
 )
 
 // ErrCannotResolveEmailWithoutCreating is returned when an email is offered
@@ -154,53 +152,4 @@ func (c *GChatClient) otherMember(memberships []*pb.Membership) networkid.UserID
 		}
 	}
 	return ""
-}
-
-// CreateGroup creates a space. Participants are attached as invitees on the
-// creation request itself rather than through a follow-up create_membership,
-// so a half-created space cannot be left behind if the second call fails.
-//
-// Google Chat requires a name for a space, unlike a DM. should_find_existing
-// _space is deliberately NOT set: the caller explicitly asked for a NEW
-// group, and silently handing back a pre-existing one with the same shape
-// would be a surprising answer to that.
-func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCreateParams) (*bridgev2.CreateChatResponse, error) {
-	name := ""
-	if params != nil && params.Name != nil {
-		name = strings.TrimSpace(params.Name.Name)
-	}
-	if name == "" {
-		return nil, fmt.Errorf("googlechat: a Google Chat space needs a name")
-	}
-
-	info := &pb.SpaceCreationInfo{Name: proto.String(name)}
-	for _, participant := range params.Participants {
-		if participant == "" {
-			continue
-		}
-		info.InviteeMemberInfos = append(info.InviteeMemberInfos, gchatmeow.UserInviteeMemberInfo(string(participant)))
-	}
-
-	send := c.createGroupChatFn
-	if send == nil {
-		conn := c.getConn()
-		if conn == nil {
-			return nil, errors.New("googlechat: not connected")
-		}
-		send = conn.CreateGroup
-	}
-
-	resp, err := send(ctx, &pb.CreateGroupRequest{
-		CreationInfo: &pb.CreateGroupRequest_Space{Space: info},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("googlechat: create_group failed: %w", err)
-	}
-	id, isDM, ok := gchatmeow.GroupIDToParts(resp.GetGroup().GetGroupId())
-	if !ok || id == "" {
-		return nil, fmt.Errorf("googlechat: create_group response carried no usable group id")
-	}
-	return &bridgev2.CreateChatResponse{
-		PortalKey: gcid.MakePortalKey(gcid.GroupID{ID: id, IsDM: isDM}, c.UserLogin.ID),
-	}, nil
 }

@@ -928,3 +928,105 @@ func TestLiveCreateGroup(t *testing.T) {
 		t.Errorf("create_group returned a DM id (id=%s), want a space", id)
 	}
 }
+
+// TestLiveCreateGroupShape finds the request shape create_group actually
+// accepts, by trying candidates in order and STOPPING at the first success --
+// so at most ONE real space is created, not one per candidate.
+//
+// The candidates come from purple-googlechat's working call
+// (googlechat_conversation.c:2362-2385), which differs from the obvious
+// guess in three ways worth testing separately:
+//
+//   - it sets should_find_existing_space EXPLICITLY to false rather than
+//     leaving it absent (proto2 presence is load-bearing on this wire);
+//   - it does NOT set a name, leaving the server to generate one;
+//   - it always sends exactly one invitee.
+//
+// GCHAT_LIVE_INVITE_GAIA must be a KNOWN-GOOD id -- take one from
+// TestLiveCreateDm's membership output. An id the account cannot reach
+// produces the same bare 400 as a malformed request, which is precisely the
+// confusion this test exists to avoid.
+//
+//	export GCHAT_LIVE_INVITE_GAIA='<from TestLiveCreateDm output>'
+//	export GCHAT_LIVE_CREATE_SPACE_NAME='mautrix live test (delete me)'
+//	go test -tags 'goolm live' -run TestLiveCreateGroupShape -v -count=1 ./pkg/gchatmeow/
+func TestLiveCreateGroupShape(t *testing.T) {
+	cookies := liveCookies(t)
+	name := os.Getenv("GCHAT_LIVE_CREATE_SPACE_NAME")
+	gaia := os.Getenv("GCHAT_LIVE_INVITE_GAIA")
+	if name == "" || gaia == "" {
+		t.Skip("set GCHAT_LIVE_CREATE_SPACE_NAME and a KNOWN-GOOD GCHAT_LIVE_INVITE_GAIA -- this creates a REAL space you must delete by hand")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	invitee := func() []*pb.InviteeMemberInfo {
+		return []*pb.InviteeMemberInfo{UserInviteeMemberInfo(gaia)}
+	}
+
+	candidates := []struct {
+		name string
+		req  *pb.CreateGroupRequest
+	}{
+		{
+			"purple-exact (no name, explicit find=false, 1 invitee)",
+			&pb.CreateGroupRequest{
+				ShouldFindExistingSpace: proto.Bool(false),
+				CreationInfo: &pb.CreateGroupRequest_Space{Space: &pb.SpaceCreationInfo{
+					InviteeMemberInfos: invitee(),
+				}},
+			},
+		},
+		{
+			"purple + name",
+			&pb.CreateGroupRequest{
+				ShouldFindExistingSpace: proto.Bool(false),
+				CreationInfo: &pb.CreateGroupRequest_Space{Space: &pb.SpaceCreationInfo{
+					Name:               proto.String(name),
+					InviteeMemberInfos: invitee(),
+				}},
+			},
+		},
+		{
+			"name + explicit find=false, no invitees",
+			&pb.CreateGroupRequest{
+				ShouldFindExistingSpace: proto.Bool(false),
+				CreationInfo: &pb.CreateGroupRequest_Space{Space: &pb.SpaceCreationInfo{
+					Name: proto.String(name),
+				}},
+			},
+		},
+		{
+			"name + invitee + has_server_generated_name=false",
+			&pb.CreateGroupRequest{
+				ShouldFindExistingSpace: proto.Bool(false),
+				CreationInfo: &pb.CreateGroupRequest_Space{Space: &pb.SpaceCreationInfo{
+					Name:                   proto.String(name),
+					HasServerGeneratedName: proto.Bool(false),
+					InviteeMemberInfos:     invitee(),
+				}},
+			},
+		},
+	}
+
+	for _, candidate := range candidates {
+		resp, err := client.CreateGroup(ctx, candidate.req)
+		if err != nil {
+			t.Logf("  %-52s -> FAILED: %v%s", candidate.name, err, errDetail(err))
+			continue
+		}
+		id, isDM, ok := GroupIDToParts(resp.GetGroup().GetGroupId())
+		t.Logf("  %-52s -> OK id=%s isDM=%v ok=%v", candidate.name, id, isDM, ok)
+		t.Logf("FIRST WORKING SHAPE: %s -- REMEMBER TO DELETE THE SPACE (id=%s)", candidate.name, id)
+		return
+	}
+	t.Fatal("no candidate shape was accepted; see the per-candidate errors above")
+}

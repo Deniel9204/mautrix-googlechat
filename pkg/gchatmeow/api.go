@@ -465,6 +465,15 @@ func (c *Client) CreateDm(ctx context.Context, req *pb.CreateDmRequest) (*pb.Cre
 // CreateGroup creates a space. should_find_existing_space asks the server to
 // return an equivalent existing space instead of making a duplicate.
 // Endpoint: create_group.
+//
+// NOT LIVE-VERIFIED, and deliberately not exposed to Matrix yet: every shape
+// tried against a real account -- including purple-googlechat's own working
+// one, with a known-good invitee -- came back as a bare HTTP 400 carrying no
+// inner error detail at all, unlike create_dm's rejections. That pattern
+// suggests the request is refused before its body is examined (an account or
+// org restriction on space creation is the leading theory), not that the
+// fields are wrong. Kept, with TestLiveCreateGroupShape, as the tools for
+// settling that on an account permitted to create spaces.
 func (c *Client) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
 	req.RequestHeader = newRequestHeader()
 	resp := &pb.CreateGroupResponse{}
