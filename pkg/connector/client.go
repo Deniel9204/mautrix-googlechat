@@ -160,6 +160,12 @@ type GChatClient struct {
 	// paginatedWorldFn above (sync.go).
 	createTopicFn func(ctx context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error)
 
+	// createDmFn / createGroupChatFn issue the create_dm and create_group
+	// RPCs createchat.go's chat-creation handlers use, overridable in tests
+	// -- mirrors createTopicFn above.
+	createDmFn        func(ctx context.Context, req *pb.CreateDmRequest) (*pb.CreateDmResponse, error)
+	createGroupChatFn func(ctx context.Context, req *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error)
+
 	// createMessageFn issues the create_message RPC that handlematrix.go's
 	// HandleMatrixMessage needs to send a reply into an EXISTING topic (taken
 	// when msg.ThreadRoot != nil). Defaults to

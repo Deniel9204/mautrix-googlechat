@@ -444,6 +444,33 @@ func (c *Client) RemoveMemberships(ctx context.Context, req *pb.RemoveMembership
 	return resp, c.doRequest(ctx, "remove_memberships", req, resp)
 }
 
+// CreateDm creates (or, for a pair that already has one, returns) the direct
+// message with the given member(s).
+//
+// A DM is unique per pair on Google Chat, so this doubles as "find the
+// existing DM": create_dm with a member who already has one returns that
+// one rather than a second. Members carries a resolved gaia id; Invitees
+// carries an email for a user this account has never interacted with, which
+// is the only way to reach someone whose gaia id is unknown -- the private
+// API exposes no email-to-gaia lookup.
+// Endpoint: create_dm.
+func (c *Client) CreateDm(ctx context.Context, req *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+	req.RequestHeader = newRequestHeader()
+	resp := &pb.CreateDmResponse{}
+	// Non-idempotent for the same reason the message creates are: a 5xx
+	// returned after the server acted would create a second conversation.
+	return resp, c.doRequestNonIdempotent(ctx, "create_dm", req, resp)
+}
+
+// CreateGroup creates a space. should_find_existing_space asks the server to
+// return an equivalent existing space instead of making a duplicate.
+// Endpoint: create_group.
+func (c *Client) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
+	req.RequestHeader = newRequestHeader()
+	resp := &pb.CreateGroupResponse{}
+	return resp, c.doRequestNonIdempotent(ctx, "create_group", req, resp)
+}
+
 // UpdateGroup updates a space's metadata; used here to rename a space (Name +
 // the NAME update mask). Spaces only -- the request has no DM arm.
 // Endpoint: update_group.

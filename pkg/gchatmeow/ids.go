@@ -85,3 +85,17 @@ func MicrosToTime(micros int64) time.Time {
 func TimeToMicros(t time.Time) int64 {
 	return t.UnixMicro()
 }
+
+// UserID wraps a gaia id as a *pb.UserId, the form create_dm's members list
+// and every other user-addressing request field expect.
+func UserID(gaia string) *pb.UserId {
+	return &pb.UserId{Id: &gaia}
+}
+
+// EmailInvitee wraps an email address as a *pb.InviteeInfo. Used when the
+// target's gaia id is unknown: the private API has no email-to-gaia lookup,
+// so an email can only be acted on by handing it to a request that accepts
+// an invitee.
+func EmailInvitee(email string) *pb.InviteeInfo {
+	return &pb.InviteeInfo{Email: &email}
+}

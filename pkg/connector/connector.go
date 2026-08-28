@@ -92,8 +92,40 @@ func (gc *GChatConnector) GetDBMetaTypes() database.MetaTypes {
 // This matches
 // _reference/googlechat-megabridge/pkg/connector/connector.go's own
 // GetCapabilities, which returns the same empty struct.
+// gchatGeneralCaps is returned by GetCapabilities. The Provisioning half
+// tells the provisioning API what the start-chat UI may offer; createchat.go
+// implements the handlers behind it.
+//
+// LookupEmail is true because an email CAN be turned into a chat -- create_dm
+// accepts it as an invitee -- even though it cannot be resolved to a user
+// WITHOUT doing so, since the private API has no email-to-gaia lookup. That
+// distinction is ResolveIdentifier's to enforce (it refuses a resolve-only
+// call for an email rather than creating a conversation as a side effect);
+// advertising false here would hide the only way most people identify a
+// colleague. LookupPhone and LookupUsername stay false: Google Chat has
+// neither concept.
+//
+// Group creation requires a name -- Google Chat spaces are named, unlike DMs
+// -- and participants are optional, since an empty space you invite people
+// into later is perfectly normal.
+var gchatGeneralCaps = &bridgev2.NetworkGeneralCapabilities{
+	Provisioning: bridgev2.ProvisioningCapabilities{
+		ResolveIdentifier: bridgev2.ResolveIdentifierCapabilities{
+			CreateDM:    true,
+			LookupEmail: true,
+		},
+		GroupCreation: map[string]bridgev2.GroupTypeCapabilities{
+			"space": {
+				TypeDescription: "a Google Chat space",
+				Name:            bridgev2.GroupFieldCapability{Allowed: true, Required: true},
+				Participants:    bridgev2.GroupFieldCapability{Allowed: true},
+			},
+		},
+	},
+}
+
 func (gc *GChatConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
-	return &bridgev2.NetworkGeneralCapabilities{}
+	return gchatGeneralCaps
 }
 
 func (gc *GChatConnector) GetBridgeInfoVersion() (info, capabilities int) {
