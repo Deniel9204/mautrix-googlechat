@@ -763,9 +763,29 @@ func (ch *Channel) debugDump(prefix, ext string, data []byte) {
 	if dir == "" {
 		return
 	}
+	// These files hold raw conversation content -- message text, sender and
+	// room ids -- and this env var is pointed at a REAL account when
+	// capturing fixtures, so they are written owner-only. 0644 under a normal
+	// umask makes every local user on a shared host a reader of other
+	// people's messages.
+	//
+	// MkdirAll only applies 0700 to directories it creates; an existing
+	// directory's mode is deliberately left alone rather than silently
+	// re-permissioned behind the operator's back. The 0600 on the files
+	// themselves is what actually protects the content either way.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Warn().Err(err).Str("dir", dir).Msg("gchatmeow: cannot create GCHAT_DEBUG_DUMP directory, dropping dump")
+		return
+	}
 	seq := atomic.AddInt64(&debugDumpSeq, 1)
 	name := fmt.Sprintf("%s-%d-%d%s", prefix, time.Now().UnixNano(), seq, ext)
-	_ = os.WriteFile(filepath.Join(dir, name), data, 0o644)
+	path := filepath.Join(dir, name)
+	// Logged rather than discarded: a silently failing dump looks exactly
+	// like a channel that received nothing, which is a miserable thing to
+	// debug while trying to capture fixtures.
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		log.Warn().Err(err).Str("path", path).Msg("gchatmeow: failed to write debug dump")
+	}
 }
 
 // debugDumpSeq disambiguates dumps written within the same nanosecond.

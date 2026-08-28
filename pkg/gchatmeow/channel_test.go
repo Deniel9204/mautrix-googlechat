@@ -1167,3 +1167,41 @@ func TestInitialPingOwnsOfsZero(t *testing.T) {
 		t.Errorf("the racing send took ofs=0, which belongs to the initial ping")
 	}
 }
+
+// TestDebugDumpUsesPrivatePermissions: the dump files hold raw conversation
+// content -- message text, sender and room ids -- so they must not be
+// world-readable, and the directory must not be created world-traversable.
+// The capture-fixtures workflow points this env var at a real account, so on
+// any shared host 0644 exposes other people's messages to every local user.
+func TestDebugDumpUsesPrivatePermissions(t *testing.T) {
+	// A path that does not exist yet: debugDump must create it itself
+	// rather than silently writing nothing.
+	dir := filepath.Join(t.TempDir(), "dumps")
+	t.Setenv("GCHAT_DEBUG_DUMP", dir)
+
+	ch := &Channel{}
+	ch.debugDump("array", ".json", []byte(`["private message content"]`))
+
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("dump directory was not created: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Errorf("dump directory mode = %04o, want 0700", got)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading dump directory: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("wrote %d files, want 1", len(entries))
+	}
+	info, err := entries[0].Info()
+	if err != nil {
+		t.Fatalf("stat dump file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("dump file %q mode = %04o, want 0600 (conversation content must not be world-readable)", entries[0].Name(), got)
+	}
+}
