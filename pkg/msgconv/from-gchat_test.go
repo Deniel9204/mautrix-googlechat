@@ -727,3 +727,105 @@ func TestToMatrix_NoLinkAnnotationsBodyUnchanged(t *testing.T) {
 		t.Errorf("Body = %q, want unchanged %q", got, "hello world")
 	}
 }
+
+// cardOnlyAttachment builds the shape a workflow bot posts: all content in
+// card widgets, no text_body at all.
+func cardOnlyAttachment(title, para, btnLabel, btnURL string) *pb.Attachment {
+	ft := func(s string) *pb.JAddOnsFormattedText {
+		return &pb.JAddOnsFormattedText{OriginalText: proto.String(s)}
+	}
+	return &pb.Attachment{
+		Type: &pb.Attachment_AddOnData{AddOnData: &pb.JAddOnsContextualAddOn{
+			Cards: []*pb.JAddOnsContextualAddOn_Card{{
+				Header: &pb.JAddOnsContextualAddOn_Card_CardHeader{Title: ft(title)},
+				Sections: []*pb.JAddOnsContextualAddOn_Card_Section{{
+					Widgets: []*pb.JAddOnsWidget{
+						{Data: &pb.JAddOnsWidget_TextParagraph_{
+							TextParagraph: &pb.JAddOnsWidget_TextParagraph{Text: ft(para)},
+						}},
+						{Buttons: []*pb.JAddOnsWidget_Button{{
+							Type: &pb.JAddOnsWidget_Button_TextButton{
+								TextButton: &pb.JAddOnsWidget_TextButton{
+									Text: ft(btnLabel),
+									OnClick: &pb.JAddOnsOnClick{
+										DataCase: &pb.JAddOnsOnClick_OpenLink{
+											OpenLink: &pb.JAddOnsOpenLink{Url: proto.String(btnURL)},
+										},
+									},
+								},
+							},
+						}}},
+					},
+				}},
+			}},
+		}},
+	}
+}
+
+// TestToMatrix_CardOnlyMessageProducesAPart: a bot card with no text_body
+// previously hit ToMatrix's `if text == ""` early return and bridged as a
+// message with ZERO parts -- the alert simply never appeared on Matrix.
+func TestToMatrix_CardOnlyMessageProducesAPart(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		Attachments: []*pb.Attachment{
+			cardOnlyAttachment("Build failed", "3 tests failed", "Open build", "https://ci.example.org/b/1"),
+		},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("got %d parts, want 1 -- a card-only message must still bridge", len(cm.Parts))
+	}
+	content := cm.Parts[0].Content
+	for _, want := range []string{"Build failed", "3 tests failed", "Open build"} {
+		if !strings.Contains(content.Body, want) {
+			t.Errorf("body missing %q\nbody = %q", want, content.Body)
+		}
+	}
+	if content.Format != event.FormatHTML || content.FormattedBody == "" {
+		t.Errorf("card content did not produce HTML: format=%q formatted_body=%q", content.Format, content.FormattedBody)
+	}
+	if !strings.Contains(content.FormattedBody, `href="https://ci.example.org/b/1"`) {
+		t.Errorf("formatted_body missing the button link\nhtml = %q", content.FormattedBody)
+	}
+}
+
+// TestToMatrix_TextAndCardAreBothKept: a message carrying both must not lose
+// either half.
+func TestToMatrix_TextAndCardAreBothKept(t *testing.T) {
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody:    proto.String("heads up"),
+		Attachments: []*pb.Attachment{cardOnlyAttachment("Deploy", "prod is live", "View", "https://ex.example/v")},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+
+	if len(cm.Parts) != 1 {
+		t.Fatalf("got %d parts, want 1", len(cm.Parts))
+	}
+	content := cm.Parts[0].Content
+	for _, want := range []string{"heads up", "Deploy", "prod is live"} {
+		if !strings.Contains(content.Body, want) {
+			t.Errorf("body missing %q\nbody = %q", want, content.Body)
+		}
+	}
+	// The plain text half had no annotations of its own, so it contributed no
+	// HTML; it must still be escaped into the combined formatted_body rather
+	// than dropped.
+	if !strings.Contains(content.FormattedBody, "heads up") {
+		t.Errorf("formatted_body lost the plain text half\nhtml = %q", content.FormattedBody)
+	}
+}
+
+// TestToMatrix_NoTextNoCardStillEmpty: the early return must survive for a
+// message that genuinely carries nothing.
+func TestToMatrix_NoTextNoCardStillEmpty(t *testing.T) {
+	mc := msgconv.New()
+	cm, _ := mc.ToMatrix(context.Background(), &pb.Message{}, false, nil)
+	if len(cm.Parts) != 0 {
+		t.Errorf("got %d parts for an empty message, want 0", len(cm.Parts))
+	}
+}

@@ -143,11 +143,36 @@ func (mc *MessageConverter) ToMatrix(ctx context.Context, msg *pb.Message, threa
 	}
 
 	text := gchatfmt.AppendLinkAnnotations(msg.GetTextBody(), msg.GetAnnotations())
-	if text == "" {
+	// A Google Chat app posting a card puts all of its content in widgets and
+	// routinely leaves text_body empty, so the attachments have to be
+	// consulted before deciding this message is empty -- otherwise a
+	// card-only bot message (CI, alerting, ticketing) bridges with no parts
+	// at all and simply never appears on Matrix.
+	cardBody, cardHTML := gchatfmt.RenderCards(msg.GetAttachments())
+	if text == "" && cardBody == "" {
 		return cm, gchatfmt.ParsedMentions{}
 	}
 
-	body, html, mentions := gchatfmt.Parse(ctx, text, msg.GetAnnotations(), mention)
+	var body, html string
+	var mentions gchatfmt.ParsedMentions
+	if text != "" {
+		body, html, mentions = gchatfmt.Parse(ctx, text, msg.GetAnnotations(), mention)
+	}
+	if cardBody != "" {
+		if body != "" {
+			// The text half may have produced no HTML of its own (no
+			// annotations). It still has to be escaped into the combined
+			// formatted_body, or appending the card's HTML would drop it.
+			if html == "" {
+				html = gchatfmt.EscapePlainToHTML(body)
+			}
+			body += "\n\n"
+			html += "<br/><br/>"
+		}
+		body += cardBody
+		html += cardHTML
+	}
+
 	content := &event.MessageEventContent{
 		MsgType: event.MsgText,
 		Body:    body,

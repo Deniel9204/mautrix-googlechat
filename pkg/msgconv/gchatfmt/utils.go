@@ -5,6 +5,7 @@ import (
 	"unicode/utf16"
 
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
+	"strings"
 )
 
 // utf16Encode re-encodes a UTF-8 Go string into UTF-16 code units, matching
@@ -141,4 +142,12 @@ func MakeMentionAllAnnotation(start, length int32) *pb.Annotation {
 			},
 		},
 	}
+}
+
+// EscapePlainToHTML renders a plain-text string as HTML: escaped, with
+// newlines as <br/>. Used when a message's text half carried no formatting
+// of its own but has to be combined with HTML produced elsewhere (card
+// rendering), so the two halves end up in one well-formed formatted_body.
+func EscapePlainToHTML(s string) string {
+	return strings.ReplaceAll(html.EscapeString(s), "\n", "<br/>")
 }
