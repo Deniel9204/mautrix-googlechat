@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.08.0] - 2026-08-28
+
+### Security
+
+- Avatar downloads are hardened against server-side request forgery and memory
+  exhaustion
+  ([GHSA-6jc3-jjwm-4px5](https://github.com/Deniel9204/mautrix-googlechat/security/advisories/GHSA-6jc3-jjwm-4px5)).
+  A user's `avatar_url` is remote, untrusted input -- a Google Chat app
+  supplies its own icon URL -- but was fetched with automatic
+  redirect-following to any host and an uncapped body read, so a crafted URL
+  could steer the bridge at its operator's own network (including the
+  cloud-metadata endpoint) and have the response re-uploaded to Matrix as a
+  ghost avatar, or exhaust memory. Avatar fetches now require https on the
+  initial URL and every redirect hop, follow redirects manually with a cap,
+  refuse to connect to loopback, link-local, private, CGNAT, multicast and
+  unspecified addresses, and cap the body at 5 MiB (which also bounds a gzip
+  decompression bomb). The address check runs at dial time, so a hostname that
+  resolves to an internal address is caught too, and NAT64, 6to4 and
+  IPv4-compatible IPv6 forms are decoded before it. `$HTTPS_PROXY` is
+  deliberately no longer honoured for avatar fetches: a proxy is dialled
+  instead of the target and reached via CONNECT, which would leave the address
+  check inspecting only the proxy. Operators whose egress requires a proxy
+  will no longer get ghost avatars.
+- Relayed edits, deletions and reaction removals now require sender ownership
+  ([GHSA-q7ww-q8m3-4w8f](https://github.com/Deniel9204/mautrix-googlechat/security/advisories/GHSA-q7ww-q8m3-4w8f)).
+  In relay mode every relayed user's action is dispatched through one shared
+  Google Chat account, so Google's per-account authorization could not stop
+  one Matrix user editing or deleting another relayed user's message or
+  reaction -- and sending an edit relation requires no Matrix power level at
+  all. The bridge now compares the relayed sender against the sender it
+  recorded for the target row and refuses a mismatch. Deployments that do not
+  use relay mode are unaffected.
+
 ## [26.07.6] - 2026-07-24
 
 ### Fixed
