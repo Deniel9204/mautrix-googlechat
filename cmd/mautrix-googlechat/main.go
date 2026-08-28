@@ -23,7 +23,7 @@ var m = mxmain.BridgeMain{
 	Name:        "mautrix-googlechat",
 	URL:         "https://github.com/Deniel9204/mautrix-googlechat",
 	Description: "A Matrix-Google Chat puppeting bridge.",
-	Version:     "26.08.1",
+	Version:     "26.08.2",
 	SemCalVer:   true,
 	Connector:   &connector.GChatConnector{},
 }

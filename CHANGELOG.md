@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.08.2] - 2026-08-28
+
+### Added
+
+- Starting a new DM from Matrix ([#29](https://github.com/Deniel9204/mautrix-googlechat/issues/29)). Resolving an identifier and
+  opening the conversation are both wired up, so a chat can be started with
+  someone who has no portal yet -- previously only conversations that already
+  existed, or that a message happened to arrive in, were reachable.
+  Google Chat addresses users by gaia id and its private API has no
+  email-to-gaia lookup, so an email can only be acted on rather than merely
+  resolved: it is accepted when starting the chat (the new DM's own
+  membership list is what reveals the user), while a resolve-only request for
+  an email is refused rather than silently opening a conversation nobody
+  asked for. Both paths are verified against the live service, including that
+  starting a chat with an existing contact returns that DM instead of
+  creating a second one.
+  Creating a *space* is deliberately not offered yet: every request shape
+  tried is rejected by the service with a bare HTTP 400, tracked in
+  [#48](https://github.com/Deniel9204/mautrix-googlechat/issues/48).
+- Bot and app cards are now rendered ([#30](https://github.com/Deniel9204/mautrix-googlechat/issues/30)). An app posting a card
+  puts all of its content in widgets and routinely sends no message text, and
+  those attachments were never read -- so a card-only message bridged with no
+  content at all and simply never appeared, which silently affected exactly
+  the CI, alerting and ticketing traffic cards exist for. Card headers,
+  section headers and descriptions, the text-bearing widgets and link buttons
+  are now rendered; the interactive widgets (menus, pickers, form controls)
+  are skipped, since Matrix cannot present them and acting on them would need
+  a session this bridge does not model. Card text is escaped and button links
+  carrying a script-bearing scheme are shown as plain labels, matching how
+  message formatting is already handled.
+- Member actions and room rename are now advertised for spaces
+  ([#28](https://github.com/Deniel9204/mautrix-googlechat/issues/28)). Invite, kick, leave and renaming have worked since 26.07.5
+  but were never declared, so capability-aware clients did not offer them.
+  They are advertised for spaces only: both are rejected in DMs, because the
+  underlying requests have no DM form, and claiming them there would offer
+  actions guaranteed to fail. Only what is implemented is claimed -- not ban,
+  which has no Google Chat equivalent, and not room topic or avatar.
+
+### Fixed
+
+- The ROADMAP's voice-message and bot-card entries, which were both stale:
+  voice messages have gone through the ordinary file-upload path since 26.07.
+
 ## [26.08.1] - 2026-08-28
 
 ### Security
