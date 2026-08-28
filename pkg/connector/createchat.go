@@ -201,6 +201,24 @@ func (gc *GChatConnector) ValidateUserID(userID networkid.UserID) bool {
 	return isGaiaID(string(userID))
 }
 
+// createDMRejectedTarget reports whether a create_dm failure is a statement
+// about THIS account's view of the target rather than about the request or the
+// transport -- the only kind worth re-issuing against the user's other logins.
+//
+// 400 only, deliberately. It is the status live probing has actually seen for
+// an un-DM-able id, and it is what a self-DM comes back as. 403 is tempting
+// but this API family uses it as a quota signal, and 404 shows up as a
+// request-shape symptom; replaying either once per login would repeat a
+// throttle or a bug N times over. Anything without a status at all -- a
+// timeout, a dead connection -- is not deferred either: fail closed.
+func createDMRejectedTarget(err error) bool {
+	var status *gchatmeow.UnexpectedStatusError
+	if !errors.As(err, &status) {
+		return false
+	}
+	return status.Status == 400
+}
+
 func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, createChat bool) (*bridgev2.ResolveIdentifierResponse, error) {
 	identifier = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(identifier), "mailto:"))
 	if identifier == "" {
@@ -297,7 +315,16 @@ func (c *GChatClient) createDM(ctx context.Context, req *pb.CreateDmRequest) (*b
 		// The server's rejections here are opaque -- an unusable target and a
 		// self-DM both come back as a bare 400 -- so name what is worth
 		// checking rather than leaving the reader with a status code.
-		return nil, "", fmt.Errorf("googlechat: create_dm failed (is the target reachable from this account, and not your own account?): %w", err)
+		wrapped := fmt.Errorf("googlechat: create_dm failed (is the target reachable from this account, and not your own account?): %w", err)
+		if createDMRejectedTarget(err) {
+			// A 400 is Google saying this ACCOUNT cannot open that DM, which
+			// says nothing about the user's other logins -- and the target
+			// being reachable from only one of them is the ordinary case for
+			// someone bridging a work and a personal account. The error text
+			// already names reachability first; this makes bridgev2 act on it.
+			return nil, "", fmt.Errorf("%w: %w", wrapped, bridgev2.ErrResolveIdentifierTryNext)
+		}
+		return nil, "", wrapped
 	}
 	id, isDM, ok := gchatmeow.GroupIDToParts(resp.GetDm().GetGroupId())
 	if !ok || id == "" {

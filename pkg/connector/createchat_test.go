@@ -9,6 +9,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 	"strings"
@@ -440,5 +441,104 @@ func TestGChatConnectorImplementsIdentifierValidatingNetwork(t *testing.T) {
 	if _, ok := network.(bridgev2.IdentifierValidatingNetwork); !ok {
 		t.Fatal("*GChatConnector does not satisfy bridgev2.IdentifierValidatingNetwork; " +
 			"the framework looks this up on Bridge.Network, so a method on *GChatClient would never be called")
+	}
+}
+
+// --- create_dm failure classification -------------------------------------
+
+// TestCreateDMDefersToOtherLoginsOnlyForA400 pins which create_dm failures
+// mean "try the user's other logins". A 400 is Google saying THIS account
+// cannot open that DM, which says nothing about the others; a throttle, a
+// server error or a dead connection must not be replayed once per login.
+func TestCreateDMDefersToOtherLoginsOnlyForA400(t *testing.T) {
+	tests := []struct {
+		name    string
+		failure error
+		wantTry bool
+	}{
+		{
+			name:    "400 is about this account's view of the target",
+			failure: &gchatmeow.UnexpectedStatusError{Status: 400, Body: "INVALID_ARGUMENT"},
+			wantTry: true,
+		},
+		{
+			name:    "403 is this API family's quota signal",
+			failure: &gchatmeow.UnexpectedStatusError{Status: 403},
+			wantTry: false,
+		},
+		{
+			name:    "404 shows up as a request-shape symptom",
+			failure: &gchatmeow.UnexpectedStatusError{Status: 404},
+			wantTry: false,
+		},
+		{
+			name:    "429 would replay a throttle once per login",
+			failure: &gchatmeow.UnexpectedStatusError{Status: 429},
+			wantTry: false,
+		},
+		{
+			name:    "500 is not about the target at all",
+			failure: &gchatmeow.UnexpectedStatusError{Status: 500},
+			wantTry: false,
+		},
+		{
+			name:    "a retry-exhausted 500 stays undeferred through NetworkError",
+			failure: &gchatmeow.NetworkError{Err: &gchatmeow.UnexpectedStatusError{Status: 500}},
+			wantTry: false,
+		},
+		{
+			name:    "an error carrying no status fails closed",
+			failure: errors.New("connection reset"),
+			wantTry: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gc := &GChatClient{
+				UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+				createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+					return nil, tc.failure
+				},
+			}
+			_, err := gc.ResolveIdentifier(context.Background(), "778899", true)
+			if err == nil {
+				t.Fatal("ResolveIdentifier succeeded despite a failing create_dm")
+			}
+			if got := errors.Is(err, bridgev2.ErrResolveIdentifierTryNext); got != tc.wantTry {
+				t.Errorf("errors.Is(err, ErrResolveIdentifierTryNext) = %v, want %v (err = %v)", got, tc.wantTry, err)
+			}
+		})
+	}
+}
+
+// TestCreateDMErrorRemainsClassifiableByStatus pins the seam the
+// classification rests on: the connector's own wrap must keep the gchatmeow
+// status reachable. Changing the %w to a %v would silently disable every
+// decision above.
+func TestCreateDMErrorRemainsClassifiableByStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		failure error
+		want    int
+	}{
+		{"bare status error", &gchatmeow.UnexpectedStatusError{Status: 400}, 400},
+		{"through NetworkError", &gchatmeow.NetworkError{Err: &gchatmeow.UnexpectedStatusError{Status: 500}}, 500},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gc := &GChatClient{
+				UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+				createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+					return nil, tc.failure
+				},
+			}
+			_, err := gc.ResolveIdentifier(context.Background(), "778899", true)
+			var status *gchatmeow.UnexpectedStatusError
+			if !errors.As(err, &status) {
+				t.Fatalf("the wrapped error no longer exposes the HTTP status: %v", err)
+			}
+			if status.Status != tc.want {
+				t.Errorf("Status = %d, want %d", status.Status, tc.want)
+			}
+		})
 	}
 }
