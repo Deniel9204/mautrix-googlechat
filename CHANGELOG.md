@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.08.4] - 2026-08-29
+
+### Security
+
+- Only the media address Google itself supplies is ever fetched. A link
+  annotation carries two addresses: one Google provides (and, in the case
+  observed against the live service, had already rehosted onto its own CDN),
+  and one the sender's client referenced. 26.08.3 fell back to the second when
+  the first was absent, so pasting a link to an image on a server you control
+  was enough to make someone's bridge fetch it -- revealing the operator's IP
+  address and the time the message was received, on live traffic and on
+  history backfill.
+  Only the Google-supplied address is now used, with no fallback, matching
+  purple-googlechat -- which fetches far more link chips than this bridge does
+  and still never follows the sender's address.
+  Anyone running 26.08.3 with inline media enabled (the default) should
+  upgrade. `network.disable_inline_url_media` also avoids it.
+
+### Fixed
+
+- The description of `network.disable_inline_url_media` in the example config,
+  which said the fetch goes to a host chosen by whoever sent the message. That
+  was describing the bug above rather than the intent.
+
 ## [26.08.3] - 2026-08-29
 
 ### Added
