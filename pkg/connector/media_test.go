@@ -1079,3 +1079,144 @@ func TestConvertOneURLMedia_DeclaredDimensionsReachVideoParts(t *testing.T) {
 		t.Errorf("Info = {Width:%d Height:%d}, want {498 280} from the annotation", got.Width, got.Height)
 	}
 }
+
+// --- the sender must never choose the host ---------------------------------
+
+// TestInlineableURLMedia_NeverFetchesASenderChosenHost is the privacy control.
+//
+// url_metadata carries two addresses: image_url, which GOOGLE supplies (and,
+// in the shape captured live, had already rehosted the media onto its own
+// CDN), and url.url, which is whatever the SENDER typed. Fetching the latter
+// would let anyone turn a message into an IP-address and delivery-time oracle
+// by pasting a link to an image on a host they control.
+//
+// purple-googlechat -- otherwise far wider than this gate, since it fetches
+// every link chip -- has the same restriction: it only ever fetches image_url.
+func TestInlineableURLMedia_NeverFetchesASenderChosenHost(t *testing.T) {
+	tests := []struct {
+		name string
+		ann  *pb.Annotation
+	}{
+		{
+			// The direct attack: a link to an image on the sender's host.
+			// Under the reading that mime_type describes the linked resource,
+			// Google would set image/png here.
+			name: "a pasted link to an image on the sender's host",
+			ann:  makeURLAnnotation("https://sender-controlled.example/tracker.png", "", "image/png", 24, false),
+		},
+		{
+			name: "the same, as a chip covering no text",
+			ann:  makeURLAnnotation("https://sender-controlled.example/tracker.png", "", "image/png", 0, false),
+		},
+		{
+			name: "an annotation the server typed IMAGE but gave no image_url",
+			ann: func() *pb.Annotation {
+				a := makeURLAnnotation("https://sender-controlled.example/x", "", "", 0, false)
+				a.Type = pb.AnnotationType_IMAGE.Enum()
+				return a
+			}(),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if inlineableURLMedia(tc.ann) {
+				t.Error("gate accepted an annotation with no Google-supplied image_url")
+			}
+			if got := externalMediaSrc(tc.ann.GetUrlMetadata()); got != "" {
+				t.Errorf("externalMediaSrc = %q, want \"\": url.url is the sender's address and must never be fetched", got)
+			}
+		})
+	}
+}
+
+// TestConvertAttachmentsToMatrix_NoImageURLMakesNoRequest is the end-to-end
+// half: no annotation lacking image_url may reach the network at all.
+func TestConvertAttachmentsToMatrix_NoImageURLMakesNoRequest(t *testing.T) {
+	msg := &pb.Message{Annotations: []*pb.Annotation{
+		makeURLAnnotation("https://sender-controlled.example/tracker.png", "", "image/png", 0, false),
+	}}
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return onePixelPNG(t), "image/png", "x.png", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+
+	if media.usedDownloadExternal {
+		t.Error("the sender's own host was contacted")
+	}
+	if len(parts) != 0 {
+		t.Errorf("len(parts) = %d, want 0", len(parts))
+	}
+}
+
+// capturedGIFAnnotation reproduces the shape a real shared GIF was observed to
+// arrive in, field for field, from a live probe against Google Chat:
+//
+//	type=URL length=0 mime_type="image/gif" should_not_render=false (present)
+//	url_host=media.tenor.com image_url_host=lh3.googleusercontent.com
+//	dims=498x280, and the message's text_body was empty
+//
+// Note type=URL, not IMAGE: the annotation-type arm of the gate does NOT fire
+// for a real GIF. Hosts are kept because they are generic CDN names and the
+// distinction between them is the whole point; the paths are invented.
+func capturedGIFAnnotation() *pb.Annotation {
+	return &pb.Annotation{
+		Type:   pb.AnnotationType_URL.Enum(),
+		Length: proto.Int32(0),
+		Metadata: &pb.Annotation_UrlMetadata{UrlMetadata: &pb.UrlMetadata{
+			Url:             &pb.Url{Url: proto.String("https://media.tenor.com/example/reaction.gif")},
+			ImageUrl:        proto.String("https://lh3.googleusercontent.com/example-rehosted"),
+			MimeType:        proto.String("image/gif"),
+			ShouldNotRender: proto.Bool(false),
+			IntImageWidth:   proto.Int32(498),
+			IntImageHeight:  proto.Int32(280),
+		}},
+	}
+}
+
+// TestInlineableURLMedia_AcceptsTheCapturedGIFShape pins the real thing, so a
+// future simplification of the gate fails here rather than in production.
+func TestInlineableURLMedia_AcceptsTheCapturedGIFShape(t *testing.T) {
+	ann := capturedGIFAnnotation()
+	if !inlineableURLMedia(ann) {
+		t.Fatal("the live-captured GIF shape is no longer accepted")
+	}
+	// Which arm fires matters: the annotation type is URL, so anyone reducing
+	// this gate to the AnnotationType_IMAGE check breaks every real GIF.
+	if ann.GetType() == pb.AnnotationType_IMAGE {
+		t.Fatal("fixture drifted: the captured annotation type was URL, not IMAGE")
+	}
+	// And Google's own address is what gets fetched, not the sender's.
+	if got := externalMediaSrc(ann.GetUrlMetadata()); got != "https://lh3.googleusercontent.com/example-rehosted" {
+		t.Errorf("externalMediaSrc = %q, want Google's rehosted address", got)
+	}
+}
+
+// TestConvertAttachmentsToMatrix_CapturedGIFBecomesAnImagePart is the
+// end-to-end outcome for the captured shape: the media part exists. The
+// companion half -- that the message still carries the link, so it can never
+// vanish -- is pinned in pkg/msgconv (TestToMatrix_ZeroLengthURLAnnotationOnlyMessageIsNotDropped).
+func TestConvertAttachmentsToMatrix_CapturedGIFBecomesAnImagePart(t *testing.T) {
+	media := &fakeMediaFetcher{
+		maxFileSizeVal: 1 << 20,
+		downloadExternalFn: func(_ context.Context, urlStr string, _ int64) ([]byte, string, string, error) {
+			if !strings.HasPrefix(urlStr, "https://lh3.googleusercontent.com/") {
+				t.Errorf("fetched %q, want Google's rehosted address", urlStr)
+			}
+			return onePixelPNG(t), "image/gif", "reaction.gif", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(),
+		uploadIntentRecordingBody(&uploaded),
+		&pb.Message{TextBody: proto.String(""), Annotations: []*pb.Annotation{capturedGIFAnnotation()}}, media)
+
+	if len(parts) != 1 {
+		t.Fatalf("len(parts) = %d, want 1", len(parts))
+	}
+	if parts[0].Content.MsgType != event.MsgImage {
+		t.Errorf("MsgType = %q, want m.image", parts[0].Content.MsgType)
+	}
+}

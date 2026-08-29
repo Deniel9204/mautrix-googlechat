@@ -36,10 +36,12 @@ type Config struct {
 
 	// DisableInlineURLMedia turns off downloading and inlining the media a
 	// url_metadata annotation points at (a shared GIF, a link preview image).
-	// It is worth an operator switch because, unlike every other download this
-	// bridge does, the host is chosen by a REMOTE PARTY: fetching it reveals
-	// the bridge's IP address and the timing of message receipt to whoever
-	// that host belongs to. The fetch is hardened (https-only, no proxy, no
+	// It is worth an operator switch because it is the only outbound request
+	// this bridge makes to an address that is not one of its own endpoints.
+	// Only Google's supplied image_url is ever fetched, never the address the
+	// sender typed (see inlineableURLMedia), and the one live capture showed
+	// Google had rehosted the media itself -- but Google picks that address,
+	// so an operator may still prefer no such request at all. The fetch is hardened (https-only, no proxy, no
 	// cookies, internal addresses refused -- gchatmeow/external.go) and gated
 	// on a narrow predicate (media.go's inlineableURLMedia), but an operator
 	// who does not want that egress at all can stop it here.

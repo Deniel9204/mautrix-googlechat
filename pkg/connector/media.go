@@ -320,13 +320,13 @@ func hasInlineableURLMedia(msg *pb.Message) bool {
 }
 
 // externalMediaSrc returns the URL convertOneURLMedia would fetch for m:
-// image_url (the rendered media) when set, else the page URL. Split out so the
-// caller can deduplicate on the URL actually requested.
+// image_url, and only image_url. Split out so the caller can deduplicate on
+// the URL actually requested.
+//
+// The absence of a fallback to url.url is the point; see inlineableURLMedia,
+// which refuses an annotation without an image_url for the same reason.
 func externalMediaSrc(m *pb.UrlMetadata) string {
-	if src := m.GetImageUrl(); src != "" {
-		return src
-	}
-	return m.GetUrl().GetUrl()
+	return m.GetImageUrl()
 }
 
 // inlineableURLMedia reports whether a url_metadata annotation names media
@@ -336,17 +336,42 @@ func externalMediaSrc(m *pb.UrlMetadata) string {
 // Python upstream and megabridge all fetch EVERY url_metadata URL, which turns
 // the bridge into a link prefetcher: it hands the operator's IP, and the
 // timing of message receipt, to any host a remote party names -- on live
-// traffic AND on every backfill. Each signal accepted below is one an ordinary
-// pasted link does not carry, so this is self-disabling rather than opt-out.
+// traffic AND on every backfill.
 //
-// The trade is explicit: if Google moves GIFs to a shape none of these signals
-// match, this bridge stops inlining them while purple keeps working. That is
-// the opposite of the usual follow-the-drift-authority rule, so a future
-// protocol-drift investigation should start here. TestLiveDumpURLMediaAnnotations
-// (pkg/gchatmeow/live_test.go) prints exactly the fields needed to widen it.
+// image_url is REQUIRED, before any other signal. It is the one address GOOGLE
+// supplies -- in the shape captured live it was a googleusercontent.com URL,
+// Google having already rehosted the media -- whereas url.url is whatever the
+// SENDER typed. Requiring it means no fetch can be aimed at a host of the
+// sender's choosing, and it matches purple exactly: despite being far wider,
+// purple also only ever fetches image_url (googlechat_events.c).
+//
+// What this does NOT claim: that an ordinary link is never fetched. A link
+// PASTED INTO TEXT is safe -- it covers text (length > 0) and its mime_type
+// describes an HTML page. But a link CHIP attached to the message has the same
+// shape as a GIF, so its preview image IS fetched, from Google's copy. That is
+// what disable_inline_url_media turns off, and example-config.yaml says so.
+//
+// Live-captured shape of a real shared GIF, for anyone tempted to simplify
+// this: type=URL (NOT IMAGE), length=0, mime_type="image/gif",
+// should_not_render present and false, image_url on googleusercontent.com,
+// int_image_width/height populated. Note the type: reducing this function to
+// the AnnotationType_IMAGE check would break every real GIF.
+//
+// The one remaining inference is what mime_type describes. The proto's own
+// naming (every preview-image field is image_-prefixed; mime_type is not), the
+// AnnotationType URL/VIDEO/IMAGE/PDF taxonomy, and megabridge binding it to
+// the page URL all say it is the LINKED RESOURCE, so an article link carries
+// text/html and stays out. That has not been observed directly --
+// TestLiveDumpURLMediaAnnotations run on a chat containing an ordinary article
+// link would settle it.
 func inlineableURLMedia(a *pb.Annotation) bool {
 	m := a.GetUrlMetadata()
 	if m == nil || m.GetShouldNotRender() {
+		return false
+	}
+	// Google must have supplied the media address itself. Without this, every
+	// arm below would also accept a sender-chosen host.
+	if m.GetImageUrl() == "" {
 		return false
 	}
 	// The server said so outright.
@@ -357,10 +382,9 @@ func inlineableURLMedia(a *pb.Annotation) bool {
 	if t := m.GetMimeType(); strings.HasPrefix(t, "image/") || strings.HasPrefix(t, "video/") {
 		return true
 	}
-	// A preview image on an annotation covering no text: a chip attached to
-	// the message rather than decorating a pasted link. This is the shape
-	// purple keys its own Tenor handling on.
-	return m.GetImageUrl() != "" && a.GetLength() == 0
+	// A chip attached to the message rather than decorating pasted text. This
+	// is the shape purple keys its own Tenor handling on.
+	return a.GetLength() == 0
 }
 
 // convertOneURLMedia builds an att_<index> part from a url_metadata
