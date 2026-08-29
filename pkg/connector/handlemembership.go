@@ -49,6 +49,36 @@ func targetGaiaID(target bridgev2.GhostOrUserLogin) (string, bool) {
 }
 
 func (c *GChatClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.MatrixMembershipChange) (*bridgev2.MatrixMembershipResult, error) {
+	// Self-membership changes that need nothing done on Google Chat, handled
+	// before anything else -- including the DM guard below, since a DM portal's
+	// own join is just as much a no-op as a space portal's.
+	//
+	// These are mostly the bridge's OWN echo. Creating a portal invites the
+	// logged-in user and then accepts on their behalf with their double
+	// puppet; that join is not tagged as a double-puppet event
+	// (ASIntent.SendState does not add the marker, and nothing in
+	// bridgev2/matrix adds it to outgoing state), so it is not suppressed and
+	// arrives back here as a genuine AcceptInvite. Without this case it fell
+	// through to the default below and was reported as a failed membership
+	// change, once per portal created -- and in a DM as the flatly wrong
+	// "membership changes are not supported in DMs", about the user joining
+	// their own portal.
+	//
+	// Answering success is not a shortcut, it is the correct answer: there is
+	// nothing to send. The user is already a Google Chat member of the
+	// conversation -- that is why the portal exists at all -- and
+	// ProfileChange is a Matrix displayname or avatar edit with no Google Chat
+	// counterpart.
+	//
+	// Deliberately NOT extended to RejectInvite or Knock: those are real user
+	// decisions that would need an RPC, and answering success would silently
+	// swallow them. They keep erroring until there is a path that can reach
+	// them (see #32/#36).
+	switch msg.Type {
+	case bridgev2.AcceptInvite, bridgev2.Join, bridgev2.ProfileChange:
+		return &bridgev2.MatrixMembershipResult{}, nil
+	}
+
 	group, err := gcid.ParsePortalID(msg.Portal.ID)
 	if err != nil {
 		return nil, fmt.Errorf("googlechat: %w", err)

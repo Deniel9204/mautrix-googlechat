@@ -197,3 +197,75 @@ func TestHandleMatrixMembershipRPCFailurePropagates(t *testing.T) {
 		t.Error("HandleMatrixMembership() error = nil on RPC failure, want the error propagated")
 	}
 }
+
+// --- self-membership echoes -------------------------------------------------
+
+// TestHandleMatrixMembershipSelfChangesAreNoOps: creating a portal invites the
+// logged-in user and then accepts on their behalf, and that join is not tagged
+// as a double-puppet event, so it arrives here as a genuine AcceptInvite. It
+// used to fall through to the default case and be reported as a FAILED
+// membership change, once per portal created.
+//
+// No RPC may be sent for any of these: the user is already a Google Chat
+// member of the conversation -- that is why the portal exists -- and a
+// ProfileChange is a Matrix-side displayname or avatar edit with no Google
+// Chat counterpart.
+func TestHandleMatrixMembershipSelfChangesAreNoOps(t *testing.T) {
+	types := map[string]bridgev2.MembershipChangeType{
+		"AcceptInvite":  bridgev2.AcceptInvite,
+		"Join":          bridgev2.Join,
+		"ProfileChange": bridgev2.ProfileChange,
+	}
+	// A DM portal too: its own join is just as much a no-op, and the DM guard
+	// used to answer it with "membership changes are not supported in DMs".
+	portals := map[string]*bridgev2.Portal{
+		"space": spacePortal("space1"),
+		"dm":    dmPortal("dm1"),
+	}
+	for typeName, typ := range types {
+		for portalName, portal := range portals {
+			t.Run(typeName+"/"+portalName, func(t *testing.T) {
+				gc := &GChatClient{
+					UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+					createMembershipFn: func(context.Context, *pb.CreateMembershipRequest) (*pb.CreateMembershipResponse, error) {
+						t.Error("create_membership was sent for a self-membership no-op")
+						return &pb.CreateMembershipResponse{}, nil
+					},
+					removeMembershipsFn: func(context.Context, *pb.RemoveMembershipsRequest) (*pb.RemoveMembershipsResponse, error) {
+						t.Error("remove_memberships was sent for a self-membership no-op")
+						return &pb.RemoveMembershipsResponse{}, nil
+					},
+				}
+				res, err := gc.HandleMatrixMembership(context.Background(),
+					membershipChange(portal, ghostTarget("112233"), typ))
+				if err != nil {
+					t.Fatalf("HandleMatrixMembership(%s) error = %v, want nil", typeName, err)
+				}
+				if res == nil {
+					t.Error("result = nil, want a non-nil MatrixMembershipResult")
+				}
+			})
+		}
+	}
+}
+
+// TestHandleMatrixMembershipStillRejectsRealActions is the other half: the
+// no-op case must not turn into a blanket "say yes to everything". A decision
+// that WOULD need an RPC has to keep failing loudly rather than being silently
+// swallowed -- answering success for a declined invite would tell Matrix the
+// user left while Google still has them invited.
+func TestHandleMatrixMembershipStillRejectsRealActions(t *testing.T) {
+	for name, typ := range map[string]bridgev2.MembershipChangeType{
+		"RejectInvite": bridgev2.RejectInvite,
+		"Knock":        bridgev2.Knock,
+		"BanJoined":    bridgev2.BanJoined,
+	} {
+		t.Run(name, func(t *testing.T) {
+			gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
+			if _, err := gc.HandleMatrixMembership(context.Background(),
+				membershipChange(spacePortal("space1"), ghostTarget("999888"), typ)); err == nil {
+				t.Errorf("HandleMatrixMembership(%s) = nil error; a change needing an RPC must not be silently accepted", name)
+			}
+		})
+	}
+}
