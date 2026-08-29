@@ -91,17 +91,18 @@ func (j *cookieJar) header() string {
 	return strings.Join(pairs, "; ")
 }
 
-// snapshot returns the current value of each name in names that is present
-// in the jar; missing ones are simply omitted from the result. Used by
-// Session.Cookies() to read back RequiredCookies post-rotation.
-func (j *cookieJar) snapshot(names []string) map[string]string {
+// snapshotAll returns a copy of the ENTIRE jar. Used by Session.Cookies() so
+// that persistence keeps everything Google has issued -- the named login five
+// plus whatever rotation extras (SIDCC and friends) later Set-Cookie responses
+// added. The jar already sends all of them on every request (header() has no
+// name filter); persisting fewer than it sends meant every bridge restart
+// silently discarded Google's freshest session state.
+func (j *cookieJar) snapshotAll() map[string]string {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
-	out := make(map[string]string, len(names))
-	for _, name := range names {
-		if v, ok := j.cookies[name]; ok {
-			out[name] = v
-		}
+	out := make(map[string]string, len(j.cookies))
+	for name, v := range j.cookies {
+		out[name] = v
 	}
 	return out
 }

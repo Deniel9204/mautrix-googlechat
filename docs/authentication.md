@@ -33,8 +33,20 @@ domain — see the per-browser instructions below):
 
 ## Step 1: Extract the cookies from your browser
 
-Log into [https://chat.google.com](https://chat.google.com) in a normal
-browser window first, if you haven't already.
+Use a **private/incognito window**, and close it as soon as you have the
+cookies:
+
+1. Open a private/incognito browser window.
+2. Log into [https://chat.google.com](https://chat.google.com) in it.
+3. Extract the five cookies (per-browser instructions below).
+4. **Close the private window** once you have them.
+
+Why this matters: a browser session that stays open keeps rotating these
+cookies as you use Google, invalidating the copies you gave the bridge -- this
+is the most common reason bridge logins die early. A private window that you
+close afterwards leaves the bridge as the only user of that session, which is
+what both reference implementations of this protocol recommend. (Closing the
+window does not log the bridge out; signing out explicitly does.)
 
 ### Chrome (or other Chromium-based browsers)
 
@@ -82,16 +94,20 @@ Reply with a single JSON object mapping each cookie name to its value:
 {"COMPASS": "<value>", "SSID": "<value>", "SID": "<value>", "OSID": "<value>", "HSID": "<value>"}
 ```
 
-All five keys are required. The bridge validates them against Google Chat
-immediately; your message is automatically redacted from the room after
-you send it, since it contains credentials.
+All five keys are required, spelled exactly as above — the key names are
+case-sensitive and uppercase. The bridge validates the values against Google
+Chat immediately; your message is automatically redacted from the room after
+you send it, since it contains credentials. Stray whitespace or quotes around
+a pasted value are forgiven, and if a cookie is missing the bridge names
+which one rather than guessing.
 
-Alternatively, you can paste a full `curl` command copied from your
-browser's devtools (Network tab → right-click the request → Copy → Copy as
-cURL) instead of hand-building the JSON — the bridge will extract the
-relevant cookies from it automatically. Cookies that can only be extracted
-from request headers or body rather than a `Cookie:` line aren't usable this
-way; a plain JSON object always works.
+Alternatively — and slightly better — paste a full `curl` command copied from
+your browser's devtools (Network tab, pick any request to `chat.google.com`,
+right-click → Copy → **Copy as cURL**). The bridge extracts the five cookies
+from its `Cookie:` header automatically, and also picks up your browser's
+`User-Agent`, so the bridge presents itself to Google as the same browser
+that created the session. On Windows, make sure to pick the **bash** variant
+("Copy as cURL (bash)") — the cmd variant's quoting is not understood.
 
 If the cookies are valid, the bridge confirms which Google account you
 logged in as and starts syncing your chats.
@@ -104,4 +120,9 @@ a real, continuously-used browser session — for example after a period of
 bridge inactivity, an account security event, or a Google-side session
 rotation the bridge doesn't happen to observe in time. If the bridge reports
 that your login has expired or that cookies are no longer valid, simply
-repeat steps 1–3 above with a fresh browser session to log in again.
+repeat steps 1–3 above with a fresh private window to log in again.
+
+The single biggest thing you can do to make a session last is the private
+window discipline in step 1: extract from a private window, then close it.
+Cookies copied out of your everyday browser profile are rotated out from
+under the bridge as you keep using Google there.

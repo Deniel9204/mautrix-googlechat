@@ -36,9 +36,13 @@ const (
 	retryBackoffBase = 50 * time.Millisecond
 
 	// latestChromeVersion/latestFirefoxVersion pin the User-Agent version
-	// numbers to the latest known-good values.
-	latestChromeVersion  = "114"
-	latestFirefoxVersion = "114"
+	// numbers to plausibly-current stable releases. Exactness does not matter;
+	// staleness does -- a 2023-vintage version in 2026 is a fingerprint no
+	// real browser produces, which is worth avoiding on a session that is
+	// meant to look like the browser that minted its cookies. Bump these
+	// occasionally.
+	latestChromeVersion  = "150"
+	latestFirefoxVersion = "152"
 
 	// defaultUserAgent is the fallback User-Agent when the caller supplies
 	// none.
@@ -182,11 +186,26 @@ func normalizeUserAgent(userAgent string) string {
 	return userAgent
 }
 
-// Cookies returns the CURRENT value of each of RequiredCookies, reflecting
-// any rotation absorbed from Set-Cookie responses so far. Used to persist
-// rotated cookies into UserLoginMetadata.
+// Cookies returns the CURRENT full cookie set -- the login five plus any
+// extras Google has issued via Set-Cookie since (SIDCC and friends), all
+// reflecting rotation absorbed so far. Used to persist cookies into
+// UserLoginMetadata.
+//
+// The whole jar, deliberately, not just RequiredCookies: the jar attaches
+// every cookie it holds to every request, so persisting only the named five
+// meant a restart replayed a session Google had already moved past --
+// RequiredCookies is the login-time VALIDATION set, not a bound on what a
+// session accumulates.
 func (s *Session) Cookies() map[string]string {
-	return s.jar.snapshot(RequiredCookies)
+	return s.jar.snapshotAll()
+}
+
+// DefaultUserAgent returns the User-Agent a Session uses when the caller
+// supplies none. Exported so the login flow can declare it to webview-based
+// clients (bridgev2.LoginCookiesParams.UserAgent): a client that browses with
+// this UA mints cookies under the same fingerprint the bridge will replay.
+func DefaultUserAgent() string {
+	return defaultUserAgent
 }
 
 // UserAgent returns the normalized User-Agent (see normalizeUserAgent) this
