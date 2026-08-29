@@ -44,8 +44,13 @@ func youtubeAnnotation(id string) *pb.Annotation {
 	}
 }
 
-func urlMetadataAnnotation(rawURL, imageURL string, shouldNotRender bool) *pb.Annotation {
+// urlMetadataAnnotation builds a url_metadata annotation covering length code
+// units of the body. The length is load-bearing: > 0 means the annotation
+// decorates a span that is already in text_body (convert.go renders it as an
+// inline <a href>), == 0 means the URL appears nowhere in the body.
+func urlMetadataAnnotation(rawURL, imageURL string, shouldNotRender bool, length int32) *pb.Annotation {
 	return &pb.Annotation{
+		Length: proto.Int32(length),
 		Metadata: &pb.Annotation_UrlMetadata{
 			UrlMetadata: &pb.UrlMetadata{
 				Url:             &pb.Url{Url: proto.String(rawURL)},
@@ -182,28 +187,29 @@ func TestAppendLinkAnnotations_ShouldNotRenderStillAppends(t *testing.T) {
 	}
 }
 
-// TestAppendLinkAnnotations_UrlMetadataNeverAppended is THE key
-// double-render pin from the M5 Task 4 investigation: a url_metadata
-// annotation's URL is never appended to the body at all (regardless of
-// should_not_render or image_url) -- url_metadata instead becomes an
-// AttachmentURL for the (out-of-scope, HTTP) attachment-download path.
-// gchatfmt.Parse (via renderURL in convert.go) already renders a
-// DO_NOT_RENDER-chip url_metadata annotation as an inline <a href> wrapping
-// EXISTING text -- if AppendLinkAnnotations also appended url_metadata's URL
-// to the body, that URL would render TWICE (once as the inline hyperlink
-// around the original text, once as new plain appended text). This test
-// proves AppendLinkAnnotations leaves the body completely unchanged for
-// url_metadata, in every combination of should_not_render and image_url
-// presence.
+// TestAppendLinkAnnotations_UrlMetadataNeverAppended is THE double-render pin
+// from the M5 Task 4 investigation, now narrowed to the case it actually
+// protects: a url_metadata annotation that COVERS TEXT (length > 0).
+//
+// gchatfmt.Parse (via renderURL in convert.go) renders such an annotation as
+// an inline <a href> wrapping text that is already in the body. If
+// AppendLinkAnnotations also appended its URL, the URL would render TWICE --
+// once as the hyperlink around the original text, once as new plain appended
+// text. This proves the body is left completely unchanged for that shape, in
+// every combination of should_not_render and image_url presence.
+//
+// The complement (length == 0, the URL is nowhere in the body) IS appended;
+// see TestAppendLinkAnnotations_ZeroLengthUrlMetadataIsAppended.
 func TestAppendLinkAnnotations_UrlMetadataNeverAppended(t *testing.T) {
 	text := "check out this link"
+	const covers = int32(4) // "this"
 	tests := []struct {
 		name       string
 		annotation *pb.Annotation
 	}{
-		{"should_not_render=false, no image_url", urlMetadataAnnotation("https://example.com/page", "", false)},
-		{"should_not_render=true", urlMetadataAnnotation("https://example.com/page", "", true)},
-		{"image_url present", urlMetadataAnnotation("https://example.com/page", "https://example.com/preview.png", false)},
+		{"should_not_render=false, no image_url", urlMetadataAnnotation("https://example.com/page", "", false, covers)},
+		{"should_not_render=true", urlMetadataAnnotation("https://example.com/page", "", true, covers)},
+		{"image_url present", urlMetadataAnnotation("https://example.com/page", "https://example.com/preview.png", false, covers)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -259,5 +265,67 @@ func TestAppendLinkAnnotations_MixedOrderMatchesAnnotationOrder(t *testing.T) {
 	want := "start\n\nhttps://drive.google.com/open?id=driveid1\n\nhttps://www.youtube.com/watch?v=yid1"
 	if got != want {
 		t.Errorf("AppendLinkAnnotations = %q, want %q", got, want)
+	}
+}
+
+// TestAppendLinkAnnotations_ZeroLengthUrlMetadataIsAppended pins the
+// never-drop rule. A url_metadata annotation covering no text has its URL
+// nowhere in text_body, and convert.go will not render it either
+// (inlineURLChip requires length > 0). Without the append the link is
+// invisible -- and when text_body is empty as well, the whole message converts
+// to zero parts and mautrix-go sends nothing, so it never reaches Matrix at
+// all.
+func TestAppendLinkAnnotations_ZeroLengthUrlMetadataIsAppended(t *testing.T) {
+	const gifURL = "https://tenor.com/view/example-gif-12345"
+	tests := []struct {
+		name       string
+		text       string
+		annotation *pb.Annotation
+		want       string
+	}{
+		{
+			// The message-loss case: nothing else in the message at all.
+			name:       "empty body is set to the URL",
+			text:       "",
+			annotation: urlMetadataAnnotation(gifURL, "https://media.example.com/example.gif", false, 0),
+			want:       gifURL,
+		},
+		{
+			name:       "non-empty body gets the URL appended",
+			text:       "look at this",
+			annotation: urlMetadataAnnotation(gifURL, "", false, 0),
+			want:       "look at this\n\n" + gifURL,
+		},
+		{
+			// should_not_render asks for the preview CARD to be suppressed.
+			// Honouring it here would trade a redundant link for a lost
+			// message.
+			name:       "should_not_render does not suppress the append",
+			text:       "",
+			annotation: urlMetadataAnnotation(gifURL, "", true, 0),
+			want:       gifURL,
+		},
+		{
+			// The dedup rule the other branches use applies here too.
+			name:       "a URL already in the body is not appended twice",
+			text:       "see " + gifURL,
+			annotation: urlMetadataAnnotation(gifURL, "", false, 0),
+			want:       "see " + gifURL,
+		},
+		{
+			// strings.Contains(text, "") is always true, so an absent URL is
+			// skipped without special-casing.
+			name:       "an annotation with no URL appends nothing",
+			text:       "hello",
+			annotation: urlMetadataAnnotation("", "", false, 0),
+			want:       "hello",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gchatfmt.AppendLinkAnnotations(tc.text, []*pb.Annotation{tc.annotation}); got != tc.want {
+				t.Errorf("AppendLinkAnnotations = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
