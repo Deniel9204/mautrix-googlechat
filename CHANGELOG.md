@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.08.5] - 2026-08-29
+
+Three connection-reliability fixes. Two of them are failures the bridge
+previously had no way of telling you about.
+
+### Added
+
+- The bridge now notices when Google has logged the session out, instead of
+  waiting for the connection to break
+  ([#37](https://github.com/Deniel9204/mautrix-googlechat/issues/37)). The
+  periodic token refresh already had the one unambiguous signal available to
+  it -- Google answering with the sign-in page, which is exactly what the login
+  flow checks to validate a fresh cookie set -- and was discarding it. Until
+  now the only thing that surfaced expired cookies was the connection
+  eventually failing, which on a quiet account can take a long time; meanwhile
+  the bridge reported itself connected. Two consecutive rejections are required
+  before acting, so a single spurious sign-in page cannot mark a healthy
+  session dead.
+
+### Fixed
+
+- **A fatal connection failure no longer strands the bridge until it is
+  restarted** ([#54](https://github.com/Deniel9204/mautrix-googlechat/issues/54)).
+  When the connection hit its retry limit the bridge reported the failure and
+  then stopped trying, permanently, because nothing restarted it and the
+  framework's own recovery ships disabled. It failed in one direction only,
+  which is what made it hard to notice: sending kept working, because it does
+  not use the affected channel, while nothing ever arrived.
+  The condition that triggers it lasts about half a minute, so a brief fault
+  was being treated as permanent. The bridge now keeps retrying on a slower
+  schedule of its own -- five minutes, backing off to hourly -- which is spaced
+  so that an operator who has enabled the framework's `unknown_error_auto_reconnect`
+  still gets that stronger recovery first. A logged-out session is still
+  terminal, as it should be.
+- Connection-problem messages now say what to do rather than only what
+  happened, and carry the "re-login required" flag that clients use to prompt
+  for it. The step-by-step cookie-extraction guide is linked from the login
+  command itself, where it renders as a link. "No stored cookies" and "Google
+  rejected the cookies" are also reported as separate causes now; the advice is
+  the same, but the logs no longer conflate them.
+- The bridge no longer reports its own room joins as failed membership
+  changes. Creating a portal joins the logged-in user to it, and that join came
+  back through the bridge as if the user had asked for something, producing a
+  failed-membership error for every portal created -- and, in a direct message,
+  the flatly wrong "membership changes are not supported in DMs" about the user
+  joining their own chat.
+
 ## [26.08.4] - 2026-08-29
 
 ### Security
