@@ -13,14 +13,19 @@ disable_outbound_media: false
 # Disable downloading the media a link chip points at (a shared GIF, a link
 # preview image) and inlining it as an image on Matrix.
 #
-# Worth knowing before you leave this off: unlike every other download the
-# bridge does, that host is chosen by whoever sent the message, so fetching it
-# reveals the bridge's IP address and the time the message arrived to a third
-# party. The fetch is hardened -- https only, no proxy, no cookies, internal
-# and link-local addresses refused, redirects and size capped -- and only runs
-# for annotations that actually look like media, not for every link anyone
-# pastes. Set this to true if you would rather the bridge never made that
-# request.
+# Worth knowing before you leave this off. The bridge only ever fetches the
+# media address Google itself supplies, never the address the sender typed --
+# in the one case captured from live traffic, Google had already rehosted the
+# media on its own CDN. So this is normally a request to Google, not to a
+# stranger's server. It is not guaranteed to be: Google chooses that address,
+# and it could point elsewhere.
+#
+# The fetch is hardened either way -- https only, no proxy, no cookies,
+# internal and link-local addresses refused, redirects and size capped -- and
+# runs only for annotations that look like media. A link pasted into a sentence
+# is not fetched; a link CHIP attached to a message has the same shape as a
+# GIF, so its preview image is (again, from Google's copy). Set this to true if
+# you would rather the bridge made no such request at all.
 #
 # This never costs you a message either way: the URL is always put in the
 # message body, so with this enabled a GIF simply arrives as a link.
