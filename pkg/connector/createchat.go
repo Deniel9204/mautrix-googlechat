@@ -204,16 +204,6 @@ func (gc *GChatConnector) ValidateUserID(userID networkid.UserID) bool {
 	return isGaiaID(string(userID))
 }
 
-// createDMRejectedTarget reports whether a create_dm failure is a statement
-// about THIS account's view of the target rather than about the request or the
-// transport -- the only kind worth re-issuing against the user's other logins.
-//
-// 400 only, deliberately. It is the status live probing has actually seen for
-// an un-DM-able id, and it is what a self-DM comes back as. 403 is tempting
-// but this API family uses it as a quota signal, and 404 shows up as a
-// request-shape symptom; replaying either once per login would repeat a
-// throttle or a bug N times over. Anything without a status at all -- a
-// timeout, a dead connection -- is not deferred either: fail closed.
 // isOwnEmail reports whether identifier is the acting login's OWN address, as
 // learned by updateOwnLoginProfile (userinfo.go). False whenever the address
 // is not known, which is the safe answer: it means "carry on and let the
@@ -231,6 +221,36 @@ func (c *GChatClient) isOwnEmail(identifier string) bool {
 	return own != "" && strings.EqualFold(own, identifier)
 }
 
+// hasOtherLogins reports whether this user has a login OTHER than the acting
+// one, i.e. whether "try the next login" has anywhere to go.
+//
+// It matters because bridgev2's start-chat loop restarts at index 0 over ALL
+// of the user's logins, so it re-runs the one that just failed. For a check
+// made BEFORE the request that costs nothing. For a failure classified AFTER
+// it, deferring with no sibling login means a second, identical create_dm
+// against the same account, which cannot answer differently -- exactly the
+// "repeat it once per login" cost this file refuses to pay for 403 and 429.
+//
+// True when the user is unknown: only a bare UserLogin built by a test has no
+// User attached, and assuming a sibling there keeps the classification under
+// test. In production UserLogin.User is always populated.
+func (c *GChatClient) hasOtherLogins() bool {
+	if c.UserLogin == nil || c.UserLogin.User == nil {
+		return true
+	}
+	return len(c.UserLogin.User.GetUserLogins()) > 1
+}
+
+// createDMRejectedTarget reports whether a create_dm failure is a statement
+// about THIS account's view of the target rather than about the request or the
+// transport -- the only kind worth re-issuing against the user's other logins.
+//
+// 400 only, deliberately. It is the status live probing has actually seen for
+// an un-DM-able id, and it is what a self-DM comes back as. 403 is tempting
+// but this API family uses it as a quota signal, and 404 shows up as a
+// request-shape symptom; replaying either once per login would repeat a
+// throttle or a bug N times over. Anything without a status at all -- a
+// timeout, a dead connection -- is not deferred either: fail closed.
 func createDMRejectedTarget(err error) bool {
 	var status *gchatmeow.UnexpectedStatusError
 	if !errors.As(err, &status) {
@@ -303,7 +323,14 @@ func (c *GChatClient) ResolveIdentifier(ctx context.Context, identifier string, 
 		// something that works. Reading a 400 this way costs nothing, because
 		// that request is issued today regardless.
 		if createDMRejectedTarget(err) && c.isOwnEmail(identifier) {
-			return nil, selfDMError()
+			// Keep the server's own answer in the chain. This branch is a
+			// DEDUCTION -- Google's 400 does not say "self-DM" -- so if the
+			// deduction is ever wrong, the body that says what really happened
+			// has to still be there for the log and the API to show.
+			if !c.hasOtherLogins() {
+				return nil, fmt.Errorf("%w: %w", ErrCannotDMYourself, err)
+			}
+			return nil, fmt.Errorf("%w: %w", selfDMError(), err)
 		}
 		return nil, err
 	}
@@ -346,7 +373,7 @@ func (c *GChatClient) createDM(ctx context.Context, req *pb.CreateDmRequest) (*b
 		// self-DM both come back as a bare 400 -- so name what is worth
 		// checking rather than leaving the reader with a status code.
 		wrapped := fmt.Errorf("googlechat: create_dm failed (is the target reachable from this account, and not your own account?): %w", err)
-		if createDMRejectedTarget(err) {
+		if createDMRejectedTarget(err) && c.hasOtherLogins() {
 			// A 400 is Google saying this ACCOUNT cannot open that DM, which
 			// says nothing about the user's other logins -- and the target
 			// being reachable from only one of them is the ordinary case for
