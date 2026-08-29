@@ -49,7 +49,7 @@ func init() {
 		GChatBadCredentials:      "Your Google Chat session has expired. Send the login command to the bridge bot and paste a fresh set of browser cookies to reconnect.",
 		GChatCookiesMissing:      "The bridge has no stored Google Chat cookies for this login. Send the login command to the bridge bot and paste a fresh set of browser cookies to reconnect.",
 		GChatTransientDisconnect: "Disconnected from Google Chat, reconnecting",
-		GChatFatalError:          "Lost the connection to Google Chat and could not re-establish it. The bridge will not retry on its own. Send the login command to the bridge bot and paste a fresh set of browser cookies to reconnect.",
+		GChatFatalError:          "Lost the connection to Google Chat. The bridge keeps retrying in the background, slowly. If it does not come back, send the login command to the bridge bot and paste a fresh set of browser cookies.",
 	})
 }
 

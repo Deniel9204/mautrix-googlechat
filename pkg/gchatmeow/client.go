@@ -61,6 +61,31 @@ const (
 	// consecutive SID-invalid resyncs without an intervening healthy cycle,
 	// the connection is declared fatal.
 	maxSIDInvalidResyncs = 3
+
+	// defaultSIDFatalRetryFloor is how long Connect waits after declaring a
+	// SID-invalid storm fatal before starting a completely fresh attempt.
+	//
+	// Derived, not picked. It has to clear two things. First the ladder that
+	// produced the fatal: three resyncs paced by the transient backoff cost
+	// 28s from the floor, and up to reconnectBackoffMax*maxSIDInvalidResyncs
+	// = 180s if a preceding storm had already pinned the backoff at its
+	// ceiling -- a wait shorter than that is just more of the same ladder.
+	// Second, bridgev2's own escalation: unknownErrorReconnect refuses any
+	// unknown_error_auto_reconnect below 1 minute and jitters it +-20%, so 72s
+	// is the earliest an operator-enabled framework reconnect can fire. Waiting
+	// longer than that means the framework always wins the race and performs
+	// its STRONGER recovery (full client recreate), and its pending timer is
+	// not cancelled by a state of ours in the meantime -- the two compose
+	// instead of fighting. Five minutes clears the first bound by 1.7x and the
+	// second by 4.2x.
+	defaultSIDFatalRetryFloor = 5 * time.Minute
+	// defaultSIDFatalRetryCap bounds the doubling above. Every reconnect
+	// re-registers and is issued a BRAND NEW SID, so a fatal that keeps
+	// repeating means the server is rejecting SIDs it has just minted --
+	// something only a Google-side change or a fix here will clear. At the cap
+	// that costs one register plus one poll per hour, cheaper than a
+	// keep-alive, which is why there is no reason to ever stop entirely.
+	defaultSIDFatalRetryCap = time.Hour
 )
 
 // ConnState is a connection-state transition reported via
@@ -136,6 +161,8 @@ func NewClient(opts ClientOpts) (*Client, error) {
 		retryBackoffBase:    defaultConnectRetryBackoffBase,
 		reconnectBackoffMin: defaultReconnectBackoffMin,
 		reconnectBackoffMax: defaultReconnectBackoffMax,
+		sidFatalRetryFloor:  defaultSIDFatalRetryFloor,
+		sidFatalRetryCap:    defaultSIDFatalRetryCap,
 		xsrfRefreshInterval: defaultXSRFRefreshInterval,
 	}
 	c.newChannel = func() channelListener { return NewChannel(c.session) }
@@ -197,6 +224,7 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	resyncCount := 0
 	backoff := c.reconnectBackoffMin
+	fatalBackoff := c.fatalRetryFloor()
 
 	for {
 		if ctx.Err() != nil {
@@ -237,6 +265,13 @@ func (c *Client) Connect(ctx context.Context) error {
 			// 1.5h recycle: silent reconnect, no state change.
 			resyncCount = 0
 			backoff = c.reconnectBackoffMin
+			// A channel that reached its full lifetime is this ladder's only
+			// unambiguous proof that the connection was healthy, so it is what
+			// un-escalates the post-fatal wait. Deliberately NOT ErrSIDExpiring
+			// (re-registers happen inside storms too) and not the transient
+			// branches (a flap is not health) -- and not "we saw Connected"
+			// either, since a SID-invalid round emits Connected before the 400.
+			fatalBackoff = c.fatalRetryFloor()
 			continue
 		case errors.Is(err, ErrSIDExpiring):
 			// SID expiring surfaced to the supervisor: reconnect immediately
@@ -251,8 +286,39 @@ func (c *Client) Connect(ctx context.Context) error {
 			// connection is fatal.
 			resyncCount++
 			if resyncCount > maxSIDInvalidResyncs {
+				// Report the fatal -- the connector maps it to
+				// status.StateUnknownError, the only state bridgev2 will ever
+				// auto-reconnect from -- and then keep going.
+				//
+				// Returning here, which is what this used to do, ended the
+				// account. The connector starts this loop as
+				// `go conn.Connect(ctx)` and discards the error, and the
+				// framework's own recovery is off by default, so the bridge
+				// stayed dead until the process was restarted. Worse, it did
+				// so silently in one direction only: the /api RPCs do not use
+				// the webchannel, so sending kept working while nothing ever
+				// arrived.
+				//
+				// Both protocol references retry this forever, and treat
+				// authentication as the only terminal condition. What must not
+				// be forever is the RATE: a fresh register mints a brand new
+				// SID, so a repeating fatal is the server rejecting SIDs it
+				// just issued, and trying that again sooner cannot help. Hence
+				// a minutes-scale wait on its own tier rather than rejoining
+				// the seconds-scale ladder above.
 				c.emitState(ConnStateFatal, err)
-				return err
+				// Drop the dead channel for the duration of the wait.
+				// Otherwise SendStreamEvent (typing and active pings) keeps
+				// POSTing against a SID the server is rejecting, instead of
+				// failing fast the way it does today once Connect returns.
+				c.setChannel(nil)
+				if c.sleep(ctx, fatalBackoff) != nil {
+					return nil
+				}
+				fatalBackoff = c.growFatalBackoff(fatalBackoff)
+				resyncCount = 0
+				backoff = c.reconnectBackoffMin
+				continue
 			}
 			// Pace each resync with a growing backoff (do NOT reset to min) so a
 			// brief transient "Unknown SID" storm on freshly-registered SIDs backs
@@ -542,6 +608,36 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 		return c.sleepFn(ctx, d)
 	}
 	return sleepOrDone(ctx, d)
+}
+
+// fatalRetryFloor is the post-fatal wait's floor, defaulting a zero field (a
+// hand-built Client that skipped NewClient) to defaultSIDFatalRetryFloor. The
+// clamp is load-bearing: a zero wait would turn the post-fatal retry into a
+// busy loop hammering register.
+func (c *Client) fatalRetryFloor() time.Duration {
+	if c.sidFatalRetryFloor > 0 {
+		return c.sidFatalRetryFloor
+	}
+	return defaultSIDFatalRetryFloor
+}
+
+// growFatalBackoff doubles the post-fatal wait up to sidFatalRetryCap. Kept
+// separate from nextBackoff because the two tiers have different floors,
+// different ceilings and different reset rules; sharing one function would
+// only hide that.
+func (c *Client) growFatalBackoff(cur time.Duration) time.Duration {
+	ceiling := c.sidFatalRetryCap
+	if ceiling <= 0 {
+		ceiling = defaultSIDFatalRetryCap
+	}
+	next := cur * 2
+	if next > ceiling {
+		next = ceiling
+	}
+	if next <= 0 {
+		next = c.fatalRetryFloor()
+	}
+	return next
 }
 
 func (c *Client) nextBackoff(cur time.Duration) time.Duration {
