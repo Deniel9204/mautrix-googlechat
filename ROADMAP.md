@@ -36,6 +36,7 @@
       * [x] Images
       * [x] Google Drive file links
       * [x] Google Meet / YouTube links
+      * [x] GIFs and link-preview media (downloaded and inlined)
     * [x] Formatting
     * [x] Mentions
     * [x] Threads

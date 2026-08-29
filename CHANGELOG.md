@@ -6,6 +6,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.08.3] - 2026-08-29
+
+### Added
+
+- Shared GIFs and link-preview media now arrive as inline images
+  ([#35](https://github.com/Deniel9204/mautrix-googlechat/issues/35)). A GIF
+  shared from Google Chat's own picker is not an attachment -- it is a link
+  chip pointing at the media -- so it previously arrived as a bare URL to
+  click, or, in the case below, not at all. The media is now downloaded and
+  reuploaded as an ordinary Matrix image, alongside the link.
+  Only annotations that actually look like media are fetched. Every other
+  Google Chat client fetches *every* link chip, which turns a bridge into a
+  link prefetcher that contacts any host a sender names; this one does not.
+  The behaviour can be turned off entirely with
+  `network.disable_inline_url_media`, which costs nothing but the inline
+  rendering -- the link itself is always in the message either way.
+- Starting a chat now tries your other logins when Google refuses
+  ([#50](https://github.com/Deniel9204/mautrix-googlechat/issues/50)). If a
+  person is reachable from only one of two bridged Google accounts, the
+  attempt no longer stops at the first refusal.
+- Typing your own email address into `start-chat` is now explained instead of
+  returning a bare error. Google Chat cannot open a conversation with
+  yourself, and its refusal says nothing about why; the bridge now recognises
+  the address and says so. It is recognised only *after* the service refuses,
+  so a stale or aliased address can never block a chat that would have worked.
+
+### Fixed
+
+- **Some messages were never arriving.** A message whose only content was a
+  link chip -- the exact shape of a shared GIF, now confirmed against the live
+  service -- converted to nothing at all and was silently dropped: no error,
+  no log line, no message on Matrix. Such a message now always delivers, at
+  minimum as a link.
+- An attachment download that failed put the attachment's access token into
+  the log. Request URLs are no longer written to error messages; what is
+  written instead is the service's own explanation of the failure, which was
+  previously discarded in favour of a long URL.
+- `start-chat` failures now say what went wrong
+  ([#49](https://github.com/Deniel9204/mautrix-googlechat/issues/49),
+  [#50](https://github.com/Deniel9204/mautrix-googlechat/issues/50)). Passing
+  two identifiers at once, passing a Matrix ID, or passing one of your own
+  login IDs each produced an opaque HTTP status; each now explains itself.
+  Deliberate rejections are also reported as client errors rather than as
+  internal ones, so a mistyped identifier is no longer indistinguishable from
+  a bridge fault.
+- A chat between a user's two bridged Google accounts is no longer refused.
+  The guard against opening a conversation with yourself was applied without
+  considering that the other account might be reachable from a different
+  login.
+- Malformed user IDs are rejected before they cost anything. A mistyped ghost
+  address previously created a database row, registered a Matrix user, and
+  sent a request to Google before failing.
+- A data race between the login profile write and the cookie refresh, both of
+  which persist the same database row.
+
+### Security
+
+- Media referenced by a link chip is fetched over a separate, hardened path:
+  HTTPS enforced on every redirect hop, internal and link-local addresses
+  refused after DNS resolution, no proxy, capped redirects, and a size ceiling
+  that cannot be disabled. The attachment path's assumptions do not apply to a
+  URL the bridge did not choose, so it is deliberately not reused, and no
+  Google credentials can reach the media host.
+
 ## [26.08.2] - 2026-08-28
 
 ### Added
