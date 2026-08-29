@@ -28,7 +28,8 @@ package gchatmeow
 //     no-op. Failing closed is right: an operator whose egress requires a
 //     proxy loses inline GIFs, rather than unknowingly losing the protection.
 //  4. Redirects are followed manually and capped.
-//  5. The body is size-capped by the caller's limit.
+//  5. The body is size-capped by the caller's limit, clamped to a ceiling the
+//     caller cannot disable (maxExternalMediaSize).
 //  6. No Session, no cookies, no XSRF header. This is a package-level function
 //     with no *Client receiver precisely so that attaching Google credentials
 //     to a third-party request is structurally impossible -- a mistake the
@@ -56,6 +57,18 @@ const (
 	// externalConnectTimeout bounds the TCP dial and TLS handshake, so a
 	// black-holed host fails fast rather than consuming the whole budget.
 	externalConnectTimeout = 10 * time.Second
+
+	// maxExternalMediaSize is a hard ceiling the caller cannot raise or
+	// disable, mirroring avatar.go's maxAvatarSize.
+	//
+	// It exists because the caller's cap comes from the homeserver's
+	// media_config, and bridgev2 fetches that ONCE, in a goroutine, with no
+	// retry -- so a single failed fetch leaves the cap at 0 for the whole
+	// process lifetime. readBodyWithMaxSize reads 0 as "unlimited", a contract
+	// written for Google's own fixed endpoint. Inheriting it here would mean
+	// an unbounded io.ReadAll of a body served by a host a remote party named,
+	// which is a memory-exhaustion hole rather than a missing feature.
+	maxExternalMediaSize = 100 << 20
 )
 
 // externalRequestTimeout bounds an ENTIRE external fetch, redirect chain
@@ -93,14 +106,21 @@ func newExternalHTTPClient() *http.Client {
 // Content-Type, and a filename derived from Content-Disposition or the URL
 // path.
 //
-// maxSize caps the body (0 means unlimited, matching readBodyWithMaxSize);
-// exceeding it surfaces ErrFileTooLarge, shared with the attachment path so
-// callers can treat oversize uniformly.
+// maxSize caps the body. Unlike the attachment path, 0 does NOT mean
+// unlimited: it is clamped to maxExternalMediaSize, as is any larger value, so
+// no caller can switch the ceiling off. Exceeding it surfaces ErrFileTooLarge,
+// shared with the attachment path so callers can treat oversize uniformly.
 func DownloadExternalMedia(ctx context.Context, rawURL string, maxSize int64) (data []byte, mimeType, filename string, err error) {
 	// One deadline for the whole chain: http.Client.Timeout is enforced per
 	// Do() call, so on its own it would hand every hop a fresh budget.
 	ctx, cancel := context.WithTimeout(ctx, externalRequestTimeout)
 	defer cancel()
+
+	// Clamped here rather than at the call site so the ceiling protects every
+	// caller, present and future.
+	if maxSize <= 0 || maxSize > maxExternalMediaSize {
+		maxSize = maxExternalMediaSize
+	}
 
 	// Copy the installed client so the manual redirect policy holds even if
 	// the installed one would follow redirects itself -- the per-hop scheme

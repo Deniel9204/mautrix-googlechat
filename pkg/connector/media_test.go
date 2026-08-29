@@ -13,6 +13,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -703,9 +704,11 @@ func TestConvertAttachmentsToMatrix_URLMediaBecomesImagePart(t *testing.T) {
 		},
 	}
 	var gotURL string
+	var gotMaxSize int64
 	media := &fakeMediaFetcher{
-		downloadExternalFn: func(_ context.Context, urlStr string, _ int64) ([]byte, string, string, error) {
-			gotURL = urlStr
+		maxFileSizeVal: 1024,
+		downloadExternalFn: func(_ context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
+			gotURL, gotMaxSize = urlStr, maxSize
 			return pngBytes, "image/png", "a.gif", nil
 		},
 	}
@@ -718,6 +721,11 @@ func TestConvertAttachmentsToMatrix_URLMediaBecomesImagePart(t *testing.T) {
 	// image_url is preferred over the page url: it is the media itself.
 	if gotURL != "https://media.example.com/a.gif" {
 		t.Errorf("fetched %q, want the image_url", gotURL)
+	}
+	// The homeserver's cap must reach the fetch. Passing 0 would mean an
+	// unbounded read of a remote-party-served body.
+	if gotMaxSize != 1024 {
+		t.Errorf("downloadExternal got maxSize %d, want the homeserver cap 1024", gotMaxSize)
 	}
 	if parts[0].ID != gcid.MakeAttachmentPartID(0) {
 		t.Errorf("part.ID = %q, want att_0", parts[0].ID)
@@ -905,5 +913,169 @@ func TestInlineURLMediaEnabledDefaultsOn(t *testing.T) {
 	c := &GChatClient{Main: &GChatConnector{Config: Config{DisableInlineURLMedia: true}}}
 	if c.inlineURLMediaEnabled() {
 		t.Error("inlineURLMediaEnabled() = true despite DisableInlineURLMedia")
+	}
+}
+
+// TestGChatClientDownloadExternalUsesTheHardenedFetcher pins the WIRING, not
+// just the interface. Every other test here goes through the fake, which
+// cannot see which fetcher the production method delegates to -- so rewiring
+// downloadExternal to the attachment client (env proxy, plain http permitted)
+// would pass the entire suite.
+//
+// No network I/O: a bare client has no conn, so the attachment path would
+// answer "not connected", while the hardened path rejects the scheme first.
+func TestGChatClientDownloadExternalUsesTheHardenedFetcher(t *testing.T) {
+	c := &GChatClient{}
+	_, _, _, err := c.downloadExternal(context.Background(), "http://media.example.com/a.gif", 1024)
+	if err == nil {
+		t.Fatal("a plaintext URL was accepted")
+	}
+	if strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("error = %v; downloadExternal is delegating to the session-backed attachment path, "+
+			"which keeps an environment proxy and permits plain http", err)
+	}
+	if !strings.Contains(err.Error(), "https required") {
+		t.Errorf("error = %v, want the external path's scheme rejection", err)
+	}
+}
+
+// TestConvertAttachmentsToMatrix_DisablingInlineURLMediaKeepsAttachments: the
+// operator switch must not take ordinary Google-hosted attachments with it.
+func TestConvertAttachmentsToMatrix_DisablingInlineURLMediaKeepsAttachments(t *testing.T) {
+	pngBytes := onePixelPNG(t)
+	msg := &pb.Message{
+		Annotations: []*pb.Annotation{
+			makeUploadAnnotation("TOK", "image/png", "a.png"),
+			makeURLAnnotation("https://example.com/g", "https://media.example.com/a.gif", "image/gif", 0, false),
+		},
+	}
+	media := &fakeMediaFetcher{
+		disableInlineURL: true,
+		downloadAttachmentFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return pngBytes, "image/png", "a.png", nil
+		},
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return pngBytes, "image/gif", "a.gif", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+
+	if len(parts) != 1 {
+		t.Fatalf("len(parts) = %d, want 1: disabling inline URL media must not stop ordinary attachments", len(parts))
+	}
+	if media.usedDownloadExternal {
+		t.Error("the third-party host was contacted despite the switch")
+	}
+	if !media.usedDownloadAttachment {
+		t.Error("the Google-hosted attachment was not fetched")
+	}
+}
+
+// TestConvertAttachmentsToMatrix_ExternalFetchesAreBoundedPerMessage: the
+// annotation count is sender-controlled and each fetch blocks the portal's
+// event goroutine, so one message must not be able to issue an unbounded
+// number of them.
+func TestConvertAttachmentsToMatrix_ExternalFetchesAreBoundedPerMessage(t *testing.T) {
+	pngBytes := onePixelPNG(t)
+	var anns []*pb.Annotation
+	for i := 0; i < maxExternalMediaPerMessage*5; i++ {
+		anns = append(anns, makeURLAnnotation(
+			fmt.Sprintf("https://example.com/p%d", i),
+			fmt.Sprintf("https://media.example.com/a%d.gif", i),
+			"image/gif", 0, false))
+	}
+	fetches := 0
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			fetches++
+			return pngBytes, "image/gif", "a.gif", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), &pb.Message{Annotations: anns}, media)
+
+	if fetches != maxExternalMediaPerMessage {
+		t.Errorf("issued %d external fetches, want at most %d", fetches, maxExternalMediaPerMessage)
+	}
+	if len(parts) != maxExternalMediaPerMessage {
+		t.Errorf("len(parts) = %d, want %d", len(parts), maxExternalMediaPerMessage)
+	}
+}
+
+// TestConvertAttachmentsToMatrix_RepeatedExternalURLFetchedOnce: the same chip
+// repeated across a message costs one request, not N.
+func TestConvertAttachmentsToMatrix_RepeatedExternalURLFetchedOnce(t *testing.T) {
+	pngBytes := onePixelPNG(t)
+	ann := makeURLAnnotation("https://example.com/g", "https://media.example.com/same.gif", "image/gif", 0, false)
+	msg := &pb.Message{Annotations: []*pb.Annotation{ann, ann, ann}}
+
+	fetches := 0
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			fetches++
+			return pngBytes, "image/gif", "same.gif", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+
+	if fetches != 1 {
+		t.Errorf("issued %d fetches for one repeated URL, want 1", fetches)
+	}
+	if len(parts) != 1 {
+		t.Errorf("len(parts) = %d, want 1", len(parts))
+	}
+	// Numbering must still reflect position in the message, not fetch outcome.
+	if parts[0].ID != gcid.MakeAttachmentPartID(0) {
+		t.Errorf("part.ID = %q, want att_0", parts[0].ID)
+	}
+}
+
+// TestConvertAttachmentsToMatrix_ExternalFetchesShareOneDeadline: each fetch is
+// individually bounded, but the sum is what a portal's event loop and a
+// backfill batch care about.
+func TestConvertAttachmentsToMatrix_ExternalFetchesShareOneDeadline(t *testing.T) {
+	msg := &pb.Message{Annotations: []*pb.Annotation{
+		makeURLAnnotation("https://example.com/a", "https://media.example.com/a.gif", "image/gif", 0, false),
+	}}
+	var gotDeadline bool
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(ctx context.Context, _ string, _ int64) ([]byte, string, string, error) {
+			_, gotDeadline = ctx.Deadline()
+			return onePixelPNG(t), "image/gif", "a.gif", nil
+		},
+	}
+	var uploaded []byte
+	convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+	if !gotDeadline {
+		t.Error("the external fetch ran with no deadline; nothing bounds the total time one message can spend")
+	}
+}
+
+// TestConvertOneURLMedia_DeclaredDimensionsReachVideoParts: a GIF host
+// commonly serves mp4, which maps to m.video. Gating the declared-dimension
+// fallback on m.image would drop them for exactly the case they were added for.
+func TestConvertOneURLMedia_DeclaredDimensionsReachVideoParts(t *testing.T) {
+	ann := makeURLAnnotation("https://example.com/g", "https://media.example.com/a.mp4", "video/mp4", 0, false)
+	ann.GetUrlMetadata().IntImageWidth = proto.Int32(498)
+	ann.GetUrlMetadata().IntImageHeight = proto.Int32(280)
+	msg := &pb.Message{Annotations: []*pb.Annotation{ann}}
+
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return []byte("not-really-an-mp4"), "video/mp4", "a.mp4", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+	if len(parts) != 1 {
+		t.Fatalf("len(parts) = %d, want 1", len(parts))
+	}
+	if parts[0].Content.MsgType != event.MsgVideo {
+		t.Fatalf("MsgType = %q, want m.video", parts[0].Content.MsgType)
+	}
+	if got := parts[0].Content.Info; got.Width != 498 || got.Height != 280 {
+		t.Errorf("Info = {Width:%d Height:%d}, want {498 280} from the annotation", got.Width, got.Height)
 	}
 }

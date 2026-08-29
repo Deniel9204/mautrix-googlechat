@@ -215,3 +215,28 @@ func TestDownloadExternalMediaReturnsFilename(t *testing.T) {
 		t.Errorf("filename = %q, want reaction.gif", filename)
 	}
 }
+
+// TestDownloadExternalMediaCapsEvenWhenCallerSaysUnlimited is the control for
+// a memory-exhaustion hole. The caller's cap comes from the homeserver's
+// media_config, which bridgev2 fetches once with no retry -- so a single
+// failed fetch leaves it at 0 forever, and readBodyWithMaxSize reads 0 as
+// "unlimited". That contract was written for Google's own fixed endpoint; here
+// it would mean an unbounded read of a body served by a host a remote party
+// named.
+func TestDownloadExternalMediaCapsEvenWhenCallerSaysUnlimited(t *testing.T) {
+	for _, callerMax := range []int64{0, -1, maxExternalMediaSize * 4} {
+		t.Run(strconv.FormatInt(callerMax, 10), func(t *testing.T) {
+			srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Length", strconv.FormatInt(maxExternalMediaSize+1, 10))
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer srv.Close()
+			useExternalClient(t, externalTLSClient(t, srv))
+
+			_, _, _, err := DownloadExternalMedia(context.Background(), srv.URL, callerMax)
+			if !errors.Is(err, ErrFileTooLarge) {
+				t.Fatalf("maxSize=%d: error = %v, want ErrFileTooLarge; the ceiling must not be disableable", callerMax, err)
+			}
+		})
+	}
+}
