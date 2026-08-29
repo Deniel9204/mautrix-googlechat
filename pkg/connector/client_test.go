@@ -73,6 +73,12 @@ func TestConnectMissingCookiesSendsBadCredentials(t *testing.T) {
 	if got := gc.getLastState(); got != status.StateBadCredentials {
 		t.Errorf("lastState = %v, want StateBadCredentials", got)
 	}
+	// Its own code: nothing was rejected, there was nothing to reject. The
+	// advice to the user is identical, but conflating the two loses the
+	// diagnosis for whoever reads the log.
+	if got := gc.getLastErrorCode(); got != GChatCookiesMissing {
+		t.Errorf("lastError = %v, want %v", got, GChatCookiesMissing)
+	}
 	if gc.getConn() != nil {
 		t.Error("Connect() built a gchatmeow client despite missing cookies")
 	}

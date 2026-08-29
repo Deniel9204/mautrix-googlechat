@@ -466,22 +466,69 @@ func (c *Client) refreshXSRFToken(ctx context.Context) error {
 	return nil
 }
 
+// xsrfRefreshAuthFailuresBeforeGivingUp is how many CONSECUTIVE authentication
+// failures the refresh loop tolerates before declaring the session dead.
+//
+// Two, not one, deliberately. The signal is Google serving the sign-in page,
+// which is definitive when it is real -- it is the same check login uses to
+// validate a fresh cookie set -- but a single spurious one would flip
+// IsLoggedIn to false on a healthy session and start rejecting the user's
+// outbound messages. Requiring two consecutive costs one more refresh interval
+// of delay and removes that class of false alarm.
+const xsrfRefreshAuthFailuresBeforeGivingUp = 2
+
 // xsrfRefreshLoop periodically refreshes the XSRF token every
-// xsrfRefreshInterval until ctx is cancelled. A refresh failure is logged and
-// ignored: the connection's own Listen/RPC paths surface a genuinely dead
-// session through the supervision ladder, so this best-effort timer must not
-// itself tear anything down.
+// xsrfRefreshInterval until ctx is cancelled.
+//
+// An ordinary refresh failure is logged and ignored: the connection's own
+// Listen/RPC paths surface a broken session through the supervision ladder, so
+// this best-effort timer must not tear anything down for a network blip.
+//
+// An AUTHENTICATION failure is different, and is the one thing this loop is
+// uniquely placed to notice. Google answering /mole/world with the sign-in
+// page means the cookies are dead, full stop -- it is exactly what login
+// checks to validate a cookie set. Without this the bridge finds out only when
+// the webchannel next happens to fail, which on an otherwise idle account can
+// be a long time, and the user meanwhile believes they are connected.
+//
+// On confirmation the loop reports bad credentials AND disconnects. Both
+// halves are required: reporting alone would leave a live channel behind a
+// dead state, and disconnecting alone would leave the user with no explanation.
 func (c *Client) xsrfRefreshLoop(ctx context.Context) {
 	ticker := time.NewTicker(c.xsrfRefreshInterval)
 	defer ticker.Stop()
+	authFails := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := c.refreshXSRFToken(ctx); err != nil && ctx.Err() == nil {
-				log.Warn().Err(err).Msg("gchatmeow: periodic XSRF refresh failed")
+			err := c.refreshXSRFToken(ctx)
+			if err == nil {
+				authFails = 0
+				continue
 			}
+			if ctx.Err() != nil {
+				return
+			}
+			if !IsAuthError(err) {
+				// A blip, not a verdict. Reset, so only CONSECUTIVE auth
+				// failures accumulate.
+				authFails = 0
+				log.Warn().Err(err).Msg("gchatmeow: periodic XSRF refresh failed")
+				continue
+			}
+			authFails++
+			if authFails < xsrfRefreshAuthFailuresBeforeGivingUp {
+				log.Warn().Err(err).Int("consecutive", authFails).
+					Msg("gchatmeow: XSRF refresh was rejected as unauthenticated; waiting for confirmation")
+				continue
+			}
+			log.Warn().Err(err).Int("consecutive", authFails).
+				Msg("gchatmeow: XSRF refresh rejected as unauthenticated twice; treating the session as logged out")
+			c.emitState(ConnStateBadCredentials, err)
+			c.Disconnect()
+			return
 		}
 	}
 }

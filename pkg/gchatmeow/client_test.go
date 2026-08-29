@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -743,5 +744,109 @@ func TestClientUserAgent(t *testing.T) {
 	}
 	if got := c2.UserAgent(); !strings.Contains(got, "Chrome/"+latestChromeVersion+".0.0.0") {
 		t.Errorf("UserAgent() = %q, want Chrome version rewritten to %s", got, latestChromeVersion)
+	}
+}
+
+// --- xsrfRefreshLoop: noticing a Google-side logout -------------------------
+
+// newXSRFLoopClient builds a Client whose /mole/world points at srv and whose
+// refresh ticker fires immediately, so the loop can be driven synchronously.
+func newXSRFLoopClient(t *testing.T, srvURL string, rec *stateRecorder) *Client {
+	t.Helper()
+	c, err := NewClient(ClientOpts{Cookies: map[string]string{}})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	c.session.moleWorldBaseURL = srvURL
+	c.xsrfRefreshInterval = time.Millisecond
+	c.OnConnectionState = rec.record
+	return c
+}
+
+// TestXSRFRefreshLoopReportsAConfirmedLogout: Google answering /mole/world
+// with the sign-in page means the cookies are dead -- it is the same signal
+// login uses to validate them. Without this the bridge only finds out when the
+// webchannel next happens to fail, which on an idle account can be a long
+// time, and the user meanwhile believes they are connected.
+func TestXSRFRefreshLoopReportsAConfirmedLogout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(signInWizHTML))
+	}))
+	defer srv.Close()
+
+	rec := &stateRecorder{}
+	c := newXSRFLoopClient(t, srv.URL, rec)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { c.xsrfRefreshLoop(ctx); close(done) }()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("xsrfRefreshLoop never gave up on a session Google keeps rejecting")
+	}
+
+	states := rec.snapshot()
+	if len(states) != 1 || states[0] != ConnStateBadCredentials {
+		t.Fatalf("states = %v, want exactly one ConnStateBadCredentials", states)
+	}
+}
+
+// TestXSRFRefreshLoopToleratesOneAuthFailure is the false-alarm guard, and the
+// reason the threshold is two. A single spurious sign-in page must not flip
+// the bridge to logged-out on a healthy session -- that would start rejecting
+// the user's outbound messages for no reason.
+func TestXSRFRefreshLoopToleratesOneAuthFailure(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if atomic.AddInt32(&calls, 1) == 1 {
+			_, _ = w.Write([]byte(signInWizHTML)) // one bad answer...
+			return
+		}
+		_, _ = w.Write([]byte(loggedInWizHTML)) // ...then healthy again
+	}))
+	defer srv.Close()
+
+	rec := &stateRecorder{}
+	c := newXSRFLoopClient(t, srv.URL, rec)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { c.xsrfRefreshLoop(ctx); close(done) }()
+	<-done
+
+	if got := atomic.LoadInt32(&calls); got < 2 {
+		t.Fatalf("the loop made %d refresh attempts, want it to have retried past the first", got)
+	}
+	if states := rec.snapshot(); len(states) != 0 {
+		t.Errorf("states = %v, want none: one sign-in page is not a verdict", states)
+	}
+}
+
+// TestXSRFRefreshLoopIgnoresOrdinaryFailures: a network blip or a 500 must not
+// tear anything down, however many times it repeats. Only an authentication
+// failure is a verdict.
+func TestXSRFRefreshLoopIgnoresOrdinaryFailures(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	rec := &stateRecorder{}
+	c := newXSRFLoopClient(t, srv.URL, rec)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { c.xsrfRefreshLoop(ctx); close(done) }()
+	<-done
+
+	if states := rec.snapshot(); len(states) != 0 {
+		t.Errorf("states = %v, want none: a server error is not a logout", states)
 	}
 }
