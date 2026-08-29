@@ -829,3 +829,38 @@ func TestToMatrix_NoTextNoCardStillEmpty(t *testing.T) {
 		t.Errorf("got %d parts for an empty message, want 0", len(cm.Parts))
 	}
 }
+
+// TestToMatrix_ZeroLengthURLAnnotationOnlyMessageIsNotDropped is the
+// end-to-end regression test for a silent message loss.
+//
+// A message whose only content is a url_metadata annotation covering no text
+// (the shape a shared GIF arrives in) has an empty text_body, and convert.go
+// renders nothing for an annotation with length == 0. Before the fix that made
+// ToMatrix return ZERO parts, and mautrix-go's sendConvertedMessage loops over
+// the parts -- so it sent nothing and the message never appeared on Matrix at
+// all, with no error anywhere.
+func TestToMatrix_ZeroLengthURLAnnotationOnlyMessageIsNotDropped(t *testing.T) {
+	const gifURL = "https://tenor.com/view/example-gif-12345"
+	mc := msgconv.New()
+	msg := &pb.Message{
+		TextBody: proto.String(""),
+		Annotations: []*pb.Annotation{{
+			Length: proto.Int32(0),
+			Metadata: &pb.Annotation_UrlMetadata{UrlMetadata: &pb.UrlMetadata{
+				Url:      &pb.Url{Url: proto.String(gifURL)},
+				ImageUrl: proto.String("https://media.example.com/example.gif"),
+			}},
+		}},
+	}
+
+	cm, _ := mc.ToMatrix(context.Background(), msg, false, nil)
+	if cm == nil {
+		t.Fatal("ToMatrix returned nil")
+	}
+	if len(cm.Parts) != 1 {
+		t.Fatalf("got %d parts, want 1 -- zero parts means mautrix-go sends nothing and the message is silently dropped", len(cm.Parts))
+	}
+	if got := cm.Parts[0].Content.Body; got != gifURL {
+		t.Errorf("body = %q, want the URL %q", got, gifURL)
+	}
+}

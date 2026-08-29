@@ -39,11 +39,12 @@ const (
 //     are downloaded over HTTP by the CALLER, becoming a SEPARATE attachment
 //     message part (image/file), not a body append. url_metadata's
 //     should_not_render skip and image_url-else-url.url precedence are real,
-//     but they gate that AttachmentURL/HTTP-download path (only
-//     upload_metadata is handled there; a generic url_metadata attachment
-//     download needs an HTTP fetch of an arbitrary external URL, out of
-//     scope for this text-only, no-HTTP package). They do NOT gate a
-//     text-body append, because no such append exists for url_metadata.
+//     but they gate that download path, not a text-body append.
+//   - url_metadata that covers a span of text (length > 0) is still never
+//     appended here: convert.go's renderURL wraps that existing span in an
+//     inline <a href>, so appending would render the same URL twice. That is
+//     the double-render hazard this section was written about, and it is
+//     exactly what the length check below preserves.
 //   - Only video_call_metadata, drive_metadata, and youtube_metadata mutate
 //     the body, unconditionally, which is what this function does.
 //   - gchatfmt's OWN existing renderURL (convert.go) is a THIRD,
@@ -53,11 +54,14 @@ const (
 //     not this function). It never adds new text to the body, only HTML
 //     markup around existing text.
 //
-// Because url_metadata's URL is never appended to the body, there is no
-// double-render hazard to guard against for it: AppendLinkAnnotations simply
-// never touches url_metadata (the default case below), so gchatfmt.Parse's
-// inline rendering of a DO_NOT_RENDER url_metadata span is the only rendering
-// url_metadata ever gets from this package.
+// The one url_metadata case that IS appended is the complement: an annotation
+// covering NO text (length == 0). Its URL appears nowhere in text_body and
+// convert.go refuses to render it (inlineURLChip requires length > 0), so
+// without an append the link is invisible -- and when text_body is empty too,
+// ToMatrix produces zero parts and mautrix-go sends nothing at all, silently
+// dropping the whole message. Because the two gates are exact complements
+// (length > 0 renders inline, length == 0 appends), no annotation can ever be
+// rendered by both.
 //
 // # Fidelity notes
 //
@@ -94,6 +98,17 @@ func AppendLinkAnnotations(text string, annotations []*pb.Annotation) string {
 		case a.GetYoutubeMetadata() != nil:
 			id := a.GetYoutubeMetadata().GetId()
 			checkAgainst, appendURL = id, youtubeWatchURL(id)
+		case a.GetUrlMetadata() != nil && a.GetLength() == 0:
+			// A link chip attached to the message rather than to a span. See
+			// the doc comment: this is the only url_metadata shape appended,
+			// and it is what stops a message whose sole content is such an
+			// annotation from vanishing entirely.
+			//
+			// should_not_render is deliberately NOT consulted. It asks for the
+			// preview CARD to be suppressed, and honouring it here would trade
+			// a redundant link for a lost message.
+			u := a.GetUrlMetadata().GetUrl().GetUrl()
+			checkAgainst, appendURL = u, u
 		default:
 			continue
 		}
