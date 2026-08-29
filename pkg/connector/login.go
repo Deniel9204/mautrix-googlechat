@@ -164,11 +164,18 @@ func (gl *GChatLogin) Start(_ context.Context) (*bridgev2.LoginStep, error) {
 			"https://github.com/Deniel9204/mautrix-googlechat/blob/main/docs/authentication.md",
 		CookiesParams: &bridgev2.LoginCookiesParams{
 			URL: "https://chat.google.com/",
-			// The UA a webview client should browse with: the same one the
-			// bridge replays for a session that supplies none, so cookies are
-			// minted and replayed under one fingerprint.
-			UserAgent: gchatmeow.DefaultUserAgent(),
-			Fields:    loginCookieFields(),
+			// CookiesParams.UserAgent is deliberately NOT set. It would tell a
+			// webview-based client to browse Google's sign-in under this UA,
+			// but gchatmeow's default is a Windows Chrome string -- forcing it
+			// onto a client whose actual engine is a different Chromium on a
+			// different OS is a browser fingerprint mismatch, exactly what
+			// trips Google's "this browser may not be secure" block during
+			// sign-in. gmessages, which logs into the same google.com cookie
+			// family via a webview, sets no UserAgent here for the same reason.
+			// The session should be MINTED under the client's own real UA;
+			// that real UA is still captured and REPLAYED, via the optional
+			// user_agent request-header field above, so nothing is lost.
+			Fields: loginCookieFields(),
 			// Google's login lives on accounts.google.com; landing back on
 			// chat.google.com means auth finished, so a webview client may
 			// close itself once the cookies are also collected. The framework

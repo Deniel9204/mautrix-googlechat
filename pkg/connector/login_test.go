@@ -40,11 +40,13 @@ func TestLoginStartStepShape(t *testing.T) {
 	if step.CookiesParams.URL != "https://chat.google.com/" {
 		t.Errorf("CookiesParams.URL = %q, want https://chat.google.com/", step.CookiesParams.URL)
 	}
-	// The UA a webview client browses with must be the SAME one the bridge
-	// replays for a session that supplies none -- one fingerprint, mint to
-	// replay.
-	if step.CookiesParams.UserAgent != gchatmeow.DefaultUserAgent() {
-		t.Errorf("CookiesParams.UserAgent = %q, want gchatmeow's default", step.CookiesParams.UserAgent)
+	// CookiesParams.UserAgent must be EMPTY: setting it forces a foreign UA
+	// onto a webview client's own engine during Google sign-in, a fingerprint
+	// mismatch that trips Google's browser-security block. The session is
+	// minted under the client's real UA and that UA is captured for replay via
+	// the user_agent request-header field instead.
+	if step.CookiesParams.UserAgent != "" {
+		t.Errorf("CookiesParams.UserAgent = %q, want empty (a forced UA breaks webview sign-in)", step.CookiesParams.UserAgent)
 	}
 	// The auto-close pattern must match where auth LANDS and not where it
 	// happens: closing on accounts.google.com would cut the login short.
