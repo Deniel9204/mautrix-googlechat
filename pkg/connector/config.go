@@ -34,6 +34,23 @@ type Config struct {
 	// cannot determine ahead of time.
 	DisableOutboundMedia bool `yaml:"disable_outbound_media"`
 
+	// DisableInlineURLMedia turns off downloading and inlining the media a
+	// url_metadata annotation points at (a shared GIF, a link preview image).
+	// It is worth an operator switch because, unlike every other download this
+	// bridge does, the host is chosen by a REMOTE PARTY: fetching it reveals
+	// the bridge's IP address and the timing of message receipt to whoever
+	// that host belongs to. The fetch is hardened (https-only, no proxy, no
+	// cookies, internal addresses refused -- gchatmeow/external.go) and gated
+	// on a narrow predicate (media.go's inlineableURLMedia), but an operator
+	// who does not want that egress at all can stop it here.
+	//
+	// Left false by default: without it a shared GIF arrives as a bare link,
+	// which is the thing the feature exists to fix. Turning it on never loses
+	// a message -- the URL is always in the body regardless
+	// (gchatfmt.AppendLinkAnnotations), so this only chooses between "link"
+	// and "link plus inline media".
+	DisableInlineURLMedia bool `yaml:"disable_inline_url_media"`
+
 	displaynameTemplate *template.Template `yaml:"-"`
 }
 
@@ -74,4 +91,5 @@ func upgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Str, "displayname_template")
 	helper.Copy(configupgrade.Int, "initial_chat_sync")
 	helper.Copy(configupgrade.Bool, "disable_outbound_media")
+	helper.Copy(configupgrade.Bool, "disable_inline_url_media")
 }

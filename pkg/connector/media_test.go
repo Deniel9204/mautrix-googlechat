@@ -36,7 +36,16 @@ import (
 type fakeMediaFetcher struct {
 	attachmentURLFn      func(meta *pb.UploadMetadata) (string, bool, error)
 	downloadAttachmentFn func(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error)
+	downloadExternalFn   func(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error)
 	maxFileSizeVal       int64
+	disableInlineURL     bool
+
+	// Which fetcher each path actually used. The url_metadata path MUST use
+	// downloadExternal: downloadAttachment's client keeps an env proxy and
+	// permits plain http, concessions that are only safe for Google's own
+	// endpoint (gchatmeow/external.go).
+	usedDownloadAttachment bool
+	usedDownloadExternal   bool
 }
 
 func (f *fakeMediaFetcher) attachmentURL(meta *pb.UploadMetadata) (string, bool, error) {
@@ -47,13 +56,24 @@ func (f *fakeMediaFetcher) attachmentURL(meta *pb.UploadMetadata) (string, bool,
 }
 
 func (f *fakeMediaFetcher) downloadAttachment(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
+	f.usedDownloadAttachment = true
 	if f.downloadAttachmentFn != nil {
 		return f.downloadAttachmentFn(ctx, urlStr, maxSize)
 	}
 	return nil, "", "", errors.New("fakeMediaFetcher: downloadAttachmentFn not set")
 }
 
+func (f *fakeMediaFetcher) downloadExternal(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
+	f.usedDownloadExternal = true
+	if f.downloadExternalFn != nil {
+		return f.downloadExternalFn(ctx, urlStr, maxSize)
+	}
+	return nil, "", "", errors.New("fakeMediaFetcher: downloadExternalFn not set")
+}
+
 func (f *fakeMediaFetcher) maxFileSize() int64 { return f.maxFileSizeVal }
+
+func (f *fakeMediaFetcher) inlineURLMediaEnabled() bool { return !f.disableInlineURL }
 
 var _ mediaFetcher = (*fakeMediaFetcher)(nil)
 
@@ -583,5 +603,307 @@ func TestConvertMessageToMatrix_AttachmentPartsDoNotGetTextMentions(t *testing.T
 	}
 	if cm.Parts[1].Content.Mentions != nil {
 		t.Errorf("attachment part Content.Mentions = %+v, want nil (only the text part should ping)", cm.Parts[1].Content.Mentions)
+	}
+}
+
+// --- url_metadata (inline external media) ----------------------------------
+
+// makeURLAnnotation builds a url_metadata annotation. length is load-bearing:
+// > 0 means it decorates text already in the body, == 0 means a chip attached
+// to the message itself.
+func makeURLAnnotation(pageURL, imageURL, mimeType string, length int32, shouldNotRender bool) *pb.Annotation {
+	return &pb.Annotation{
+		Length: proto.Int32(length),
+		Metadata: &pb.Annotation_UrlMetadata{
+			UrlMetadata: &pb.UrlMetadata{
+				Url:             &pb.Url{Url: proto.String(pageURL)},
+				ImageUrl:        proto.String(imageURL),
+				MimeType:        proto.String(mimeType),
+				ShouldNotRender: proto.Bool(shouldNotRender),
+			},
+		},
+	}
+}
+
+// TestInlineableURLMedia is the anti-scope-creep control. Every reference
+// client fetches EVERY url_metadata URL, which makes the bridge a link
+// prefetcher that hands the operator's IP to any host a remote party names.
+// This gate must stay narrow, and in particular must not fire on an ordinary
+// pasted link.
+func TestInlineableURLMedia(t *testing.T) {
+	tests := []struct {
+		name string
+		ann  *pb.Annotation
+		want bool
+	}{
+		{
+			// The shape an ordinary in-sentence link arrives in: it covers
+			// text, and declares no media.
+			name: "ordinary pasted link is not fetched",
+			ann:  makeURLAnnotation("https://example.com/page", "", "", 24, false),
+			want: false,
+		},
+		{
+			name: "a preview image on a link that covers text is not fetched",
+			ann:  makeURLAnnotation("https://example.com/page", "https://example.com/preview.png", "", 24, false),
+			want: false,
+		},
+		{
+			name: "should_not_render is honoured",
+			ann:  makeURLAnnotation("https://example.com/g", "https://media.example.com/a.gif", "image/gif", 0, true),
+			want: false,
+		},
+		{
+			name: "no url_metadata at all",
+			ann:  makeUploadAnnotation("TOK", "image/png", "a.png"),
+			want: false,
+		},
+		{
+			name: "declared image mime type",
+			ann:  makeURLAnnotation("https://example.com/g", "https://media.example.com/a.gif", "image/gif", 24, false),
+			want: true,
+		},
+		{
+			name: "declared video mime type",
+			ann:  makeURLAnnotation("https://example.com/g", "https://media.example.com/a.mp4", "video/mp4", 24, false),
+			want: true,
+		},
+		{
+			name: "preview image on a chip covering no text",
+			ann:  makeURLAnnotation("https://example.com/g", "https://media.example.com/a.gif", "", 0, false),
+			want: true,
+		},
+		{
+			name: "annotation typed IMAGE by the server",
+			ann: func() *pb.Annotation {
+				a := makeURLAnnotation("https://example.com/g", "https://media.example.com/a", "", 24, false)
+				a.Type = pb.AnnotationType_IMAGE.Enum()
+				return a
+			}(),
+			want: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := inlineableURLMedia(tc.ann); got != tc.want {
+				t.Errorf("inlineableURLMedia = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestConvertAttachmentsToMatrix_URLMediaBecomesImagePart: an inlineable
+// url_metadata annotation is downloaded and reuploaded exactly like an
+// upload_metadata attachment.
+func TestConvertAttachmentsToMatrix_URLMediaBecomesImagePart(t *testing.T) {
+	pngBytes := onePixelPNG(t)
+	msg := &pb.Message{
+		Annotations: []*pb.Annotation{
+			makeURLAnnotation("https://example.com/view/gif", "https://media.example.com/a.gif", "", 0, false),
+		},
+	}
+	var gotURL string
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(_ context.Context, urlStr string, _ int64) ([]byte, string, string, error) {
+			gotURL = urlStr
+			return pngBytes, "image/png", "a.gif", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+
+	if len(parts) != 1 {
+		t.Fatalf("len(parts) = %d, want 1", len(parts))
+	}
+	// image_url is preferred over the page url: it is the media itself.
+	if gotURL != "https://media.example.com/a.gif" {
+		t.Errorf("fetched %q, want the image_url", gotURL)
+	}
+	if parts[0].ID != gcid.MakeAttachmentPartID(0) {
+		t.Errorf("part.ID = %q, want att_0", parts[0].ID)
+	}
+	if parts[0].Content.MsgType != event.MsgImage {
+		t.Errorf("MsgType = %q, want m.image", parts[0].Content.MsgType)
+	}
+	if !bytes.Equal(uploaded, pngBytes) {
+		t.Error("the reuploaded bytes are not the fetched bytes")
+	}
+}
+
+// TestConvertOneURLMedia_UsesExternalFetcherNotAttachmentFetcher is the
+// security control. downloadAttachment's client keeps an env proxy (which
+// reduces the guarded dialer to a no-op) and permits plain http -- both only
+// safe for Google's own fixed endpoint. A remote-party URL must never go
+// through it.
+func TestConvertOneURLMedia_UsesExternalFetcherNotAttachmentFetcher(t *testing.T) {
+	msg := &pb.Message{
+		Annotations: []*pb.Annotation{
+			makeURLAnnotation("https://example.com/view/gif", "https://media.example.com/a.gif", "image/gif", 0, false),
+		},
+	}
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return onePixelPNG(t), "image/png", "a.gif", nil
+		},
+		downloadAttachmentFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return onePixelPNG(t), "image/png", "a.gif", nil
+		},
+	}
+	var uploaded []byte
+	convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+
+	if media.usedDownloadAttachment {
+		t.Error("a remote-party-chosen URL was fetched with downloadAttachment (env proxy, http permitted)")
+	}
+	if !media.usedDownloadExternal {
+		t.Error("downloadExternal was never called")
+	}
+}
+
+// TestConvertOneURLMedia_NonMediaContentTypeSkipped: the URL was chosen by a
+// remote party, so only what we asked for is accepted -- tighter than the
+// attachment path's text/html-only rejection.
+func TestConvertOneURLMedia_NonMediaContentTypeSkipped(t *testing.T) {
+	for _, mimeType := range []string{"text/html", "application/pdf", "application/octet-stream", ""} {
+		t.Run(mimeType, func(t *testing.T) {
+			msg := &pb.Message{
+				Annotations: []*pb.Annotation{
+					makeURLAnnotation("https://example.com/p", "https://example.com/p.bin", "", 0, false),
+				},
+			}
+			media := &fakeMediaFetcher{
+				downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+					return []byte("not media"), mimeType, "p.bin", nil
+				},
+			}
+			var uploaded []byte
+			parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+			if len(parts) != 0 {
+				t.Errorf("len(parts) = %d, want 0 for content type %q", len(parts), mimeType)
+			}
+		})
+	}
+}
+
+// TestConvertOneURLMedia_FetchFailureProducesNoPart: a third-party host being
+// down must cost the media part and nothing else. The link itself survives in
+// the body via AppendLinkAnnotations, which is what stops the message
+// vanishing (see the gchatfmt tests).
+func TestConvertOneURLMedia_FetchFailureProducesNoPart(t *testing.T) {
+	msg := &pb.Message{
+		Annotations: []*pb.Annotation{
+			makeURLAnnotation("https://example.com/g", "https://media.example.com/a.gif", "image/gif", 0, false),
+		},
+	}
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return nil, "", "", errors.New("tenor is down")
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+	if len(parts) != 0 {
+		t.Fatalf("len(parts) = %d, want 0", len(parts))
+	}
+}
+
+// TestConvertAttachmentsToMatrix_MixedUploadAndURLPartIDsAreSequential:
+// gcid.MakeAttachmentPartID is FROZEN, so att_<n> must stay ONE namespace
+// across both annotation kinds. A second counter would emit duplicate IDs.
+func TestConvertAttachmentsToMatrix_MixedUploadAndURLPartIDsAreSequential(t *testing.T) {
+	pngBytes := onePixelPNG(t)
+	msg := &pb.Message{
+		Annotations: []*pb.Annotation{
+			makeUploadAnnotation("TOK1", "image/png", "first.png"),
+			makeURLAnnotation("https://example.com/g", "https://media.example.com/a.gif", "image/gif", 0, false),
+			makeUploadAnnotation("TOK2", "image/png", "second.png"),
+		},
+	}
+	media := &fakeMediaFetcher{
+		downloadAttachmentFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return pngBytes, "image/png", "upload.png", nil
+		},
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return pngBytes, "image/gif", "external.gif", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+
+	if len(parts) != 3 {
+		t.Fatalf("len(parts) = %d, want 3", len(parts))
+	}
+	seen := map[networkid.PartID]bool{}
+	for i, p := range parts {
+		if want := gcid.MakeAttachmentPartID(i); p.ID != want {
+			t.Errorf("parts[%d].ID = %q, want %q", i, p.ID, want)
+		}
+		if seen[p.ID] {
+			t.Errorf("duplicate part ID %q", p.ID)
+		}
+		seen[p.ID] = true
+	}
+}
+
+// TestConvertOneURLMedia_DeclaredDimensionsRescueAnUndecodableFormat: Tenor
+// commonly serves webp and mp4, for which no decoder is registered, so
+// image.DecodeConfig fails and the dimensions would otherwise be 0 -- leaving
+// clients to render an unsized placeholder.
+func TestConvertOneURLMedia_DeclaredDimensionsRescueAnUndecodableFormat(t *testing.T) {
+	ann := makeURLAnnotation("https://example.com/g", "https://media.example.com/a.webp", "image/webp", 0, false)
+	ann.GetUrlMetadata().IntImageWidth = proto.Int32(480)
+	ann.GetUrlMetadata().IntImageHeight = proto.Int32(270)
+	msg := &pb.Message{Annotations: []*pb.Annotation{ann}}
+
+	media := &fakeMediaFetcher{
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return []byte("RIFF....WEBPnot-really"), "image/webp", "a.webp", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+	if len(parts) != 1 {
+		t.Fatalf("len(parts) = %d, want 1", len(parts))
+	}
+	if got := parts[0].Content.Info; got.Width != 480 || got.Height != 270 {
+		t.Errorf("Info = {Width:%d Height:%d}, want {480 270} from the annotation", got.Width, got.Height)
+	}
+}
+
+// TestConvertAttachmentsToMatrix_InlineURLMediaCanBeDisabled: the operator
+// switch must stop the outbound request to the third-party host entirely --
+// not merely discard its result.
+func TestConvertAttachmentsToMatrix_InlineURLMediaCanBeDisabled(t *testing.T) {
+	msg := &pb.Message{
+		Annotations: []*pb.Annotation{
+			makeURLAnnotation("https://example.com/g", "https://media.example.com/a.gif", "image/gif", 0, false),
+		},
+	}
+	media := &fakeMediaFetcher{
+		disableInlineURL: true,
+		downloadExternalFn: func(context.Context, string, int64) ([]byte, string, string, error) {
+			return onePixelPNG(t), "image/gif", "a.gif", nil
+		},
+	}
+	var uploaded []byte
+	parts := convertAttachmentsToMatrix(context.Background(), testPortal(), uploadIntentRecordingBody(&uploaded), msg, media)
+
+	if len(parts) != 0 {
+		t.Errorf("len(parts) = %d, want 0 when inline URL media is disabled", len(parts))
+	}
+	if media.usedDownloadExternal {
+		t.Error("the third-party host was contacted despite the operator disabling inline URL media")
+	}
+}
+
+// TestInlineURLMediaEnabledDefaultsOn pins the default: a bare client (and so
+// a bridge whose config predates the option) inlines media.
+func TestInlineURLMediaEnabledDefaultsOn(t *testing.T) {
+	if !(&GChatClient{}).inlineURLMediaEnabled() {
+		t.Error("inlineURLMediaEnabled() = false for a nil Main, want true")
+	}
+	c := &GChatClient{Main: &GChatConnector{Config: Config{DisableInlineURLMedia: true}}}
+	if c.inlineURLMediaEnabled() {
+		t.Error("inlineURLMediaEnabled() = true despite DisableInlineURLMedia")
 	}
 }

@@ -80,8 +80,17 @@ type mediaFetcher interface {
 	// downloadAttachment mirrors gchatmeow.Client.DownloadAttachment: fetches
 	// the file, capped at maxSize.
 	downloadAttachment(ctx context.Context, urlStr string, maxSize int64) (data []byte, mimeType string, filename string, err error)
+	// downloadExternal mirrors gchatmeow.DownloadExternalMedia: a hardened,
+	// cookie-less, proxy-less fetch of a url_metadata annotation's
+	// REMOTE-PARTY-CHOSEN URL. Deliberately NOT downloadAttachment, whose
+	// client keeps an env proxy and permits plain http -- concessions that
+	// are only safe for Google's own fixed endpoint (external.go).
+	downloadExternal(ctx context.Context, urlStr string, maxSize int64) (data []byte, mimeType string, filename string, err error)
 	// maxFileSize is the homeserver's media_config upload_size cap.
 	maxFileSize() int64
+	// inlineURLMediaEnabled reports whether the operator allows fetching
+	// remote-party-chosen media at all (Config.DisableInlineURLMedia).
+	inlineURLMediaEnabled() bool
 }
 
 var _ mediaFetcher = (*GChatClient)(nil)
@@ -112,6 +121,20 @@ func (c *GChatClient) downloadAttachment(ctx context.Context, urlStr string, max
 		return nil, "", "", errors.New("googlechat: not connected")
 	}
 	return conn.DownloadAttachment(ctx, urlStr, maxSize)
+}
+
+// downloadExternal implements mediaFetcher. Unlike its siblings there is no
+// c.getConn() check, and that is the point: DownloadExternalMedia is
+// package-level with no session, so no Google credential can reach a
+// third-party host. It therefore works even while disconnected.
+func (c *GChatClient) downloadExternal(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
+	return gchatmeow.DownloadExternalMedia(ctx, urlStr, maxSize)
+}
+
+// inlineURLMediaEnabled implements mediaFetcher. Defaults to ENABLED when
+// Main is nil, matching maxFileSize's bare-*GChatClient test fallback.
+func (c *GChatClient) inlineURLMediaEnabled() bool {
+	return c.Main == nil || !c.Main.Config.DisableInlineURLMedia
 }
 
 // maxFileSize reads this login's connector-wide cap (connector.go's
@@ -180,20 +203,114 @@ func convertAttachmentsToMatrix(ctx context.Context, portal *bridgev2.Portal, in
 		return nil
 	}
 	var parts []*bridgev2.ConvertedMessagePart
+	// ONE counter across both annotation kinds: gcid.MakeAttachmentPartID is
+	// FROZEN, so att_<n> must stay a single namespace. Two counters would
+	// produce duplicate part IDs on a message carrying both kinds.
 	index := 0
 	for _, ann := range msg.GetAnnotations() {
-		meta := ann.GetUploadMetadata()
-		if meta == nil {
+		var (
+			part *bridgev2.ConvertedMessagePart
+			ok   bool
+		)
+		switch {
+		case ann.GetUploadMetadata() != nil:
+			partIndex := index
+			index++
+			part, ok = convertOneAttachment(ctx, portal, intent, ann.GetUploadMetadata(), partIndex, media)
+		case media.inlineURLMediaEnabled() && inlineableURLMedia(ann):
+			partIndex := index
+			index++
+			part, ok = convertOneURLMedia(ctx, portal, intent, ann.GetUrlMetadata(), partIndex, media)
+		default:
 			continue
 		}
-		partIndex := index
-		index++
-		part, ok := convertOneAttachment(ctx, portal, intent, meta, partIndex, media)
 		if ok {
 			parts = append(parts, part)
 		}
 	}
 	return parts
+}
+
+// inlineableURLMedia reports whether a url_metadata annotation names media
+// worth fetching and inlining.
+//
+// Deliberately NARROWER than every reference client. purple-googlechat, the
+// Python upstream and megabridge all fetch EVERY url_metadata URL, which turns
+// the bridge into a link prefetcher: it hands the operator's IP, and the
+// timing of message receipt, to any host a remote party names -- on live
+// traffic AND on every backfill. Each signal accepted below is one an ordinary
+// pasted link does not carry, so this is self-disabling rather than opt-out.
+//
+// The trade is explicit: if Google moves GIFs to a shape none of these signals
+// match, this bridge stops inlining them while purple keeps working. That is
+// the opposite of the usual follow-the-drift-authority rule, so a future
+// protocol-drift investigation should start here. TestLiveDumpURLMediaAnnotations
+// (pkg/gchatmeow/live_test.go) prints exactly the fields needed to widen it.
+func inlineableURLMedia(a *pb.Annotation) bool {
+	m := a.GetUrlMetadata()
+	if m == nil || m.GetShouldNotRender() {
+		return false
+	}
+	// The server said so outright.
+	if a.GetType() == pb.AnnotationType_IMAGE {
+		return true
+	}
+	// The server declared a media type.
+	if t := m.GetMimeType(); strings.HasPrefix(t, "image/") || strings.HasPrefix(t, "video/") {
+		return true
+	}
+	// A preview image on an annotation covering no text: a chip attached to
+	// the message rather than decorating a pasted link. This is the shape
+	// purple keys its own Tenor handling on.
+	return m.GetImageUrl() != "" && a.GetLength() == 0
+}
+
+// convertOneURLMedia builds an att_<index> part from a url_metadata
+// annotation, or reports ok=false to skip it. A skip is not a lost message:
+// AppendLinkAnnotations (pkg/msgconv/gchatfmt) has already put the URL in the
+// body, so the message still delivers as a link.
+func convertOneURLMedia(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, meta *pb.UrlMetadata, index int, media mediaFetcher) (*bridgev2.ConvertedMessagePart, bool) {
+	log := zerolog.Ctx(ctx)
+
+	// image_url is the rendered media; url is the page it came from. Prefer
+	// the former, matching every reference client.
+	src := meta.GetImageUrl()
+	if src == "" {
+		src = meta.GetUrl().GetUrl()
+	}
+	if src == "" {
+		return nil, false
+	}
+
+	data, mimeType, filename, err := media.downloadExternal(ctx, src, media.maxFileSize())
+	if err != nil {
+		// Third-party host: down, 404, oversize, or a blocked internal
+		// address. All of them are ordinary and none should cost the message.
+		log.Debug().Err(err).Msg("googlechat: failed to fetch external media, leaving the link in the body")
+		return nil, false
+	}
+
+	// TIGHTER than convertOneAttachment's text/html check, because this URL
+	// was chosen by a remote party: accept only what we asked for.
+	if !strings.HasPrefix(mimeType, "image/") && !strings.HasPrefix(mimeType, "video/") {
+		log.Debug().Str("mime", mimeType).Msg("googlechat: external URL was not media, leaving the link in the body")
+		return nil, false
+	}
+
+	return buildMediaPart(ctx, portal, intent, mediaPartInput{
+		data:     data,
+		mimeType: mimeType,
+		filename: filename,
+		// UrlMetadata has no content_name, so there is no annotation-supplied
+		// fallback; buildMediaPart synthesises one from the msgtype.
+		//
+		// Tenor commonly serves webp and mp4, for which no decoder is
+		// registered, so seed the dimensions the annotation declared -- used
+		// only when decoding fails.
+		fallbackWidth:  int(meta.GetIntImageWidth()),
+		fallbackHeight: int(meta.GetIntImageHeight()),
+		index:          index,
+	})
 }
 
 // convertOneAttachment builds a single att_<index> ConvertedMessagePart from
@@ -241,14 +358,48 @@ func convertOneAttachment(ctx context.Context, portal *bridgev2.Portal, intent b
 		return nil, false
 	}
 
+	return buildMediaPart(ctx, portal, intent, mediaPartInput{
+		data:        data,
+		mimeType:    mimeType,
+		filename:    filename,
+		contentName: meta.GetContentName(),
+		index:       index,
+	})
+}
+
+// mediaPartInput is buildMediaPart's argument set. A struct rather than seven
+// positional parameters, several of which are strings that would be trivial to
+// transpose.
+type mediaPartInput struct {
+	data     []byte
+	mimeType string
+	filename string
+	// contentName is the annotation's own declared name, used when the
+	// download supplied nothing usable. Empty for url_metadata, which has no
+	// such field.
+	contentName string
+	// fallbackWidth/Height seed an image's dimensions when the bytes cannot be
+	// decoded -- only url_metadata carries declared dimensions.
+	fallbackWidth, fallbackHeight int
+	index                         int
+}
+
+// buildMediaPart turns downloaded bytes into an att_<index> Matrix part,
+// reuploading them to the homeserver. Shared by the upload_metadata and
+// url_metadata paths so both run one tested code path; each caller does its
+// own fetch and its own content-type policy first.
+func buildMediaPart(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, in mediaPartInput) (*bridgev2.ConvertedMessagePart, bool) {
+	log := zerolog.Ctx(ctx)
+	data, mimeType, filename := in.data, in.mimeType, in.filename
+
 	msgType := msgTypeFromMime(mimeType)
 
 	// Filename fallback when the download gave us nothing usable (empty, or
 	// literally the request path's last segment "get_attachment_url" -- see
 	// attachmentFilename's doc comment, download.go).
 	if filename == "" || filename == "get_attachment_url" {
-		if name := meta.GetContentName(); name != "" {
-			filename = name
+		if in.contentName != "" {
+			filename = in.contentName
 		} else {
 			filename = string(msgType) + exmime.ExtensionFromMimetype(mimeType)
 		}
@@ -272,6 +423,11 @@ func convertOneAttachment(ctx context.Context, portal *bridgev2.Portal, intent b
 		if cfg, _, decErr := image.DecodeConfig(bytes.NewReader(data)); decErr == nil {
 			content.Info.Width = cfg.Width
 			content.Info.Height = cfg.Height
+		} else {
+			// Only url_metadata supplies these, and only they can rescue a
+			// format with no registered decoder (webp is the common one).
+			content.Info.Width = in.fallbackWidth
+			content.Info.Height = in.fallbackHeight
 		}
 	}
 
@@ -302,7 +458,7 @@ func convertOneAttachment(ctx context.Context, portal *bridgev2.Portal, intent b
 	content.File = file
 
 	return &bridgev2.ConvertedMessagePart{
-		ID:      gcid.MakeAttachmentPartID(index),
+		ID:      gcid.MakeAttachmentPartID(in.index),
 		Type:    event.EventMessage,
 		Content: content,
 	}, true

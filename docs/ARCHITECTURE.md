@@ -216,7 +216,20 @@ Key metadata payloads: `FormatMetadata` (BOLD/ITALIC/UNDERLINE/STRIKE/MONOSPACE/
 MONOSPACE_BLOCK/FONT_COLOR/BULLETED_LIST[_ITEM] → HTML), `UserMentionMetadata`
 (`MENTION` → pill, `MENTION_ALL` → `@room`), `UrlMetadata` (links + previews),
 `UploadMetadata` (file attachments), plus `Drive`/`Youtube`/`VideoCall` metadata
-whose URLs are appended to the body (`gchatfmt/linkappend.go`). Outgoing format
+whose URLs are appended to the body (`gchatfmt/linkappend.go`).
+
+`UrlMetadata` splits on `length`, and the two halves are exact complements:
+`length > 0` decorates a span already in `text_body` and is rendered inline as
+`<a href>` by `gchatfmt/convert.go`; `length == 0` has its URL nowhere in the
+body, so `linkappend.go` appends it — without which a message whose only
+content is such an annotation converts to **zero parts** and is silently
+dropped. When the annotation also looks like media (`media.go`'s
+`inlineableURLMedia`), the target is downloaded and reuploaded as an extra
+image part. That download is the one fetch in this bridge whose host a REMOTE
+PARTY chooses, so it uses `gchatmeow/external.go` — https-only, no proxy, no
+cookies, internal addresses refused — and never `DownloadAttachment`, whose
+proxy exemption is only safe for Google's own fixed endpoint. Operators can
+turn it off with `disable_inline_url_media`. Outgoing format
 annotations set `chip_render_type=DO_NOT_RENDER`, and send/edit requests set
 `MessageInfo.accept_format_annotations=true` — **without that flag the server
 strips formatting.**

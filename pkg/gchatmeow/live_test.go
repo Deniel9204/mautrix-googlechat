@@ -1237,3 +1237,109 @@ func TestLiveGetMembersUnknownID(t *testing.T) {
 			"relying on it.")
 	}
 }
+
+// TestLiveDumpURLMediaAnnotations answers the four questions the inline-media
+// feature had to assume, in one run.
+//
+// pkg/connector's inlineableURLMedia decides what to fetch from three signals
+// -- annotation.type == IMAGE, url_metadata.mime_type, and image_url on an
+// annotation covering no text. Those were chosen from the reference clients'
+// behaviour and the proto, NOT from a capture, so if Google populates none of
+// them for a shared GIF the feature silently never fires. This prints exactly
+// the fields needed to confirm or widen that predicate.
+//
+// It also settles whether a GIF is a url_metadata annotation at all, rather
+// than a server-side upload_metadata, which would mean the existing attachment
+// path already handles it.
+//
+// Send yourself a GIF from Google Chat's own picker, then:
+//
+//	export GCHAT_LIVE_GROUP_ID='...'
+//	go test -tags 'goolm live' -run TestLiveDumpURLMediaAnnotations -v -count=1 ./pkg/gchatmeow/
+func TestLiveDumpURLMediaAnnotations(t *testing.T) {
+	cookies := liveCookies(t)
+	groupID := os.Getenv("GCHAT_LIVE_GROUP_ID")
+	if groupID == "" {
+		t.Skip("set GCHAT_LIVE_GROUP_ID to a conversation containing a shared GIF")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client, err := NewClient(ClientOpts{Cookies: cookies, UserAgent: os.Getenv("GCHAT_LIVE_UA")})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if err := client.FetchXSRFToken(ctx); err != nil {
+		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
+	}
+
+	var resp *pb.ListTopicsResponse
+	for _, isDM := range []bool{true, false} {
+		resp, err = client.ListTopics(ctx, &pb.ListTopicsRequest{
+			GroupId:           PartsToGroupID(groupID, isDM),
+			PageSizeForTopics: proto.Int32(40),
+		})
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatalf("list_topics failed for both DM and space forms: %v%s", err, errDetail(err))
+	}
+
+	urlAnns, uploadAnns := 0, 0
+	for _, topic := range resp.GetTopics() {
+		for _, msg := range topic.GetReplies() {
+			for _, a := range msg.GetAnnotations() {
+				if u := a.GetUploadMetadata(); u != nil {
+					uploadAnns++
+					// If a picker GIF shows up HERE, the existing attachment
+					// path already covers it and the url_metadata work does
+					// not apply to GIFs at all.
+					t.Logf("upload_metadata: content_type=%q has_name=%v",
+						u.GetContentType(), u.GetContentName() != "")
+					continue
+				}
+				m := a.GetUrlMetadata()
+				if m == nil {
+					continue
+				}
+				urlAnns++
+				// Hosts, never full URLs: this repo is public and live-test
+				// output gets pasted into issues. The host is what decides
+				// whether an allowlist would even be viable.
+				t.Logf("url_metadata: type=%v length=%d empty_text_body=%v", a.GetType(), a.GetLength(), msg.GetTextBody() == "")
+				t.Logf("    url_host=%s image_url_host=%s", urlHost(m.GetUrl().GetUrl()), urlHost(m.GetImageUrl()))
+				t.Logf("    mime_type=%q should_not_render=%v (present=%v) dims=%dx%d",
+					m.GetMimeType(), m.GetShouldNotRender(), m.ShouldNotRender != nil,
+					m.GetIntImageWidth(), m.GetIntImageHeight())
+				// The verdict, computed exactly as the connector would.
+				wouldInline := !m.GetShouldNotRender() &&
+					(a.GetType() == pb.AnnotationType_IMAGE ||
+						strings.HasPrefix(m.GetMimeType(), "image/") ||
+						strings.HasPrefix(m.GetMimeType(), "video/") ||
+						(m.GetImageUrl() != "" && a.GetLength() == 0))
+				t.Logf("    -> inlineableURLMedia would return %v", wouldInline)
+			}
+		}
+	}
+	t.Logf("SUMMARY: %d url_metadata annotations, %d upload_metadata annotations", urlAnns, uploadAnns)
+	if urlAnns == 0 {
+		t.Log("NOTE: no url_metadata annotations found. If this conversation definitely " +
+			"contains a GIF, then Google delivers picker GIFs as upload_metadata and the " +
+			"existing attachment path already handles them.")
+	}
+}
+
+// urlHost reduces a URL to its host so a probe can report where media comes
+// from without echoing a full, potentially identifying URL.
+func urlHost(rawURL string) string {
+	if rawURL == "" {
+		return "(unset)"
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return "(unparseable)"
+	}
+	return u.Host
+}
