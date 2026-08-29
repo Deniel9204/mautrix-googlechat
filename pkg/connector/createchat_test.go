@@ -692,7 +692,10 @@ func TestOtherMemberPicksThePeer(t *testing.T) {
 		{"no memberships", nil, ""},
 		{"only this login", []*pb.Membership{membership("112233")}, ""},
 		{
-			name:        "a membership naming nobody is skipped, not returned empty",
+			// Named for what it can actually observe: with only an
+			// unresolvable entry, both "skipped" and "returned empty" are the
+			// same value. The skip itself is pinned by the sibling case below.
+			name:        "a lone unresolvable entry yields no peer",
 			memberships: []*pb.Membership{{Id: &pb.MembershipId{MemberId: &pb.MemberId{}}}},
 			want:        "",
 		},

@@ -22,6 +22,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/matrix"
 
+	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
@@ -165,6 +166,15 @@ func TestValidationSentinelsAreNotConflated(t *testing.T) {
 		"ErrGhostUnidentified":                 ErrGhostUnidentified,
 	}
 	for nameA, a := range sentinels {
+		// Value, not pointer. As a pointer, errors.As inside
+		// bridgev2.RespError.Is stops matching and the comparison silently
+		// falls through to mautrix.RespError.Is, which compares ERRCODES --
+		// so distinct sentinels sharing a code would conflate, and `err == Err`
+		// would stop being a compile error. Asserting the errcodes are
+		// distinct does not catch that; asserting the type does.
+		if _, isValue := a.(bridgev2.RespError); !isValue {
+			t.Errorf("%s is %T, want a bridgev2.RespError VALUE", nameA, a)
+		}
 		if !errors.Is(a, a) {
 			t.Errorf("errors.Is(%s, %s) = false; the sentinel no longer matches itself", nameA, nameA)
 		}
@@ -176,5 +186,45 @@ func TestValidationSentinelsAreNotConflated(t *testing.T) {
 				t.Errorf("errors.Is(%s, %s) = true; two distinct rejections are indistinguishable", nameA, nameB)
 			}
 		}
+	}
+}
+
+// TestSelfDMByEmailKeepsTheServersAnswer: relabelling a 400 as a self-DM is a
+// DEDUCTION -- Google's response does not say "self-DM" -- so the server's own
+// body has to survive into the log and the provisioning JSON. Otherwise a
+// wrong deduction is undiagnosable, and the whole point of rendering the body
+// is lost exactly where it is needed most.
+func TestSelfDMByEmailKeepsTheServersAnswer(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin: newLoginWithOwnEmail("ada@example.com"),
+		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
+			return nil, &gchatmeow.UnexpectedStatusError{Status: 400, Body: "POLICY_DENIED: external chat disabled"}
+		},
+	}
+	_, err := gc.ResolveIdentifier(context.Background(), "ada@example.com", true)
+	if !errors.Is(err, ErrCannotDMYourself) {
+		t.Fatalf("error = %v, want ErrCannotDMYourself", err)
+	}
+	if !strings.Contains(err.Error(), "POLICY_DENIED: external chat disabled") {
+		t.Errorf("error = %v, want the server's own reason to survive the relabel", err)
+	}
+	// The relabel must still drive the HTTP rendering: ErrCannotDMYourself is
+	// what a client should see, not the wrapped transport error.
+	status, errcode, _ := renderError(t, err)
+	if status != http.StatusBadRequest || errcode != "FI.MAU.GOOGLECHAT.CANNOT_DM_SELF" {
+		t.Errorf("status/errcode = %d/%q, want 400/FI.MAU.GOOGLECHAT.CANNOT_DM_SELF", status, errcode)
+	}
+}
+
+// TestHasOtherLoginsDefaultsToTrueWhenTheUserIsUnknown documents the one state
+// a unit test can reach. A bare UserLogin has no User attached; assuming a
+// sibling there is what keeps every other test in this file exercising the
+// try-next classification rather than silently skipping it.
+func TestHasOtherLoginsDefaultsToTrueWhenTheUserIsUnknown(t *testing.T) {
+	if !(&GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}).hasOtherLogins() {
+		t.Error("hasOtherLogins() = false for a login with no User; the deferral would go untested everywhere")
+	}
+	if !(&GChatClient{}).hasOtherLogins() {
+		t.Error("hasOtherLogins() = false for a nil UserLogin")
 	}
 }
