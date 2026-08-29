@@ -1,14 +1,26 @@
 package connector
 
-// media.go bridges inbound Google Chat UPLOAD_METADATA attachments to
-// Matrix media parts (M5 Task 3): for each upload_metadata annotation it
-// builds a download URL (DOWNLOAD_URL, or a FIFE_URL sized w10000-h10000 for
-// images), downloads the file capped at the homeserver's upload_size, picks
-// a Matrix msgtype from the downloaded MIME type, and reuploads the bytes to
-// Matrix as a media event. Oversize downloads, HTTP errors, and HTML
-// "attachments" are logged and skipped, and the filename falls back to the
-// annotation's content_name then to "<msgtype><ext>" when the download gives
-// no usable name. The per-function comments below document each step.
+// media.go bridges inbound Google Chat media to Matrix media parts: for each
+// media annotation it downloads the bytes capped at the homeserver's
+// upload_size, picks a Matrix msgtype from the downloaded MIME type, and
+// reuploads them to Matrix as a media event. Oversize downloads, HTTP errors,
+// and non-media responses are logged and skipped, and the filename falls back
+// to the annotation's content_name then to "<msgtype><ext>" when the download
+// gives no usable name. The per-function comments below document each step.
+//
+// TWO kinds of annotation get here, and the difference is a security boundary
+// rather than a detail:
+//
+//   - UPLOAD_METADATA -- a file hosted by Google. The URL is built from a
+//     token and always points at Google's own fixed endpoint, which is what
+//     lets gchatmeow's attachment client keep an environment proxy and accept
+//     plain http.
+//   - url_metadata accepted by inlineableURLMedia -- a link chip's media,
+//     hosted by whoever the sender chose. Neither of those concessions is safe
+//     for it, so it goes through gchatmeow.DownloadExternalMedia
+//     (external.go): https-only on every hop, no proxy, no cookies, internal
+//     addresses refused, size ceiling the caller cannot disable. Operators can
+//     switch it off entirely with disable_inline_url_media.
 //
 // # Layering: why this lives in the connector, not msgconv
 //
@@ -58,6 +70,7 @@ import (
 	_ "image/png"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/util/exmime"
@@ -173,18 +186,34 @@ func msgTypeFromMime(mimeType string) event.MessageType {
 	}
 }
 
-// convertAttachmentsToMatrix scans msg's annotations for UPLOAD_METADATA
-// ones (ann.GetUploadMetadata() != nil -- the proto oneof accessor is
-// nil-safe and returns nil for every other annotation kind, e.g. the
-// FORMAT_DATA/USER_MENTION ones gchatfmt.Parse handles), downloads and
-// reuploads each to Matrix, and returns the resulting
-// bridgev2.ConvertedMessageParts with IDs att_0, att_1, ... in ENCOUNTER
-// order among UPLOAD_METADATA annotations (gcid.MakeAttachmentPartID) --
-// i.e. index counts every such annotation seen, whether or not it was
-// successfully bridged, so a part's number always reflects its original
-// position among the message's attachments (stable for later reference,
-// e.g. a reaction targeting a specific part) rather than being compacted
-// after skips.
+// convertAttachmentsToMatrix walks msg's annotations, downloads and reuploads
+// the media ones to Matrix, and returns the resulting
+// bridgev2.ConvertedMessageParts.
+//
+// TWO annotation kinds are bridged into ONE att_<n> namespace
+// (gcid.MakeAttachmentPartID, whose format is FROZEN):
+//
+//   - UPLOAD_METADATA -- a file hosted by Google, fetched from Google's own
+//     fixed endpoint.
+//   - url_metadata accepted by inlineableURLMedia, when the operator has not
+//     set disable_inline_url_media -- media on a host a REMOTE PARTY chose,
+//     fetched through gchatmeow's separately hardened external path.
+//
+// (The oneof accessors are nil-safe and return nil for every other annotation
+// kind, e.g. the FORMAT_DATA/USER_MENTION ones gchatfmt.Parse handles.)
+//
+// IDs are att_0, att_1, ... in ENCOUNTER order across BOTH kinds: the index is
+// consumed by every annotation that matches, whether or not it was
+// successfully bridged, and before any dedup or per-message limit can skip it.
+// So a part's number always reflects its original position among the message's
+// media (stable for later reference, e.g. a reaction targeting a specific
+// part) and never depends on a runtime outcome. Two counters would produce
+// duplicate IDs on a message carrying both kinds.
+//
+// External fetches are additionally bounded per message -- capped in count
+// (maxExternalMediaPerMessage), deduplicated by URL, and sharing one
+// externalMediaMessageBudget deadline -- because the annotation count is
+// sender-controlled and each fetch blocks the portal's event goroutine.
 //
 // A nil portal or nil media yields no parts at all (nothing to reupload
 // into, or no seam to fetch with) rather than panicking -- mirrors
@@ -202,11 +231,27 @@ func convertAttachmentsToMatrix(ctx context.Context, portal *bridgev2.Portal, in
 	if portal == nil || media == nil {
 		return nil
 	}
+	log := zerolog.Ctx(ctx)
 	var parts []*bridgev2.ConvertedMessagePart
 	// ONE counter across both annotation kinds: gcid.MakeAttachmentPartID is
 	// FROZEN, so att_<n> must stay a single namespace. Two counters would
 	// produce duplicate part IDs on a message carrying both kinds.
 	index := 0
+	// External-fetch bookkeeping. The index is consumed for every annotation
+	// that MATCHES, before any of these can skip it, so att_<n> numbering
+	// stays a function of the message's content and never of a runtime
+	// outcome -- the same contract the fetch-failure path already had.
+	externalFetches := 0
+	externalSeen := make(map[string]bool)
+	// One budget for every external fetch this message makes, taken only when
+	// the message actually has some, so a message with none pays nothing.
+	mediaCtx := ctx
+	if media.inlineURLMediaEnabled() && hasInlineableURLMedia(msg) {
+		var cancel context.CancelFunc
+		mediaCtx, cancel = context.WithTimeout(ctx, externalMediaMessageBudget)
+		defer cancel()
+	}
+
 	for _, ann := range msg.GetAnnotations() {
 		var (
 			part *bridgev2.ConvertedMessagePart
@@ -220,7 +265,21 @@ func convertAttachmentsToMatrix(ctx context.Context, portal *bridgev2.Portal, in
 		case media.inlineURLMediaEnabled() && inlineableURLMedia(ann):
 			partIndex := index
 			index++
-			part, ok = convertOneURLMedia(ctx, portal, intent, ann.GetUrlMetadata(), partIndex, media)
+
+			src := externalMediaSrc(ann.GetUrlMetadata())
+			// Deduplicate on the URL actually requested: a preview chip
+			// repeated across a message must not be fetched twice.
+			if src == "" || externalSeen[src] {
+				continue
+			}
+			if externalFetches >= maxExternalMediaPerMessage {
+				log.Debug().Int("limit", maxExternalMediaPerMessage).
+					Msg("googlechat: message exceeds the per-message external media limit, leaving the rest as links")
+				continue
+			}
+			externalSeen[src] = true
+			externalFetches++
+			part, ok = convertOneURLMedia(mediaCtx, portal, intent, ann.GetUrlMetadata(), partIndex, media)
 		default:
 			continue
 		}
@@ -229,6 +288,45 @@ func convertAttachmentsToMatrix(ctx context.Context, portal *bridgev2.Portal, in
 		}
 	}
 	return parts
+}
+
+const (
+	// maxExternalMediaPerMessage bounds how many external fetches ONE message
+	// can trigger. The annotation count is sender-controlled, and each fetch
+	// is a synchronous call on the portal's single event goroutine, so without
+	// a cap one message with a hundred link chips stalls that portal for as
+	// long as the sender likes.
+	maxExternalMediaPerMessage = 4
+
+	// externalMediaMessageBudget bounds the TOTAL time one message may spend
+	// fetching. DownloadExternalMedia bounds ONE fetch; this bounds the sum,
+	// which is what a portal's event loop and a backfill batch actually care
+	// about. Deliberately less than maxExternalMediaPerMessage times the
+	// per-fetch timeout: the cap is for the pathological case, this is for the
+	// common slow one.
+	externalMediaMessageBudget = 30 * time.Second
+)
+
+// hasInlineableURLMedia reports whether msg carries any annotation the
+// external-media path would fetch, so the per-message budget is only taken
+// when there is something to spend it on.
+func hasInlineableURLMedia(msg *pb.Message) bool {
+	for _, ann := range msg.GetAnnotations() {
+		if inlineableURLMedia(ann) {
+			return true
+		}
+	}
+	return false
+}
+
+// externalMediaSrc returns the URL convertOneURLMedia would fetch for m:
+// image_url (the rendered media) when set, else the page URL. Split out so the
+// caller can deduplicate on the URL actually requested.
+func externalMediaSrc(m *pb.UrlMetadata) string {
+	if src := m.GetImageUrl(); src != "" {
+		return src
+	}
+	return m.GetUrl().GetUrl()
 }
 
 // inlineableURLMedia reports whether a url_metadata annotation names media
@@ -272,12 +370,7 @@ func inlineableURLMedia(a *pb.Annotation) bool {
 func convertOneURLMedia(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, meta *pb.UrlMetadata, index int, media mediaFetcher) (*bridgev2.ConvertedMessagePart, bool) {
 	log := zerolog.Ctx(ctx)
 
-	// image_url is the rendered media; url is the page it came from. Prefer
-	// the former, matching every reference client.
-	src := meta.GetImageUrl()
-	if src == "" {
-		src = meta.GetUrl().GetUrl()
-	}
+	src := externalMediaSrc(meta)
 	if src == "" {
 		return nil, false
 	}
@@ -423,12 +516,17 @@ func buildMediaPart(ctx context.Context, portal *bridgev2.Portal, intent bridgev
 		if cfg, _, decErr := image.DecodeConfig(bytes.NewReader(data)); decErr == nil {
 			content.Info.Width = cfg.Width
 			content.Info.Height = cfg.Height
-		} else {
-			// Only url_metadata supplies these, and only they can rescue a
-			// format with no registered decoder (webp is the common one).
-			content.Info.Width = in.fallbackWidth
-			content.Info.Height = in.fallbackHeight
 		}
+	}
+	// Only url_metadata supplies declared dimensions, and only they can rescue
+	// a format nothing here decodes -- webp and mp4, which are exactly what a
+	// GIF host commonly serves. Outside the image branch on purpose: an mp4
+	// is an m.video, so an image-only guard would drop the dimensions for the
+	// case they were added for. A no-op for upload_metadata, whose fallbacks
+	// are always zero.
+	if content.Info.Width == 0 && content.Info.Height == 0 {
+		content.Info.Width = in.fallbackWidth
+		content.Info.Height = in.fallbackHeight
 	}
 
 	// UploadMediaStream (matrixinterface.go) handles E2BE reupload itself

@@ -26,11 +26,14 @@ import (
 // (proto field 10, TextBody in the generated Go struct), then
 // gchatfmt.AppendLinkAnnotations (handling the
 // video_call_metadata/drive_metadata/youtube_metadata annotation branches)
-// may extend it with a Drive/Meet/YouTube URL before anything else sees it
-// -- see that function's doc comment for the full investigation into why
-// url_metadata is deliberately NOT handled the same way (it is never
-// appended to text_body; it becomes a separate, out-of-scope
-// HTTP-downloaded attachment instead). Round-tripping text_body through
+// may extend it with a Drive/Meet/YouTube URL before anything else sees it,
+// and with a url_metadata URL when that annotation covers no text -- see that
+// function's doc comment for why url_metadata splits on length: the covering
+// case is rendered inline as <a href> and must NOT be appended (it would
+// render twice), while the non-covering case must be, or a message whose only
+// content is such an annotation converts to zero parts and is dropped
+// entirely. Either way the connector may ALSO download the media it points at
+// and add a separate image part (pkg/connector/media.go). Round-tripping text_body through
 // UTF-16 surrogate padding and back is a no-op for the plain Body value
 // itself, so text_body is taken verbatim as UTF-8: no surrogate
 // encode/decode of Body happens in this file (gchatfmt.Parse does its own
