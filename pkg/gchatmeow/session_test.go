@@ -378,8 +378,13 @@ func TestUserAgentVersionRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	if !strings.Contains(sess.userAgent, "Chrome/114.0.0.0") {
-		t.Errorf("userAgent = %q, want Chrome version rewritten to 114.0.0.0", sess.userAgent)
+	// Against the constant, not a literal: the pinned version is meant to be
+	// bumped; what this test protects is that the rewrite HAPPENS.
+	if !strings.Contains(sess.userAgent, "Chrome/"+latestChromeVersion+".0.0.0") {
+		t.Errorf("userAgent = %q, want Chrome version rewritten to %s.0.0.0", sess.userAgent, latestChromeVersion)
+	}
+	if strings.Contains(sess.userAgent, "Chrome/100.") {
+		t.Errorf("userAgent = %q still carries the caller's Chrome version", sess.userAgent)
 	}
 }
 
@@ -390,8 +395,8 @@ func TestDefaultUserAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	if !strings.Contains(sess.userAgent, "Chrome/114.0.0.0") || !strings.Contains(sess.userAgent, "Windows NT 10.0") {
-		t.Errorf("userAgent = %q, want the default Windows/Chrome114 UA", sess.userAgent)
+	if sess.userAgent != DefaultUserAgent() || !strings.Contains(sess.userAgent, "Windows NT 10.0") {
+		t.Errorf("userAgent = %q, want the default Windows/Chrome UA", sess.userAgent)
 	}
 }
 
@@ -804,5 +809,40 @@ func TestFetchPopulatesUnexpectedStatusErrorBody(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCookiesPersistsTheFullJar: the jar sends every cookie it holds on every
+// request, so persistence must keep everything too. Google issues extras
+// (SIDCC and friends) via Set-Cookie after login; snapshotting only the named
+// login five meant every bridge restart silently discarded them and replayed
+// a session Google had already moved past.
+func TestCookiesPersistsTheFullJar(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "SIDCC", Value: "issued-after-login", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sess, err := NewSession(map[string]string{
+		"COMPASS": "c0", "SSID": "s0", "SID": "sid0", "OSID": "o0", "HSID": "h0",
+	}, "")
+	if err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
+
+	if _, err := sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	got := sess.Cookies()
+	if got["SIDCC"] != "issued-after-login" {
+		t.Errorf(`Cookies()["SIDCC"] = %q, want the server-issued extra to be persisted`, got["SIDCC"])
+	}
+	for _, name := range RequiredCookies {
+		if got[name] == "" {
+			t.Errorf("Cookies()[%q] is empty; the login five must survive alongside the extras", name)
+		}
 	}
 }

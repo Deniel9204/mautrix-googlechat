@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -39,15 +40,34 @@ func TestLoginStartStepShape(t *testing.T) {
 	if step.CookiesParams.URL != "https://chat.google.com/" {
 		t.Errorf("CookiesParams.URL = %q, want https://chat.google.com/", step.CookiesParams.URL)
 	}
+	// The UA a webview client browses with must be the SAME one the bridge
+	// replays for a session that supplies none -- one fingerprint, mint to
+	// replay.
+	if step.CookiesParams.UserAgent != gchatmeow.DefaultUserAgent() {
+		t.Errorf("CookiesParams.UserAgent = %q, want gchatmeow's default", step.CookiesParams.UserAgent)
+	}
+	// The auto-close pattern must match where auth LANDS and not where it
+	// happens: closing on accounts.google.com would cut the login short.
+	re, err := regexp.Compile(step.CookiesParams.WaitForURLPattern)
+	if err != nil {
+		t.Fatalf("WaitForURLPattern %q does not compile: %v", step.CookiesParams.WaitForURLPattern, err)
+	}
+	if !re.MatchString("https://chat.google.com/") || !re.MatchString("https://chat.google.com/u/0/") {
+		t.Errorf("WaitForURLPattern %q does not match the post-login chat URL", re)
+	}
+	if re.MatchString("https://accounts.google.com/signin") || re.MatchString("https://evil.example/https://chat.google.com/") {
+		t.Errorf("WaitForURLPattern %q matches a URL it must not", re)
+	}
 
 	fields := step.CookiesParams.Fields
-	wantIDs := gchatmeow.RequiredCookies
-	if len(fields) != len(wantIDs) {
-		t.Fatalf("got %d fields, want exactly %d (%v)", len(fields), len(wantIDs), wantIDs)
+	// The 5 required cookies plus the optional User-Agent pseudo-field.
+	if len(fields) != len(gchatmeow.RequiredCookies)+1 {
+		t.Fatalf("got %d fields, want %d", len(fields), len(gchatmeow.RequiredCookies)+1)
 	}
-	for i, f := range fields {
-		if f.ID != wantIDs[i] {
-			t.Errorf("field[%d].ID = %q, want %q", i, f.ID, wantIDs[i])
+	for i, wantID := range gchatmeow.RequiredCookies {
+		f := fields[i]
+		if f.ID != wantID {
+			t.Errorf("field[%d].ID = %q, want %q", i, f.ID, wantID)
 		}
 		if !f.Required {
 			t.Errorf("field[%d] (%s).Required = false, want true", i, f.ID)
@@ -62,27 +82,40 @@ func TestLoginStartStepShape(t *testing.T) {
 		if src.Name != f.ID {
 			t.Errorf("field[%d] source.Name = %q, want %q", i, src.Name, f.ID)
 		}
-		// Only COMPASS and OSID collide across Google subdomains and so carry
-		// the chat.google.com extraction hint (matching megabridge's
-		// CookieIsDomainSpecific); SSID/SID/HSID must have an EMPTY domain so
-		// the client extracts them from their real parent-.google.com home.
-		// Hinting the wrong domain for those would break real logins while
-		// leaving every unit test that only checks "domain is set" green --
-		// hence the exact per-field pin below.
-		wantDomain := ""
+		// COMPASS and OSID collide across Google subdomains and carry the
+		// chat.google.com hint; SSID/SID/HSID live on the PARENT domain and
+		// are pinned to .google.com -- the same trio-pinning gmessages ships
+		// in production. An empty domain is ambiguous: a client reading it as
+		// "the URL's host only" would silently miss all three.
+		wantDomain := ".google.com"
 		if f.ID == "COMPASS" || f.ID == "OSID" {
 			wantDomain = "chat.google.com"
 		}
 		if src.CookieDomain != wantDomain {
 			t.Errorf("field[%d] (%s) source.CookieDomain = %q, want %q", i, f.ID, src.CookieDomain, wantDomain)
 		}
-		if f.ID == "COMPASS" {
-			if f.Pattern != "dynamite-ui=" {
-				t.Errorf("COMPASS field.Pattern = %q, want dynamite-ui=", f.Pattern)
-			}
-		} else if f.Pattern != "" {
-			t.Errorf("field[%d] (%s).Pattern = %q, want empty (only COMPASS carries a hint)", i, f.ID, f.Pattern)
+		// NO field carries a Pattern. bridgev2's bot command runs the Pattern
+		// check BEFORE its missing-keys check and echoes the submitted value
+		// into the room unredacted on mismatch -- so COMPASS's old
+		// "dynamite-ui=" hint turned a merely-missing cookie into a
+		// misleading regex error, and a wrong one into a credential leak.
+		if f.Pattern != "" {
+			t.Errorf("field[%d] (%s).Pattern = %q, want empty (a pattern mismatch echoes the value unredacted)", i, f.ID, f.Pattern)
 		}
+	}
+
+	// The last field is the optional User-Agent pseudo-field, extracted from
+	// a cURL paste's request headers so the session replays under the UA
+	// family that minted the cookies.
+	ua := fields[len(fields)-1]
+	if ua.ID != loginFieldUserAgent {
+		t.Fatalf("last field ID = %q, want %q", ua.ID, loginFieldUserAgent)
+	}
+	if ua.Required {
+		t.Error("the User-Agent pseudo-field is Required; a plain JSON paste would stop working")
+	}
+	if len(ua.Sources) != 1 || ua.Sources[0].Type != bridgev2.LoginCookieTypeRequestHeader || ua.Sources[0].Name != "User-Agent" {
+		t.Errorf("User-Agent field sources = %+v, want one request_header source named User-Agent", ua.Sources)
 	}
 }
 
@@ -254,5 +287,134 @@ func TestLoginInstructionsPointAtTheCookieDocs(t *testing.T) {
 	}
 	if !strings.Contains(step.Instructions, "docs/authentication.md") {
 		t.Errorf("login instructions %q do not link the cookie-extraction guide", step.Instructions)
+	}
+}
+
+// --- sanitizeLoginCookies ---------------------------------------------------
+
+// TestSanitizeLoginCookies pins the local pre-checks that keep a
+// nameably-wrong paste from costing a round trip to Google and coming back as
+// the generic "cookies don't seem to be valid".
+func TestSanitizeLoginCookies(t *testing.T) {
+	full := func(overrides map[string]string) map[string]string {
+		m := map[string]string{
+			"COMPASS": "dynamite-ui=abc", "SSID": "s1", "SID": "s2", "OSID": "o1", "HSID": "h1",
+		}
+		for k, v := range overrides {
+			m[k] = v
+		}
+		return m
+	}
+
+	t.Run("clean input passes through", func(t *testing.T) {
+		cookies, ua, missing := sanitizeLoginCookies(full(nil))
+		if len(missing) != 0 {
+			t.Fatalf("missing = %v, want none", missing)
+		}
+		if ua != "" {
+			t.Errorf("userAgent = %q, want empty when not supplied", ua)
+		}
+		if cookies["SID"] != "s2" {
+			t.Errorf("SID = %q, want untouched", cookies["SID"])
+		}
+	})
+
+	t.Run("whitespace and wrapping quotes are stripped", func(t *testing.T) {
+		cookies, _, missing := sanitizeLoginCookies(full(map[string]string{
+			"SID":  "  s2  ",
+			"SSID": `"s1"`,
+			"HSID": "'h1'",
+		}))
+		if len(missing) != 0 {
+			t.Fatalf("missing = %v, want none: padding is a paste artifact, not an error", missing)
+		}
+		for name, want := range map[string]string{"SID": "s2", "SSID": "s1", "HSID": "h1"} {
+			if cookies[name] != want {
+				t.Errorf("%s = %q, want %q", name, cookies[name], want)
+			}
+		}
+	})
+
+	t.Run("missing and empty-after-trim cookies are named", func(t *testing.T) {
+		in := full(map[string]string{"HSID": "   "})
+		delete(in, "COMPASS")
+		_, _, missing := sanitizeLoginCookies(in)
+		want := map[string]bool{"COMPASS": true, "HSID": true}
+		if len(missing) != len(want) {
+			t.Fatalf("missing = %v, want exactly COMPASS and HSID", missing)
+		}
+		for _, name := range missing {
+			if !want[name] {
+				t.Errorf("missing names %q, which was present", name)
+			}
+		}
+	})
+
+	t.Run("the User-Agent pseudo-field is popped, never jarred", func(t *testing.T) {
+		cookies, ua, missing := sanitizeLoginCookies(full(map[string]string{
+			loginFieldUserAgent: "Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0",
+		}))
+		if len(missing) != 0 {
+			t.Fatalf("missing = %v, want none", missing)
+		}
+		if ua != "Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0" {
+			t.Errorf("userAgent = %q, want the submitted value", ua)
+		}
+		if _, ok := cookies[loginFieldUserAgent]; ok {
+			t.Error("the User-Agent pseudo-field is still in the cookie map; it would be jarred and sent to Google as a fake cookie")
+		}
+	})
+}
+
+// TestSubmitCookiesNamesMissingCookiesWithoutARoundTrip: the pre-check must
+// answer BEFORE any client is built, so a short paste cannot cost a network
+// round trip -- which is also what lets this test run without one.
+func TestSubmitCookiesNamesMissingCookiesWithoutARoundTrip(t *testing.T) {
+	gl := &GChatLogin{}
+	_, err := gl.SubmitCookies(context.Background(), map[string]string{
+		"SID": "s2", "SSID": "s1",
+	})
+	if err == nil {
+		t.Fatal("SubmitCookies succeeded with three cookies missing")
+	}
+	for _, name := range []string{"COMPASS", "OSID", "HSID"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("error %q does not name missing cookie %s", err, name)
+		}
+	}
+	if strings.Contains(err.Error(), "don't seem to be valid") {
+		t.Errorf("error %q is the generic Google-rejection text; the local pre-check should have answered first", err)
+	}
+}
+
+// TestSubmitCookiesPassesSanitizedValuesToTheClient pins the wiring between
+// the sanitize step and the client build: trimmed cookie values and the popped
+// User-Agent must be what actually reaches ClientOpts. Without this seam test,
+// dropping the UserAgent field from the ClientOpts literal -- reverting to the
+// hardcoded default for every session -- would pass the whole suite.
+func TestSubmitCookiesPassesSanitizedValuesToTheClient(t *testing.T) {
+	var got gchatmeow.ClientOpts
+	abort := errors.New("stop before any network")
+	gl := &GChatLogin{
+		newClientFn: func(opts gchatmeow.ClientOpts) (*gchatmeow.Client, error) {
+			got = opts
+			return nil, abort
+		},
+	}
+	_, err := gl.SubmitCookies(context.Background(), map[string]string{
+		"COMPASS": "dynamite-ui=abc", "SSID": "s1", "SID": `  "s2"  `, "OSID": "o1", "HSID": "h1",
+		loginFieldUserAgent: "Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0",
+	})
+	if !errors.Is(err, abort) {
+		t.Fatalf("err = %v, want the seam's abort error", err)
+	}
+	if got.UserAgent != "Mozilla/5.0 (X11; Linux x86_64) TestBrowser/1.0" {
+		t.Errorf("ClientOpts.UserAgent = %q, want the captured browser UA", got.UserAgent)
+	}
+	if got.Cookies["SID"] != "s2" {
+		t.Errorf(`ClientOpts.Cookies["SID"] = %q, want the sanitized "s2"`, got.Cookies["SID"])
+	}
+	if _, ok := got.Cookies[loginFieldUserAgent]; ok {
+		t.Error("the User-Agent pseudo-field reached ClientOpts.Cookies")
 	}
 }
