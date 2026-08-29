@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.08.7] - 2026-08-29
+
+### Fixed
+
+- Webview-based login clients no longer sign into Google under a forced,
+  mismatched User-Agent. The login step advertised a Windows Chrome
+  User-Agent for the client to browse with, but a client whose actual engine
+  is a different Chromium on a different OS then presents a browser
+  fingerprint that does not match itself -- which is what trips Google's
+  "this browser may not be secure" block during sign-in. The bridge no longer
+  sets it, matching how the sibling Google-cookie bridge handles the same
+  login; the client's real User-Agent is still captured and replayed. The
+  cURL and JSON paste logins are unaffected.
+
 ## [26.08.6] - 2026-08-29
 
 The login bundle: an investigation into simplifying login concluded there is
