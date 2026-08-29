@@ -99,6 +99,8 @@ type Client struct {
 	retryBackoffBase    time.Duration // passed to Channel.Listen (default 2)
 	reconnectBackoffMin time.Duration // supervision-loop transient backoff floor (default 4s)
 	reconnectBackoffMax time.Duration // supervision-loop transient backoff ceiling (default 60s)
+	sidFatalRetryFloor  time.Duration // post-fatal outer-retry floor (default 5m)
+	sidFatalRetryCap    time.Duration // post-fatal outer-retry ceiling (default 1h)
 
 	// XSRF refresh scheduling (a 24h staleness check plus a 401-triggered
 	// refresh). lastTokenRefresh is guarded by mu;

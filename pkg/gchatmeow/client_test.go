@@ -260,6 +260,8 @@ func ladderClient(t *testing.T, fake channelListener, rec *stateRecorder) *Clien
 		reconnectBackoffMin: time.Millisecond,
 		reconnectBackoffMax: time.Millisecond,
 		xsrfRefreshInterval: time.Hour,
+		sidFatalRetryFloor:  time.Millisecond,
+		sidFatalRetryCap:    2 * time.Millisecond,
 		newChannel:          func() channelListener { return fake },
 		OnConnectionState:   rec.record,
 		OnStreamEvent:       func(ctx context.Context, ev *pb.Event) {},
@@ -315,13 +317,17 @@ func TestSupervisionLadder(t *testing.T) {
 			wantCalls:  2,
 		},
 		{
-			name: "four sid-invalid in a row -> fatal",
+			// A fatal is REPORTED but is no longer the end of the account:
+			// the loop waits on its own slower tier and starts over. The
+			// fifth step is the terminator that proves it came back -- without
+			// the retry the script would never reach it and this hangs.
+			name: "four sid-invalid in a row -> fatal, then retry",
 			steps: []func(*scriptedChannel, context.Context) error{
 				ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid),
+				ret(authErr),
 			},
-			wantStates: []ConnState{ConnStateFatal},
-			wantCalls:  4,
-			wantReturn: ErrSIDInvalid,
+			wantStates: []ConnState{ConnStateFatal, ConnStateBadCredentials},
+			wantCalls:  5,
 		},
 		{
 			name: "sid-invalid interspersed with recycle -> counter resets, no fatal",
@@ -529,14 +535,22 @@ func TestDisconnectImmediatelyAfterConnectStops(t *testing.T) {
 // killing a recoverable connection. It injects sleepFn to observe the backoff
 // durations deterministically without real sleeps.
 func TestSIDInvalidResyncPaced(t *testing.T) {
+	authErr := &UnexpectedStatusError{Status: http.StatusUnauthorized}
 	fake := newScriptedChannel(
 		ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid),
+		// Terminator. Without the post-fatal retry the loop would return
+		// before reaching this, so its absence would hang rather than fail.
+		ret(authErr),
 	)
 	rec := &stateRecorder{}
 	c := ladderClient(t, fake, rec)
 	// Spread min/max so growth is observable (ladderClient pins both to 1ms).
 	c.reconnectBackoffMin = 10 * time.Millisecond
 	c.reconnectBackoffMax = 100 * time.Millisecond
+	// Far above the ladder's ceiling, so the assertion below distinguishes the
+	// two tiers rather than just observing "some sleep happened".
+	c.sidFatalRetryFloor = 5 * time.Second
+	c.sidFatalRetryCap = time.Minute
 
 	var mu sync.Mutex
 	var slept []time.Duration
@@ -547,26 +561,31 @@ func TestSIDInvalidResyncPaced(t *testing.T) {
 		return nil // don't actually sleep
 	}
 
-	err := c.Connect(context.Background())
+	c.Connect(context.Background())
 
-	if !errors.Is(err, ErrSIDInvalid) {
-		t.Errorf("Connect returned %v, want errors.Is(ErrSIDInvalid) after the cap", err)
+	if got := rec.snapshot(); !statesEqual(got, []ConnState{ConnStateFatal, ConnStateBadCredentials}) {
+		t.Errorf("states = %v, want [FATAL BAD_CREDENTIALS]", got)
 	}
-	if got := rec.snapshot(); !statesEqual(got, []ConnState{ConnStateFatal}) {
-		t.Errorf("states = %v, want [FATAL]", got)
-	}
-	// resyncCount 1,2,3 each pace before reconnecting; the 4th exceeds the cap
-	// and goes Fatal WITHOUT sleeping -> exactly maxSIDInvalidResyncs sleeps.
 	mu.Lock()
 	defer mu.Unlock()
-	if len(slept) != maxSIDInvalidResyncs {
-		t.Fatalf("paced %d times (%v), want %d", len(slept), slept, maxSIDInvalidResyncs)
+	// resyncCount 1,2,3 each pace on the ladder; the 4th exceeds the cap, goes
+	// fatal, and paces on the SLOWER tier -- so one more sleep than before.
+	if len(slept) != maxSIDInvalidResyncs+1 {
+		t.Fatalf("paced %d times (%v), want %d", len(slept), slept, maxSIDInvalidResyncs+1)
 	}
-	for i := 1; i < len(slept); i++ {
-		if slept[i] <= slept[i-1] {
-			t.Errorf("backoff did not grow: slept[%d]=%v <= slept[%d]=%v (%v)",
-				i, slept[i], i-1, slept[i-1], slept)
+	ladder := slept[:maxSIDInvalidResyncs]
+	for i := 1; i < len(ladder); i++ {
+		if ladder[i] <= ladder[i-1] {
+			t.Errorf("ladder backoff did not grow: slept[%d]=%v <= slept[%d]=%v (%v)",
+				i, ladder[i], i-1, ladder[i-1], slept)
 		}
+	}
+	// THE point of this test now: the post-fatal wait is its own tier. If it
+	// rejoined the ladder, a storm would be retried seconds later -- which is
+	// the storm the resync cap exists to stop.
+	if fatalWait := slept[maxSIDInvalidResyncs]; fatalWait != c.sidFatalRetryFloor {
+		t.Errorf("post-fatal wait = %v, want the fatal floor %v (not the ladder's %v)",
+			fatalWait, c.sidFatalRetryFloor, c.reconnectBackoffMax)
 	}
 }
 
@@ -848,5 +867,209 @@ func TestXSRFRefreshLoopIgnoresOrdinaryFailures(t *testing.T) {
 
 	if states := rec.snapshot(); len(states) != 0 {
 		t.Errorf("states = %v, want none: a server error is not a logout", states)
+	}
+}
+
+// --- post-fatal retry tier --------------------------------------------------
+
+// sleepLog records what the loop waited for without waiting.
+type sleepLog struct {
+	mu    sync.Mutex
+	slept []time.Duration
+}
+
+func (s *sleepLog) fn(_ context.Context, d time.Duration) error {
+	s.mu.Lock()
+	s.slept = append(s.slept, d)
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *sleepLog) snapshot() []time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]time.Duration(nil), s.slept...)
+}
+
+// fatalStorm returns steps that drive the ladder to a fatal n times over,
+// followed by a terminator so the loop exits rather than parking.
+func fatalStorm(rounds int, terminator error) []func(*scriptedChannel, context.Context) error {
+	var steps []func(*scriptedChannel, context.Context) error
+	for i := 0; i < rounds; i++ {
+		for j := 0; j <= maxSIDInvalidResyncs; j++ {
+			steps = append(steps, ret(ErrSIDInvalid))
+		}
+	}
+	return append(steps, ret(terminator))
+}
+
+// TestPostFatalRetryEscalates: a fatal that keeps repeating means the server is
+// rejecting SIDs it has just minted, so trying again at the same rate is
+// pointless. The wait has to grow, and it has to stop growing.
+func TestPostFatalRetryEscalates(t *testing.T) {
+	authErr := &UnexpectedStatusError{Status: http.StatusUnauthorized}
+	fake := newScriptedChannel(fatalStorm(4, authErr)...)
+	rec := &stateRecorder{}
+	c := ladderClient(t, fake, rec)
+	c.sidFatalRetryFloor = 4 * time.Second
+	c.sidFatalRetryCap = 16 * time.Second
+	log := &sleepLog{}
+	c.sleepFn = log.fn
+
+	c.Connect(context.Background())
+
+	// Every sleep at or above the floor is a post-fatal wait; the ladder's own
+	// pacing is pinned to 1ms by ladderClient.
+	var fatalWaits []time.Duration
+	for _, d := range log.snapshot() {
+		if d >= c.sidFatalRetryFloor {
+			fatalWaits = append(fatalWaits, d)
+		}
+	}
+	want := []time.Duration{4 * time.Second, 8 * time.Second, 16 * time.Second, 16 * time.Second}
+	if len(fatalWaits) != len(want) {
+		t.Fatalf("post-fatal waits = %v, want %v", fatalWaits, want)
+	}
+	for i := range want {
+		if fatalWaits[i] != want[i] {
+			t.Errorf("post-fatal wait %d = %v, want %v (full: %v)", i, fatalWaits[i], want[i], fatalWaits)
+		}
+	}
+}
+
+// TestPostFatalRetryResetsAfterAHealthyChannel: an account that hits a storm
+// once a month must not inherit last month's escalation. A channel that
+// reached its full lifetime is the ladder's only unambiguous proof of health.
+func TestPostFatalRetryResetsAfterAHealthyChannel(t *testing.T) {
+	authErr := &UnexpectedStatusError{Status: http.StatusUnauthorized}
+	var steps []func(*scriptedChannel, context.Context) error
+	steps = append(steps, fatalStorm(2, nil)[:2*(maxSIDInvalidResyncs+1)]...)
+	// A full-lifetime channel, then another storm.
+	steps = append(steps, ret(ErrChannelLifetimeExpired))
+	for j := 0; j <= maxSIDInvalidResyncs; j++ {
+		steps = append(steps, ret(ErrSIDInvalid))
+	}
+	steps = append(steps, ret(authErr))
+
+	fake := newScriptedChannel(steps...)
+	rec := &stateRecorder{}
+	c := ladderClient(t, fake, rec)
+	c.sidFatalRetryFloor = 4 * time.Second
+	c.sidFatalRetryCap = 16 * time.Second
+	log := &sleepLog{}
+	c.sleepFn = log.fn
+
+	c.Connect(context.Background())
+
+	var fatalWaits []time.Duration
+	for _, d := range log.snapshot() {
+		if d >= c.sidFatalRetryFloor {
+			fatalWaits = append(fatalWaits, d)
+		}
+	}
+	// 4s, 8s (escalating), then the healthy channel resets it back to 4s.
+	want := []time.Duration{4 * time.Second, 8 * time.Second, 4 * time.Second}
+	if len(fatalWaits) != len(want) {
+		t.Fatalf("post-fatal waits = %v, want %v", fatalWaits, want)
+	}
+	for i := range want {
+		if fatalWaits[i] != want[i] {
+			t.Errorf("wait %d = %v, want %v (full: %v)", i, fatalWaits[i], want[i], fatalWaits)
+		}
+	}
+}
+
+// TestPostFatalRetryStopsOnDisconnect is the classic bug in this shape of
+// code: a long wait that ignores cancellation. Disconnect must break out
+// promptly, not after the floor -- which in production is minutes.
+func TestPostFatalRetryStopsOnDisconnect(t *testing.T) {
+	var steps []func(*scriptedChannel, context.Context) error
+	for j := 0; j <= maxSIDInvalidResyncs; j++ {
+		steps = append(steps, ret(ErrSIDInvalid))
+	}
+	fake := newScriptedChannel(steps...)
+	rec := &stateRecorder{}
+	c := ladderClient(t, fake, rec)
+	// A wait far longer than the test's patience: only cancellation can end it.
+	c.sidFatalRetryFloor = time.Hour
+	c.sidFatalRetryCap = time.Hour
+
+	done := make(chan error, 1)
+	go func() { done <- c.Connect(context.Background()) }()
+
+	// Wait until the fatal has been reported, i.e. the loop is in the wait.
+	deadline := time.After(5 * time.Second)
+	for {
+		if states := rec.snapshot(); len(states) > 0 && states[len(states)-1] == ConnStateFatal {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("never reached the fatal state; got %v", rec.snapshot())
+		case <-time.After(time.Millisecond):
+		}
+	}
+
+	c.Disconnect()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Connect did not return after Disconnect: the post-fatal wait ignores cancellation")
+	}
+}
+
+// TestPostFatalRetryDoesNotRetryADeadSession: retrying forever is right for a
+// SID storm and wrong for a logged-out session. An auth error must still end
+// the loop immediately.
+func TestPostFatalRetryDoesNotRetryADeadSession(t *testing.T) {
+	authErr := &UnexpectedStatusError{Status: http.StatusUnauthorized}
+	fake := newScriptedChannel(ret(authErr), ret(ErrSIDInvalid))
+	rec := &stateRecorder{}
+	c := ladderClient(t, fake, rec)
+	log := &sleepLog{}
+	c.sleepFn = log.fn
+
+	c.Connect(context.Background())
+
+	if got := rec.snapshot(); !statesEqual(got, []ConnState{ConnStateBadCredentials}) {
+		t.Errorf("states = %v, want [BAD_CREDENTIALS] only", got)
+	}
+	if got := fake.calls(); got != 1 {
+		t.Errorf("Listen called %d times, want 1: a dead session must not be retried", got)
+	}
+}
+
+// TestFatalRetryFloorDefaultsWhenUnset: a Client built by hand rather than by
+// NewClient has a zero floor, and a zero wait would turn the post-fatal retry
+// into a busy loop hammering register -- the exact storm the resync cap exists
+// to prevent. The clamp is the only thing standing between the two.
+func TestFatalRetryFloorDefaultsWhenUnset(t *testing.T) {
+	if got := (&Client{}).fatalRetryFloor(); got != defaultSIDFatalRetryFloor {
+		t.Errorf("fatalRetryFloor() = %v for an unset field, want %v", got, defaultSIDFatalRetryFloor)
+	}
+	if got := (&Client{sidFatalRetryFloor: time.Second}).fatalRetryFloor(); got != time.Second {
+		t.Errorf("fatalRetryFloor() = %v, want the configured 1s", got)
+	}
+}
+
+// TestGrowFatalBackoffCaps pins the ceiling, including for a hand-built Client
+// whose cap is unset: without the fallback the doubling would run away.
+func TestGrowFatalBackoffCaps(t *testing.T) {
+	c := &Client{sidFatalRetryFloor: 4 * time.Second, sidFatalRetryCap: 16 * time.Second}
+	got := []time.Duration{}
+	d := c.fatalRetryFloor()
+	for i := 0; i < 4; i++ {
+		d = c.growFatalBackoff(d)
+		got = append(got, d)
+	}
+	want := []time.Duration{8 * time.Second, 16 * time.Second, 16 * time.Second, 16 * time.Second}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("growFatalBackoff step %d = %v, want %v (%v)", i, got[i], want[i], got)
+		}
+	}
+	if got := (&Client{}).growFatalBackoff(defaultSIDFatalRetryCap); got != defaultSIDFatalRetryCap {
+		t.Errorf("growFatalBackoff with an unset cap = %v, want it clamped to %v", got, defaultSIDFatalRetryCap)
 	}
 }
