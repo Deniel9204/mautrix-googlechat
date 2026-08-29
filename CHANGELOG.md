@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [26.08.6] - 2026-08-29
+
+The login bundle: an investigation into simplifying login concluded there is
+no better auth scheme available (the OAuth path died server-side in 2023, and
+no lighter cookie refresh exists in any reference implementation), so this
+release instead makes each cookie session last longer and each re-paste
+cheaper.
+
+### Added
+
+- A cURL paste now also carries your browser's User-Agent, and the bridge
+  replays the session under it -- the same fingerprint that minted the
+  cookies, instead of a hardcoded 2023-vintage Chrome. Pasting the cURL
+  command is now the recommended way to log in for exactly this reason; a
+  plain JSON object keeps working unchanged.
+- Clients with an embedded webview get everything needed for a no-devtools
+  login: which domain each cookie lives on, the User-Agent to browse with,
+  and when the login window may close itself. Invisible to the bot-command
+  flow.
+
+### Fixed
+
+- A wrong paste now explains itself locally instead of costing a round trip
+  to Google and coming back as the generic "cookies don't seem to be valid":
+  missing or empty cookies are named outright, and stray whitespace or quotes
+  around a pasted value are forgiven.
+- Restarting the bridge no longer discards the extra cookies Google issues
+  after login. Only the five named login cookies were being persisted, while
+  every request already sent the full set -- so each restart replayed a
+  session Google had already moved past.
+
+### Security
+
+- A mistyped COMPASS cookie value is no longer echoed back into the room
+  unredacted. The field carried a client-side validation pattern, and the
+  command framework's pattern-mismatch error interpolates the submitted
+  value verbatim -- for a field whose value is a session credential. The
+  pattern is removed; the live validation against Google catches a bad
+  COMPASS either way.
+
+### Documentation
+
+- The cookie-extraction guide taught the exact opposite of what both
+  reference implementations recommend. Extract from a private/incognito
+  window and close it afterwards: a browser session that stays open keeps
+  rotating the cookies as you use Google, invalidating the bridge's copies --
+  the likeliest reason logins died early. Also documents that the cURL paste
+  must be the bash variant and that the JSON keys are case-sensitive.
+
 ## [26.08.5] - 2026-08-29
 
 Three connection-reliability fixes. Two of them are failures the bridge
