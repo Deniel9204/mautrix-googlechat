@@ -122,9 +122,14 @@ func loginCookieFields() []bridgev2.LoginCookieField {
 // Start returns the cookies step describing what the login UI must collect.
 func (gl *GChatLogin) Start(_ context.Context) (*bridgev2.LoginStep, error) {
 	return &bridgev2.LoginStep{
-		Type:         bridgev2.LoginStepTypeCookies,
-		StepID:       LoginStepIDCookies,
-		Instructions: "Enter a JSON object with your cookies, or a cURL command copied from browser devtools.",
+		Type:   bridgev2.LoginStepTypeCookies,
+		StepID: LoginStepIDCookies,
+		// The one place a link belongs: this is rendered as markdown in the
+		// management room and shown once, unlike the bridge-state strings
+		// (bridgestate.go), which replay as raw text in every portal.
+		Instructions: "Enter a JSON object with your cookies, or a cURL command copied from browser devtools.\n\n" +
+			"Step-by-step instructions for extracting the five cookies (COMPASS, SSID, SID, OSID, HSID) from Chrome or Firefox: " +
+			"https://github.com/Deniel9204/mautrix-googlechat/blob/main/docs/authentication.md",
 		CookiesParams: &bridgev2.LoginCookiesParams{
 			URL:    "https://chat.google.com/",
 			Fields: loginCookieFields(),

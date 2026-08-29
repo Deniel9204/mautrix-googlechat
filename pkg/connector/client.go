@@ -53,6 +53,10 @@ type GChatClient struct {
 	mu        sync.Mutex
 	conn      *gchatmeow.Client
 	lastState status.BridgeStateEvent
+	// lastError is the error code that accompanied lastState, kept so a test
+	// can tell WHICH failure was reported -- two different causes both map to
+	// StateBadCredentials.
+	lastError status.BridgeStateErrorCode
 	// initialSyncDone latches true the first time handleConnState's
 	// Connected branch runs syncChats for the currently-installed conn, and
 	// is reset to false by wireAndStart whenever a new conn is installed
@@ -389,8 +393,11 @@ func (c *GChatClient) Connect(ctx context.Context) {
 	c.metaMu.Unlock()
 
 	if meta == nil || !hasRequiredCookies(cookies) {
-		zerolog.Ctx(ctx).Warn().Msg("googlechat: Connect called with no usable stored cookies")
-		c.reportState(gchatmeow.ConnStateBadCredentials, errNoStoredCookies)
+		zerolog.Ctx(ctx).Warn().Err(errNoStoredCookies).Msg("googlechat: Connect called with no usable stored cookies")
+		// Its own code: nothing was rejected here, there was nothing to
+		// reject. Same advice to the user, but the log and the bridge-state
+		// payload can now tell the two apart.
+		c.reportBridgeState(missingCookiesBridgeState())
 		return
 	}
 
@@ -588,9 +595,9 @@ func (c *GChatClient) disconnect(conn *gchatmeow.Client) {
 	conn.Disconnect()
 }
 
-func (c *GChatClient) setLastState(evt status.BridgeStateEvent) {
+func (c *GChatClient) setLastState(evt status.BridgeStateEvent, code status.BridgeStateErrorCode) {
 	c.mu.Lock()
-	c.lastState = evt
+	c.lastState, c.lastError = evt, code
 	c.mu.Unlock()
 }
 
@@ -598,6 +605,12 @@ func (c *GChatClient) getLastState() status.BridgeStateEvent {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.lastState
+}
+
+func (c *GChatClient) getLastErrorCode() status.BridgeStateErrorCode {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastError
 }
 
 // save persists UserLogin.Metadata, routing through saveFn when a test has
@@ -671,8 +684,14 @@ func (c *GChatClient) ownEmail() string {
 // Connect's pre-flight missing-cookie check (no live conn yet) and by
 // handleConnState (conn's real OnConnectionState callback).
 func (c *GChatClient) reportState(state gchatmeow.ConnState, err error) {
-	bs := connStateToBridgeState(state, err)
-	c.setLastState(bs.StateEvent)
+	c.reportBridgeState(connStateToBridgeState(state, err))
+}
+
+// reportBridgeState sends bs and caches what was sent. Split out from
+// reportState because Connect's pre-flight reports a condition gchatmeow never
+// observes, so it has no ConnState to map from.
+func (c *GChatClient) reportBridgeState(bs status.BridgeState) {
+	c.setLastState(bs.StateEvent, bs.Error)
 	c.UserLogin.BridgeState.Send(bs)
 }
 

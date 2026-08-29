@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,5 +240,19 @@ func TestCreateLoginUnknownFlow(t *testing.T) {
 	_, err := gc.CreateLogin(context.Background(), &bridgev2.User{}, "bogus")
 	if err == nil {
 		t.Fatal("CreateLogin(bogus) error = nil, want error")
+	}
+}
+
+// TestLoginInstructionsPointAtTheCookieDocs: the login step is the one place
+// in this bridge where a link renders, and the one moment the user needs the
+// cookie-extraction guide. Without this nothing connects the login flow to the
+// document that explains it.
+func TestLoginInstructionsPointAtTheCookieDocs(t *testing.T) {
+	step, err := (&GChatLogin{}).Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !strings.Contains(step.Instructions, "docs/authentication.md") {
+		t.Errorf("login instructions %q do not link the cookie-extraction guide", step.Instructions)
 	}
 }
