@@ -1,0 +1,106 @@
+{
+  "commentTypes": ["logic", "syntax"],
+  "strictness": 2,
+  "triggerOnDrafts": false,
+  "triggerOnUpdates": false,
+  "shouldUpdateDescription": false,
+  "disabledLabels": ["no-greptile"],
+  "ignorePatterns": "**/*.pb.go\ngo.sum",
+  "instructions": "This is a Matrix<->Google Chat puppeting bridge in Go, built on the mautrix-go bridgev2 framework. Two files govern correctness and are authoritative: CLAUDE.md (see its 'Hard rules (violations are always bugs)' section) and docs/ARCHITECTURE.md (protocol facts and key decisions). When a diff conflicts with either, flag it. The codebase deliberately favors: proto2 field presence, UTF-16 code-unit text offsets, log-and-skip on wire-decode errors (never kill the realtime channel), frozen pkg/gcid id formats (permanent DB contents), and a strict layering where pkg/gchatmeow owns all HTTP while pkg/connector and pkg/msgconv never touch the network. Prefer flagging real logic and security bugs and violations of these invariants over style nits.",
+  "customContext": {
+    "files": [
+      {
+        "scope": ["**"],
+        "path": "CLAUDE.md",
+        "description": "Project hard rules — violations are always bugs. Read before flagging anything in this repo."
+      },
+      {
+        "scope": ["pkg/**", "docs/**"],
+        "path": "docs/ARCHITECTURE.md",
+        "description": "Authoritative protocol facts, layering rules, and key decisions — the source of truth for wire-format and architecture questions."
+      }
+    ],
+    "rules": [
+      {
+        "scope": ["pkg/gchatmeow/**"],
+        "rule": "Flag (P0) any new import of a bridgev2 package (maunium.net/go/mautrix/bridgev2 or any subpackage such as .../bridgev2/networkid or .../bridgev2/database) added under pkg/gchatmeow, including its proto/ and pblite/ subdirs. gchatmeow is a standalone Google Chat client that must know nothing about Matrix/bridgev2; its dependency closure currently pulls in zero bridgev2 packages. An added import line naming bridgev2 is the violation (existing mentions there are only in comments)."
+      },
+      {
+        "scope": ["pkg/connector/**"],
+        "rule": "Flag (P0) any newly added import of net/http, or any other direct outbound network I/O (http.Client, http.NewRequest, net.Dial, etc.), in a non-test file under pkg/connector. All network I/O must go through pkg/gchatmeow; HTTP status codes are even written here as integer literals specifically to keep net/http out of the connector. Test files (*_test.go, e.g. net/http/httptest) are exempt."
+      },
+      {
+        "scope": ["pkg/msgconv/**"],
+        "rule": "Flag (P0) any network I/O, database access, or bridgev2 state mutation added to pkg/msgconv: an added import of gchatmeow, net/http, or bridgev2/database, or any call that fetches, persists, or mutates state. This package may only convert between Google Chat annotations and Matrix content. Importing bridgev2 DATA types (bridgev2.ConvertedMessage/ConvertedMessagePart, event.MessageEventContent) and bridgev2/networkid as pure data is EXPLICITLY ALLOWED and must not be flagged."
+      },
+      {
+        "scope": ["pkg/gchatmeow/proto/**", "pkg/gchatmeow/**", "pkg/connector/**", "pkg/msgconv/**"],
+        "rule": "Flag (P0) any edit that switches pkg/gchatmeow/proto/googlechat.proto from proto2 to proto3, drops an optional field label, or deletes a commented-out/reserved wire field number. Separately, flag decode or event-dispatch code that decides a load-bearing distinction from a proto scalar's Go zero value instead of an explicit presence check: oneof dispatch on Event.EventBody must switch on the set wrapper type, and set-vs-unset distinctions (flat_threads_enabled, threaded_group vs flat_group, attachment vs inline format span) must test the pointer for nil. Do NOT accept GetX() as the presence fix — for a proto2 scalar GetX() returns the zero value when unset and cannot distinguish set-zero from unset."
+      },
+      {
+        "scope": ["pkg/msgconv/**"],
+        "rule": "Flag (P0) any Google Chat annotation offset math (Annotation start_index/length and the text it slices) that indexes message text by Go bytes or runes — len(string), []byte slicing, []rune(text) indexing, utf8.RuneCountInString — instead of UTF-16 code units. Annotation offsets must be computed against the []uint16 produced by utf16Encode (JS String.length semantics; astral characters count as 2 units), and bounds must go through the spanWithinParent gate."
+      },
+      {
+        "scope": ["pkg/gchatmeow/chunkparser.go", "pkg/gchatmeow/channel.go"],
+        "rule": "Flag (P0) any change to the BrowserChannel chunk framer that treats the frame length prefix as a byte or rune count rather than UTF-16 code units, or that converts the whole receive buffer to a Go string (string(buf)) before locating a frame boundary. The parser must count UTF-16 units (takeUTF16Units) and decode only the complete-UTF-8 prefix, buffering a split trailing multibyte sequence as raw bytes — a []byte->string conversion inserts U+FFFD and permanently desyncs every subsequent frame."
+      },
+      {
+        "scope": ["pkg/gchatmeow/client.go", "pkg/gchatmeow/channel.go", "pkg/gchatmeow/chunkparser.go", "pkg/gchatmeow/pblite/**"],
+        "rule": "Flag (P0) any change in the inbound webchannel/pblite decode path that propagates a decode error upward, panics, or aborts the stream on a malformed frame, an unknown field number, or a wrong-typed/oversized value — instead of debug/warn-logging and skipping (continue / return nil). In Client.onReceiveArray a returned non-nil error is TERMINAL and tears down the poll. Only a structural failure (top-level payload not a JSON array) may error; individual bad values and frames must be skipped so the live channel survives Google's continuously-added wire fields. (A genuine ctx cancellation error is fine.)"
+      },
+      {
+        "scope": ["build.sh", "Dockerfile", ".github/workflows/**", "**/*.go"],
+        "rule": "Flag (P1) any edit that drops the `-tags goolm` build flag from a build entry point (build.sh, Dockerfile, or a build/vet/test/release job under .github/workflows), or a new //go:build constraint that would exclude a crypto/framework source file from the goolm build. The goolm tag selects the pure-Go olm crypto path; removing it silently switches to the unsupported libolm backend that CI never exercises. Do NOT flag CGO usage itself — the Docker build is intentionally CGO_ENABLED=1 (for sqlite3) while still passing -tags goolm."
+      },
+      {
+        "scope": ["pkg/connector/**", "pkg/msgconv/matrixfmt/**"],
+        "rule": "Flag (P1) any Matrix->Google Chat send/edit request (CreateTopicRequest / CreateMessageRequest / EditMessageRequest) whose MessageInfo omits AcceptFormatAnnotations: proto.Bool(true) or gates it on len(annotations) > 0 — it must be set unconditionally or Google Chat strips all outgoing formatting server-side. Also flag any outbound matrixfmt formatting/mention/URL annotation constructor that omits ChipRenderType: pb.Annotation_DO_NOT_RENDER.Enum(), since the zero value is Annotation_UNKNOWN, not DO_NOT_RENDER. Both regress silently with no error."
+      },
+      {
+        "scope": ["pkg/gcid/**"],
+        "rule": "Flag (P0) any diff that changes the bytes pkg/gcid's ID codecs emit or accept: the \"dm:\"/\"space:\" literals in MakePortalID/ParsePortalID, the `att_%d` format in MakeAttachmentPartID, the empty-string TextPartID constant, or the identity string casts in MakeUserID/MakeUserLoginID/MakeMessageID/ParseMessageID. These are permanent DB contents, frozen to stay byte-identical to python-migrated ids. Any reformat (zero-padding, casing, prefix rename, trimming, added separator) silently orphans persisted rows and breaks --migrate-from-python parity. In particular do NOT 'fix' the known att_10-sorts-before-att_9 lexical gap by zero-padding."
+      },
+      {
+        "scope": ["pkg/connector/media.go"],
+        "rule": "Flag (P0) in convertAttachmentsToMatrix any diff that splits the att_<n> allocation into a second/parallel counter, or moves index++ so the index is advanced only after a dedup/limit/failure `continue`. The single index must be consumed (partIndex := index; index++) for BOTH the upload-metadata and inline-URL annotation arms in encounter order, taken BEFORE any dedup/cap/skip, so a part's number never depends on a runtime outcome and the two media kinds never collide into duplicate IDs."
+      },
+      {
+        "scope": ["pkg/migrate/**"],
+        "rule": "Flag (P0) any migration code that sets a message or reaction part_id from a literal (e.g. a hardcoded \"\") or an ad-hoc computation instead of routing through assignPartIDs (which delegates to gcid.TextPartID / gcid.MakeAttachmentPartID). migrateMessages and migrateReactions must resolve part IDs for the same (gcid, gc_chat, gc_receiver) group via the same shared assignPartIDs, so a reaction's message_part_id matches the migrated message row's part_id exactly (for attachment-first messages index=0 maps to att_0, not the text part)."
+      },
+      {
+        "scope": ["pkg/migrate/**"],
+        "rule": "Flag (P0) any migrated id/mxid column built by string concatenation or a reimplemented username template instead of gcid.MakeUserID / gcid.MakeUserLoginID (identity copies of the raw gaia id) and deps.FormatGhostMXID (the live bridge's method value, not a reimplementation). Migrated sender_id/login_id/ghost id and sender_mxid must be byte-identical to what a live sync produces for the same Google Chat user, or migrated ghosts/rooms fail to collide-merge with live-synced ones."
+      },
+      {
+        "scope": ["pkg/gcid/gcid.go", "pkg/migrate/portal.go", "pkg/migrate/userportal.go"],
+        "rule": "Flag (P1) any change that gives a space portal a non-empty PortalKey.Receiver, leaves a DM portal's receiver unset, or derives a portal's room_type / DM-ness from anything other than the id's \"dm:\"/\"space:\" prefix via gcid.ParsePortalID. DM portals are receiver-scoped to the owner login; spaces are one global shared portal (receiver \"\") and must map to RoomTypeDefault, never RoomTypeSpace."
+      },
+      {
+        "scope": ["pkg/migrate/**"],
+        "rule": "Flag (P1) migrated message/reaction timestamps that bypass NormalizeTimestampMicros (the schema-version-gated ms->µs *1000, applied only when the source schema is < v10) or that bind a raw column value instead of time.UnixMicro(micros).UnixNano(). A pre-v10 Python DB stores milliseconds, so skipping the conversion writes timestamps off by 1000x; both the row timestamp and MessageMetadata.TimestampMicro must round-trip identically to a live-written row."
+      },
+      {
+        "scope": ["pkg/connector/**", "pkg/gchatmeow/**"],
+        "rule": "Flag (P0) any code path that downloads a REMOTE-PARTY-CHOSEN URL (a url_metadata / image_url annotation target, e.g. via media.go's inlineableURLMedia handling) through gchatmeow.Client.DownloadAttachment, downloadHTTPClient, or any cookie-/proxy-bearing Session method, instead of gchatmeow.DownloadExternalMedia via the connector's mediaFetcher.downloadExternal seam. The attachment client keeps an env proxy and permits plain http, which is only safe for Google's own fixed get_attachment_url endpoint; routing an attacker-chosen host through it reopens SSRF and can leak the Google session."
+      },
+      {
+        "scope": ["pkg/gchatmeow/**"],
+        "rule": "Flag (P0/P1) any change on the avatar or external-media fetch path (avatar.go's newAvatarHTTPClient / DownloadAvatar, external.go's newExternalHTTPClient / DownloadExternalMedia) that weakens ANY of these hardening mechanisms: (1) the Transport must set DialContext to newGuardedDialer(...).DialContext and must NOT set Proxy — a CONNECT proxy makes the isDisallowedIP Control hook validate only the proxy's address; (2) u.Scheme == \"https\" must be re-checked INSIDE the redirect loop on every hop, with CheckRedirect returning http.ErrUseLastResponse so following is manual; (3) ctx must be wrapped in a context.WithTimeout spanning the WHOLE redirect loop, not rely on http.Client.Timeout (enforced per Do() call); (4) maxSize <= 0 must be clamped up to the maxExternalMediaSize ceiling (never treated as 'unlimited'), and readBodyWithMaxSize's Content-Length reject + io.LimitReader cap must stay. Do NOT flag download.go / session.go, which keep Proxy intentionally for Google's fixed endpoint."
+      },
+      {
+        "scope": ["pkg/gchatmeow/**", "pkg/connector/**"],
+        "rule": "Flag (P0) attaching any Google credential to a remote-party fetch: giving DownloadExternalMedia or DownloadAvatar a *Client receiver, building its request via session.buildRequest, or adding cookies / the x-framework-xsrf-token / other Session-derived headers. These are package-level functions with no session precisely so credentials cannot structurally reach a third-party host; the connector's downloadExternal seam must likewise have no getConn/session. Sending SID/COMPASS cookies or the XSRF token to a remote-chosen host leaks the user's Google Chat session off-domain."
+      },
+      {
+        "scope": ["pkg/connector/config.go", "pkg/connector/example-config.yaml"],
+        "rule": "Flag (P1) any field added to or renamed in the Config struct in pkg/connector/config.go unless the same YAML key is ALSO (a) added to pkg/connector/example-config.yaml and (b) registered in upgradeConfig with a matching helper.Copy(<type>, \"<yaml_key>\") call. The struct, the example YAML, and the configupgrade helper are three places that must move together; a struct-only change leaves the field un-upgradable for existing deployments and undocumented for new ones."
+      },
+      {
+        "scope": ["pkg/connector/sync.go", "pkg/gchatmeow/**"],
+        "rule": "Flag (P1) any construction or edit of a pb.PaginatedWorldRequest that lacks a WorldSectionRequests entry carrying a PageSize. Without a world section the server returns a ~2-byte stub with zero world_items, so chat-list sync silently finds no chats and no portals auto-create — the most likely silent-breakage point in sync, producing zero errors."
+      }
+    ]
+  }
+}
