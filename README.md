@@ -8,6 +8,13 @@ Status: pre-alpha, under active development.
 This project is not affiliated with, endorsed by, or supported by Google.
 "Google Chat" is a trademark of Google LLC.
 
+## ⭐ Give us a star
+
+If this bridge is useful to you, please consider starring it on GitHub — it
+helps other people find the project and motivates continued development.
+
+[![Star on GitHub](https://img.shields.io/github/stars/Deniel9204/mautrix-googlechat?style=social)](https://github.com/Deniel9204/mautrix-googlechat/stargazers)
+
 ## Features
 
 | Feature | Status |
