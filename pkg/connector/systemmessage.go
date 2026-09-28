@@ -205,6 +205,17 @@ func (c *GChatClient) queueMembershipChanged(ctx context.Context, evt *pb.Event,
 				continue
 			}
 			uid := gcid.MakeUserID(gcUserID)
+			if uid == ownID && membership != event.MembershipInvite {
+				// The user answered a pending invite from another Google Chat
+				// client. Clear it before queueing: the join below makes the
+				// bridge auto-accept on Matrix, and that echo must not be
+				// mistaken for a Matrix accept still to be sent (invites.go).
+				if id, isDM, ok := gchatmeow.GroupIDToParts(evt.GetGroupId()); ok && !isDM {
+					if err := c.clearPendingInvite(ctx, id); err != nil {
+						log.Err(err).Str("space_id", id).Msg("googlechat: failed to clear answered space invite")
+					}
+				}
+			}
 			memberMap[uid] = bridgev2.ChatMember{
 				EventSender:    bridgev2.EventSender{Sender: uid, IsFromMe: uid == ownID},
 				Membership:     membership,

@@ -1,7 +1,8 @@
 package connector
 
 // handlemembership.go -- Matrix -> Google Chat outbound membership actions
-// (HandleMatrixMembership): invite/add, kick/remove, and leave.
+// (HandleMatrixMembership): invite/add, kick/remove, leave, and answering a
+// pending space invite.
 //
 // Endpoint routing (verified against the maintained purple-googlechat client):
 //   - Invite (leave->invite): create_membership, carrying the target in
@@ -9,6 +10,10 @@ package connector
 //   - Kick (join->leave, not self): remove_memberships, member_ids = target.
 //   - Leave (join->leave, self): remove_memberships, member_ids = own gaia id
 //     (a leave is a self-removal; there is no distinct "leave" endpoint).
+//   - Accept a pending invite (invite->join, self): create_membership,
+//     member_ids = own gaia id -- purple's join path.
+//   - Decline a pending invite (invite->leave, self): as Leave.
+//     Both only for spaces Google Chat reported as invited (invites.go).
 //
 // Spaces only: these actions are meaningless in a DM, and the request GroupId
 // only ever carries the space. A membership change in a DM portal is rejected
@@ -24,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
@@ -70,10 +76,16 @@ func (c *GChatClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.
 	// ProfileChange is a Matrix displayname or avatar edit with no Google Chat
 	// counterpart.
 	//
-	// Deliberately NOT extended to RejectInvite or Knock: those are real user
-	// decisions that would need an RPC, and answering success would silently
-	// swallow them. They keep erroring until there is a path that can reach
-	// them (see #32/#36).
+	// The exception is a space Google Chat reported as a pending invite
+	// (invites.go): there the user's accept or decline is a real decision and
+	// is sent on. Only that path can produce a RejectInvite worth sending;
+	// any other RejectInvite, and Knock, still errors rather than being
+	// silently swallowed.
+	if msg.Type == bridgev2.AcceptInvite || msg.Type == bridgev2.RejectInvite {
+		if group, err := gcid.ParsePortalID(msg.Portal.ID); err == nil && !group.IsDM && c.hasPendingInvite(group.ID) {
+			return c.answerInvite(ctx, group, msg.Type == bridgev2.AcceptInvite)
+		}
+	}
 	switch msg.Type {
 	case bridgev2.AcceptInvite, bridgev2.Join, bridgev2.ProfileChange:
 		return &bridgev2.MatrixMembershipResult{}, nil
@@ -120,8 +132,38 @@ func (c *GChatClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.
 	return &bridgev2.MatrixMembershipResult{}, nil
 }
 
+// answerInvite sends the user's Matrix answer to a pending Google Chat space
+// invite. Accept is purple-googlechat's join: create_membership with the
+// user's own gaia id in member_ids (no invitee_member_infos). Decline is a
+// self-removal, the same request as Leave. Either way the invite is no longer
+// pending; an accept additionally resyncs the space, whose members and
+// history were unreadable until now.
+func (c *GChatClient) answerInvite(ctx context.Context, group gcid.GroupID, accept bool) (*bridgev2.MatrixMembershipResult, error) {
+	groupID := gchatmeow.PartsToGroupID(group.ID, false)
+	own := string(c.UserLogin.ID)
+	var err error
+	if accept {
+		err = c.createMembership(ctx, &pb.CreateMembershipRequest{
+			GroupId:   groupID,
+			MemberIds: []*pb.MemberId{gchatmeow.UserMemberID(own)},
+		})
+	} else {
+		err = c.removeMember(ctx, groupID, own)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := c.clearPendingInvite(ctx, group.ID); err != nil {
+		zerolog.Ctx(ctx).Err(err).Str("space_id", group.ID).Msg("googlechat: failed to clear answered space invite")
+	}
+	if accept {
+		c.resyncAcceptedSpace(group)
+	}
+	return &bridgev2.MatrixMembershipResult{}, nil
+}
+
 // removeMember issues remove_memberships for one gaia id in a space. Used for
-// both Kick (another user) and Leave (own id). membership_state is
+// Kick (another user), and for Leave and declining an invite (own id). membership_state is
 // MEMBER_INVITED, matching what purple-googlechat sends on removals.
 func (c *GChatClient) removeMember(ctx context.Context, groupID *pb.GroupId, gaia string) error {
 	req := &pb.RemoveMembershipsRequest{

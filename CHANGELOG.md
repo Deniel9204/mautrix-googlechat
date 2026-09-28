@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [Unreleased]
+
+### Added
+
+- Spaces you are invited to on Google Chat now show up on Matrix as a room
+  invite, without waiting for someone to post (#32). The invite is found at
+  every connect, including invites that arrived while the bridge was down.
+  Nothing is accepted on your behalf: the room stays an invite until you act
+  on it. Invites Google files as spam are skipped, as in the Google Chat web
+  client.
+- Accepting or declining that invite on Matrix now does the same on Google
+  Chat (#36). Accepting joins the space and then pulls in its members and
+  recent history, which were unreadable while you were only invited.
+
 ## [26.08.7] - 2026-08-29
 
 ### Fixed

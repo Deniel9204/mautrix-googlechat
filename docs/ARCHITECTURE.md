@@ -367,6 +367,7 @@ an undelivered event.
 | Media | both | `media.go` (download via `get_attachment_url` with manual cookie-aware redirects; upload via resumable protocol → `UPLOAD_METADATA` annotation) |
 | Membership / renames / topic | GC→Matrix | `systemmessage.go` → `ChatInfoChange` |
 | Membership actions (invite/kick/leave) | Matrix→GC (spaces) | `HandleMatrixMembership` (`handlemembership.go`) → `create_membership` / `remove_memberships` |
+| Space invites (portal + accept/decline) | both (spaces) | `sync.go` keeps invited spaces; `invites.go` marks the user invited (never auto-joined) and gates the answer on `UserLoginMetadata.PendingInvites`; accept = `create_membership` with own id, decline = `remove_memberships` |
 | Space rename | Matrix→GC (spaces) | `HandleMatrixRoomName` (`handleroomname.go`) → `update_group` |
 | Chat / user metadata | GC→Matrix | `GetChatInfo` (`chatinfo.go`) / `GetUserInfo` (`userinfo.go`); ghost avatars via `avatar.go` |
 | Backfill & catch-up | GC→Matrix | `FetchMessages` (`backfill.go`, `list_topics`/`list_messages`) + revision catch-up (§4) |

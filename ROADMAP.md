@@ -20,9 +20,9 @@
   * [ ] Presence
   * [x] Typing notifications
   * [x] Read receipts
-  * [ ] Membership actions
+  * [x] Membership actions
     * [x] Invite
-    * [ ] Join (accept invite)
+    * [x] Join (accept invite)‡
     * [x] Kick
     * [x] Leave
   * [x] Room metadata changes
@@ -67,7 +67,7 @@
   * [x] Relay mode
   * [x] Automatic portal creation
     * [x] At startup
-    * [ ] When invited to chat
+    * [x] When invited to chat‡
     * [x] When receiving message
   * [x] Private chat creation by inviting Matrix puppet of Google Chat user to new room
   * [x] Option to use own Matrix account for messages sent from other Google Chat clients (double puppeting)
@@ -84,3 +84,8 @@ bridge does neither (it sends the
 a live upload confirmed it succeeds. `network.disable_outbound_media` remains
 available to turn upload attempts into clean errors if a future change breaks
 them for your account.
+
+‡ Built on data and request shapes the bridge already uses (the invite comes
+from the same chat-list sync; accepting sends the maintained
+purple-googlechat client's own join request; declining is the same request
+as Leave), but not yet exercised against a live account.

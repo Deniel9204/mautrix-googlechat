@@ -9,6 +9,10 @@ type UserLoginMetadata struct {
 	UserAgent string            `json:"user_agent,omitempty"`
 	// Last fully-handled user event stream revision (catch_up_user watermark).
 	Revision int64 `json:"revision,omitempty"`
+	// Space ids Google Chat reported this account as INVITED to (not yet
+	// joined), as of the last chat-list sync. Gates whether a Matrix
+	// accept/decline is sent to Google Chat (invites.go).
+	PendingInvites []string `json:"pending_invites,omitempty"`
 }
 
 type PortalMetadata struct {
