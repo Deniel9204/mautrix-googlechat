@@ -58,7 +58,10 @@ func fnLeave(ce *commands.Event) {
 		ce.Reply("This bridge's network connector is not Google Chat.")
 		return
 	}
-	ce.Reply("%s", gc.runLeaveCommand(ce.Ctx, ce.Portal, ce.User, ce.Args))
+	// Reply only substitutes $cmdprefix in its format string, and this text
+	// is an argument (it may contain '%' from a space name or an error).
+	reply := gc.runLeaveCommand(ce.Ctx, ce.Portal, ce.User, ce.Args)
+	ce.Reply("%s", strings.ReplaceAll(reply, "$cmdprefix", ce.Bridge.Config.CommandPrefix))
 }
 
 // leaveResult is one login's outcome on Google Chat.
