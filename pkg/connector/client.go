@@ -367,6 +367,10 @@ type GChatClient struct {
 	// before the space is created (createspace.go); overridable for the same
 	// reason.
 	ensureBotPowerFn func(ctx context.Context, roomID id.RoomID) error
+
+	// hideGroupFn issues hide_group for the leave command's DM path
+	// (leave.go); overridable in tests.
+	hideGroupFn func(ctx context.Context, req *pb.HideGroupRequest) (*pb.HideGroupResponse, error)
 }
 
 var _ bridgev2.NetworkAPI = (*GChatClient)(nil)

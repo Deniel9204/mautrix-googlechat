@@ -30,6 +30,12 @@ disable_outbound_media: false
 # This never costs you a message either way: the URL is always put in the
 # message body, so with this enabled a GIF simply arrives as a link.
 disable_inline_url_media: false
+# The `leave` command leaves the current chat on Google Chat (a space, with
+# every one of your logins in it) or hides it (a DM). By default the first
+# `leave` only says what will happen and waits for `leave confirm`, because
+# leaving a private space cannot be undone without a new invite. Set this to
+# true to make `leave` act immediately.
+skip_leave_confirmation: false
 # History (message) backfill has no settings here: it is controlled entirely
 # by this bridge's standard top-level `backfill:` section (not part of this
 # network-specific config fragment) -- see that section's own comments, and

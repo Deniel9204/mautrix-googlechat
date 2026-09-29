@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [Unreleased]
+
+### Added
+
+- A `leave` command to leave a chat on Google Chat from Matrix (#66). In a
+  space it leaves with every one of your Google Chat logins in it (so the
+  room does not come back through another login after a restart), then
+  removes you from the room; in a DM, which cannot be left, it hides the DM.
+  The first `leave` says what it will do and waits for `leave confirm`; set
+  `network.skip_leave_confirmation: true` to skip that. The built-in
+  `delete-chat` command now does the same, without asking. If any login
+  cannot leave, you stay in the room and the reply says which one failed.
+
 ## [26.09.1] - 2026-09-29
 
 ### Added
