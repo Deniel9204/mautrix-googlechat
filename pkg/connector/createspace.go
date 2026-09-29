@@ -18,12 +18,15 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
@@ -40,6 +43,18 @@ func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCre
 	log := zerolog.Ctx(ctx)
 	if params.Name == nil || params.Name.Name == "" {
 		return nil, errors.New("googlechat: a space needs a name -- set the Matrix room's name first")
+	}
+
+	// Give the bridge bot the power it needs in the command's room before
+	// anything exists on Google Chat, so a refusal here creates nothing.
+	if params.RoomID != "" {
+		ensure := c.ensureBotPowerFn
+		if ensure == nil {
+			ensure = c.ensureBotPower
+		}
+		if err := ensure(ctx, params.RoomID); err != nil {
+			return nil, err
+		}
 	}
 
 	resp, shape, err := c.createSpace(ctx, params.Name.Name)
@@ -191,6 +206,50 @@ func addWebExtras(withField9 bool) func(*pb.CreateGroupRequest) {
 		top = protowire.AppendBytes(protowire.AppendTag(top, 8, protowire.BytesType), opts)
 		req.ProtoReflect().SetUnknown(top)
 	}
+}
+
+// botPowerLevel is what the bridge bot needs in a room it did not create to
+// run it as a portal (room name, topic, power levels, member sync). 100 is
+// the most a room creator can grant; rooms the bridge creates give it 9001.
+const botPowerLevel = 100
+
+// ensureBotPower raises the bridge bot to botPowerLevel in roomID if needed,
+// acting as the user through their double puppet -- the user asked for this
+// room to be bridged, and only they can grant power in it.
+func (c *GChatClient) ensureBotPower(ctx context.Context, roomID id.RoomID) error {
+	br := c.UserLogin.Bridge
+	pl, err := br.Matrix.GetPowerLevels(ctx, roomID)
+	if err != nil {
+		return fmt.Errorf("googlechat: reading this room's power levels failed: %w", err)
+	}
+	dp := c.UserLogin.User.DoublePuppet(ctx)
+	changed, err := promoteBot(pl, br.Bot.GetMXID(), c.UserLogin.UserMXID, dp != nil)
+	if err != nil || !changed {
+		return err
+	}
+	if _, err := dp.SendState(ctx, roomID, event.StatePowerLevels, "", &event.Content{Parsed: pl}, time.Time{}); err != nil {
+		return fmt.Errorf("googlechat: giving the bridge bot power level %d in this room failed: %w", botPowerLevel, err)
+	}
+	zerolog.Ctx(ctx).Info().Stringer("room_id", roomID).Msg("googlechat: raised the bridge bot's power level in the create-group room")
+	return nil
+}
+
+// promoteBot decides whether pl must change for the bot to reach
+// botPowerLevel, and applies the change when the user can make it: they need
+// a double puppet to act through, and at least botPowerLevel themselves
+// (Matrix never lets anyone grant more than their own level).
+func promoteBot(pl *event.PowerLevelsEventContent, bot, user id.UserID, hasDoublePuppet bool) (bool, error) {
+	if pl.GetUserLevel(bot) >= botPowerLevel {
+		return false, nil
+	}
+	if !hasDoublePuppet {
+		return false, fmt.Errorf("googlechat: the bridge bot needs power level %d in this room; give %s that level (or set up double puppeting so the bridge can) and retry", botPowerLevel, bot)
+	}
+	if pl.GetUserLevel(user) < botPowerLevel {
+		return false, fmt.Errorf("googlechat: the bridge bot needs power level %d in this room, and you have %d, which is not enough to grant it; ask a room admin to give %s that level and retry", botPowerLevel, pl.GetUserLevel(user), bot)
+	}
+	pl.SetUserLevel(bot, botPowerLevel)
+	return true, nil
 }
 
 // newSpaceLocalID mimics the web client's create_group local_id: 11

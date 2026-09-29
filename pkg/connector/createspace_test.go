@@ -12,6 +12,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
@@ -195,6 +196,7 @@ func TestCreateGroupBindsCommandRoomBeforeInviting(t *testing.T) {
 		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
 			return createdSpace("newspace"), nil
 		},
+		ensureBotPowerFn: func(context.Context, id.RoomID) error { return nil },
 		bindCreatedSpaceRoomFn: func(_ context.Context, key networkid.PortalKey, params *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
 			order = append(order, "bind")
 			if key.ID != gcid.MakePortalID(gcid.GroupID{ID: "newspace"}) || params.RoomID != "!room:example.org" {
@@ -228,6 +230,7 @@ func TestCreateGroupWithoutRoomDoesNotBind(t *testing.T) {
 		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
 			return createdSpace("newspace"), nil
 		},
+		ensureBotPowerFn: func(context.Context, id.RoomID) error { return nil },
 		bindCreatedSpaceRoomFn: func(context.Context, networkid.PortalKey, *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
 			t.Error("bound a room although the request named none")
 			return nil, nil
@@ -244,6 +247,7 @@ func TestCreateGroupBindFailureIsReported(t *testing.T) {
 		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
 			return createdSpace("newspace"), nil
 		},
+		ensureBotPowerFn: func(context.Context, id.RoomID) error { return nil },
 		bindCreatedSpaceRoomFn: func(context.Context, networkid.PortalKey, *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
 			return nil, errors.New("room is already a portal")
 		},
@@ -252,5 +256,77 @@ func TestCreateGroupBindFailureIsReported(t *testing.T) {
 	params.RoomID = "!room:example.org"
 	if _, err := gc.CreateGroup(context.Background(), params); err == nil {
 		t.Error("CreateGroup() = nil error after the room could not be bound")
+	}
+}
+
+// The bot's power is settled before the space exists: if it cannot be, no
+// space is created at all.
+func TestCreateGroupPromotesBotBeforeCreating(t *testing.T) {
+	var order []string
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		ensureBotPowerFn: func(_ context.Context, roomID id.RoomID) error {
+			order = append(order, "power:"+string(roomID))
+			return nil
+		},
+		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
+			order = append(order, "create")
+			return createdSpace("newspace"), nil
+		},
+		bindCreatedSpaceRoomFn: func(context.Context, networkid.PortalKey, *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
+			return &bridgev2.Portal{}, nil
+		},
+	}
+	params := spaceParams("Team")
+	params.RoomID = "!room:example.org"
+
+	if _, err := gc.CreateGroup(context.Background(), params); err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+	if len(order) != 2 || order[0] != "power:!room:example.org" || order[1] != "create" {
+		t.Errorf("order = %v, want the bot promoted first", order)
+	}
+}
+
+func TestCreateGroupPowerFailureCreatesNothing(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin:        newTestUserLogin(&UserLoginMetadata{}),
+		ensureBotPowerFn: func(context.Context, id.RoomID) error { return errors.New("no double puppet") },
+		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
+			t.Error("space created although the bot could not be given power")
+			return createdSpace("x"), nil
+		},
+	}
+	params := spaceParams("Team")
+	params.RoomID = "!room:example.org"
+	if _, err := gc.CreateGroup(context.Background(), params); err == nil {
+		t.Error("CreateGroup() = nil error, want the power failure")
+	}
+}
+
+func TestPromoteBot(t *testing.T) {
+	const bot, user = id.UserID("@bot:hs"), id.UserID("@me:hs")
+	levels := func(botLevel, userLevel int) *event.PowerLevelsEventContent {
+		pl := &event.PowerLevelsEventContent{}
+		pl.SetUserLevel(bot, botLevel)
+		pl.SetUserLevel(user, userLevel)
+		return pl
+	}
+
+	if changed, err := promoteBot(levels(100, 100), bot, user, true); changed || err != nil {
+		t.Errorf("bot already at 100: changed=%v err=%v, want no change", changed, err)
+	}
+	if _, err := promoteBot(levels(0, 100), bot, user, false); err == nil {
+		t.Error("no double puppet: want an error telling the user to promote the bot")
+	}
+	if _, err := promoteBot(levels(0, 50), bot, user, true); err == nil {
+		t.Error("user at 50: want an error (cannot grant more than own level)")
+	}
+	pl := levels(0, 100)
+	if changed, err := promoteBot(pl, bot, user, true); !changed || err != nil || pl.GetUserLevel(bot) != 100 {
+		t.Errorf("promote: changed=%v err=%v bot=%d, want the bot raised to 100", changed, err, pl.GetUserLevel(bot))
+	}
+	if pl.GetUserLevel(user) != 100 {
+		t.Error("promoting the bot changed the user's own level")
 	}
 }

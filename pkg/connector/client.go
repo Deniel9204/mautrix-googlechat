@@ -363,6 +363,10 @@ type GChatClient struct {
 	// the create-group command ran in (createspace.go). Overridable because
 	// the real one needs a full bridgev2.Bridge.
 	bindCreatedSpaceRoomFn func(ctx context.Context, key networkid.PortalKey, params *bridgev2.GroupCreateParams) (*bridgev2.Portal, error)
+	// ensureBotPowerFn gives the bridge bot power in the create-group room
+	// before the space is created (createspace.go); overridable for the same
+	// reason.
+	ensureBotPowerFn func(ctx context.Context, roomID id.RoomID) error
 }
 
 var _ bridgev2.NetworkAPI = (*GChatClient)(nil)
