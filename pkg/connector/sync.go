@@ -55,8 +55,7 @@ type syncChatItem struct {
 //   - sort by sort_timestamp descending -- sort.SliceStable so ties keep the
 //     server's original relative order (a stable sort);
 //   - walk the FULL sorted list with an absolute position counter and skip
-//     conditions (blocked / hidden (hide_timestamp > 0) / not MEMBER_JOINED,
-//     except a space with a pending non-spam invite -- see invites.go)
+//     conditions (blocked / hidden (hide_timestamp > 0) / not MEMBER_JOINED)
 //     -- critically, a skipped item still advances the position counter for
 //     every item after it, exactly like enumerating the unfiltered, sorted
 //     list and `continue`-ing (the index is over the unfiltered list;
@@ -92,12 +91,7 @@ func planChatSync(items []*pb.WorldItemLite, maxSync int) []syncChatItem {
 	plan := make([]syncChatItem, 0, len(sorted))
 	for i, item := range sorted {
 		rs := item.GetReadState()
-		if rs.GetBlocked() || rs.GetHideTimestamp() > 0 {
-			continue
-		}
-		// Joined chats, plus spaces with a pending non-spam invite: those get
-		// a portal the user is invited to rather than joined (invites.go).
-		if rs.GetMembershipState() != pb.MembershipState_MEMBER_JOINED && !isInvitedSpace(item) {
+		if rs.GetBlocked() || rs.GetHideTimestamp() > 0 || rs.GetMembershipState() != pb.MembershipState_MEMBER_JOINED {
 			continue
 		}
 		plan = append(plan, syncChatItem{Item: item, CreatePortal: i < maxSync})
@@ -164,19 +158,11 @@ func (c *GChatClient) syncChats(ctx context.Context) {
 	plan := planChatSync(resp.GetWorldItems(), maxSync)
 	own := c.ownUserID()
 
-	// Record the pending invites BEFORE queuing any resync: a resync can make
-	// the bridge auto-accept a portal on the user's behalf, and that echo must
-	// find the pending set already current to be told apart from a real
-	// Matrix accept (invites.go).
-	var invited []string
-	for _, entry := range plan {
-		if isInvitedSpace(entry.Item) {
-			id, _, _ := gchatmeow.GroupIDToParts(entry.Item.GetGroupId())
-			invited = append(invited, id)
-		}
-	}
-	if err := c.setPendingInvites(ctx, invited); err != nil {
-		log.Err(err).Msg("googlechat: failed to save pending space invites")
+	// Forget pending invites the chat list now shows as joined (accepted in
+	// another client). Done before queuing: a resync can make the bridge
+	// auto-accept a portal, and that echo must not match a stale invite.
+	if err := c.dropJoinedPendingInvites(ctx, resp.GetWorldItems()); err != nil {
+		log.Err(err).Msg("googlechat: failed to update pending space invites")
 	}
 
 	for _, entry := range plan {

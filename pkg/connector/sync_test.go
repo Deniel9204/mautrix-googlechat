@@ -120,9 +120,8 @@ func TestPlanChatSyncSkipsBlockedHiddenAndNotJoined(t *testing.T) {
 	hidden := worldItem("hidden", 200)
 	hidden.ReadState.HideTimestamp = proto.Int64(12345)
 
-	// Not MEMBER_INVITED: an invited space is kept on purpose (invites.go).
 	notJoined := worldItem("not-joined", 300)
-	notJoined.ReadState.MembershipState = pb.MembershipState_MEMBER_NOT_A_MEMBER.Enum()
+	notJoined.ReadState.MembershipState = pb.MembershipState_MEMBER_INVITED.Enum()
 
 	noReadState := &pb.WorldItemLite{GroupId: spaceGroupID("no-read-state"), SortTimestamp: proto.Int64(50)}
 

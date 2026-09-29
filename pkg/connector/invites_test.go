@@ -21,128 +21,175 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-func invitedWorldItem(id string, sortTS int64, inviter string) *pb.WorldItemLite {
-	item := worldItem(id, sortTS)
-	item.RoomName = proto.String("Invited " + id)
-	item.ReadState.MembershipState = pb.MembershipState_MEMBER_INVITED.Enum()
-	item.ReadState.InviteCategory = pb.InviteCategory_REGULAR_INVITE.Enum()
-	if inviter != "" {
-		item.ReadState.InviteState = &pb.InviteState{InviterUserId: userIDProto(inviter)}
+// ownMembershipEvent is a standalone MembershipChangedEvent for one member of
+// a group, shaped like the one Google pushes to an invitee.
+func ownMembershipEvent(groupID *pb.GroupId, gaia string, state pb.MembershipState, category pb.InviteCategory) *pb.Event {
+	return &pb.Event{
+		Type: pb.Event_MEMBERSHIP_CHANGED.Enum(),
+		Body: &pb.Event_EventBody{
+			EventType: pb.Event_MEMBERSHIP_CHANGED.Enum(),
+			Type: &pb.Event_EventBody_MembershipChanged{MembershipChanged: &pb.MembershipChangedEvent{
+				NewMembership: &pb.Membership{
+					Id: &pb.MembershipId{
+						MemberId: &pb.MemberId{Id: &pb.MemberId_UserId{UserId: userIDProto(gaia)}},
+						GroupId:  groupID,
+					},
+					MembershipState: state.Enum(),
+					InviteCategory:  category.Enum(),
+				},
+			}},
+		},
 	}
-	return item
 }
 
 func pendingInvites(gc *GChatClient) []string {
 	return gc.UserLogin.Metadata.(*UserLoginMetadata).PendingInvites
 }
 
-// --- planChatSync ----------------------------------------------------------
-
-func TestPlanChatSyncKeepsInvitedSpaceButNotSpamOrDM(t *testing.T) {
-	spam := invitedWorldItem("spam", 300, "")
-	spam.ReadState.InviteCategory = pb.InviteCategory_SPAM_INVITE.Enum()
-
-	dm := invitedWorldItem("dm", 200, "")
-	dm.GroupId = dmGroupID("dm")
-
-	plan := planChatSync([]*pb.WorldItemLite{spam, dm, invitedWorldItem("invited", 100, "")}, 10)
-
-	if len(plan) != 1 {
-		t.Fatalf("len(plan) = %d, want 1 (only the regular space invite)", len(plan))
-	}
-	if id, _, _ := groupIDPlain(plan[0].Item.GetGroupId()); id != "invited" {
-		t.Errorf("plan[0] = %q, want \"invited\"", id)
-	}
-}
-
-// --- chatInfoFromWorldItem -------------------------------------------------
-
-func TestChatInfoFromWorldItemInvitedSpaceInvitesUser(t *testing.T) {
-	info := chatInfoFromWorldItem(invitedWorldItem("space1", 100, "777"), ownID)
-
-	if info.CanBackfill {
-		t.Error("CanBackfill = true, want false (history is unreadable until the invite is accepted)")
-	}
-	if info.Name == nil || *info.Name != "Invited space1" {
-		t.Errorf("Name = %v, want the room name", info.Name)
-	}
-	if info.Members == nil {
-		t.Fatal("Members = nil; room creation would then call get_group, which needs membership")
-	}
-	if info.Members.IsFull {
-		t.Error("Members.IsFull = true, want false (an invitee cannot see the real member list)")
-	}
-	self, ok := info.Members.MemberMap[ownID]
-	if !ok {
-		t.Fatalf("MemberMap missing self: %+v", info.Members.MemberMap)
-	}
-	if self.Membership != event.MembershipInvite || !self.IsFromMe {
-		t.Errorf("self = %+v, want an IsFromMe invite -- a join would make the bridge accept on the user's behalf", self)
-	}
-	if self.PrevMembership != event.MembershipLeave {
-		t.Errorf("self.PrevMembership = %q, want leave (never re-invite a user already joined on Matrix)", self.PrevMembership)
-	}
-	inviter, ok := info.Members.MemberMap[gcid.MakeUserID("777")]
-	if !ok || inviter.Membership != event.MembershipJoin || inviter.IsFromMe {
-		t.Errorf("inviter = %+v (present=%v), want a joined non-self member", inviter, ok)
-	}
-}
-
-func TestChatInfoFromWorldItemInvitedSpaceSkipsSelfAsInviter(t *testing.T) {
-	info := chatInfoFromWorldItem(invitedWorldItem("space1", 100, string(ownID)), ownID)
-	if len(info.Members.MemberMap) != 1 || info.Members.MemberMap[ownID].Membership != event.MembershipInvite {
-		t.Errorf("MemberMap = %+v, want only self as invited", info.Members.MemberMap)
-	}
-}
-
-func TestChatInfoFromWorldItemJoinedSpaceUnchanged(t *testing.T) {
-	info := chatInfoFromWorldItem(worldItem("space1", 100), ownID)
-	if info.Members != nil || !info.CanBackfill {
-		t.Errorf("joined space: Members = %+v, CanBackfill = %v; want nil, true", info.Members, info.CanBackfill)
-	}
-}
-
-// --- syncChats -------------------------------------------------------------
-
-func TestSyncChatsRecordsPendingInvitesBeforeQueueing(t *testing.T) {
-	login := newTestUserLogin(&UserLoginMetadata{PendingInvites: []string{"stale"}})
-	var saves int
-	var gc *GChatClient
-	var pendingAtFirstQueue []string
-	var queued []*simplevent.ChatResync
-	gc = &GChatClient{
-		UserLogin: login,
-		Main:      &GChatConnector{Config: *newTestConfig(t)},
-		saveFn:    func(context.Context) error { saves++; return nil },
-		paginatedWorldFn: func(context.Context, *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
-			return &pb.PaginatedWorldResponse{WorldItems: []*pb.WorldItemLite{
-				worldItem("joined", 300), invitedWorldItem("zeta", 200, ""), invitedWorldItem("alpha", 100, ""),
-			}}, nil
-		},
+func newEventInviteClient(pending ...string) (*GChatClient, *[]*simplevent.ChatResync) {
+	var resyncs []*simplevent.ChatResync
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{PendingInvites: pending}),
+		saveFn:    func(context.Context) error { return nil },
 		queueChatResyncFn: func(evt *simplevent.ChatResync) bridgev2.EventHandlingResult {
-			if queued == nil {
-				pendingAtFirstQueue = slices.Clone(pendingInvites(gc))
-			}
-			queued = append(queued, evt)
+			resyncs = append(resyncs, evt)
 			return bridgev2.EventHandlingResultQueued
 		},
+	}
+	return gc, &resyncs
+}
+
+// --- MembershipChangedEvent: the user's own invite -------------------------
+
+func TestOwnInviteEventCreatesInvitedPortal(t *testing.T) {
+	gc, resyncs := newEventInviteClient()
+
+	res := gc.handleGChatEvent(context.Background(), ownMembershipEvent(spaceGroupID("space1"), "112233",
+		pb.MembershipState_MEMBER_INVITED, pb.InviteCategory_REGULAR_INVITE))
+
+	if !res.Success {
+		t.Fatalf("handleGChatEvent() = %+v, want Success", res)
+	}
+	if got := pendingInvites(gc); !slices.Equal(got, []string{"space1"}) {
+		t.Errorf("PendingInvites = %v, want [space1]", got)
+	}
+	if len(*resyncs) != 1 {
+		t.Fatalf("queued %d resyncs, want 1", len(*resyncs))
+	}
+	evt := (*resyncs)[0]
+	if !evt.CreatePortal {
+		t.Error("CreatePortal = false; the invited space has no portal yet")
+	}
+	if want := gcid.MakePortalKey(gcid.GroupID{ID: "space1"}, gc.UserLogin.ID); evt.PortalKey != want {
+		t.Errorf("PortalKey = %+v, want %+v", evt.PortalKey, want)
+	}
+	if evt.GetChatInfoFunc == nil {
+		t.Fatal("GetChatInfoFunc = nil, want the invited-space info builder")
+	}
+}
+
+func TestOwnInviteEventIgnoresSpamOtherUsersAndDMs(t *testing.T) {
+	cases := map[string]*pb.Event{
+		"spam": ownMembershipEvent(spaceGroupID("space1"), "112233",
+			pb.MembershipState_MEMBER_INVITED, pb.InviteCategory_SPAM_INVITE),
+		"other user": ownMembershipEvent(spaceGroupID("space1"), "55555",
+			pb.MembershipState_MEMBER_INVITED, pb.InviteCategory_REGULAR_INVITE),
+		"dm": ownMembershipEvent(dmGroupID("dm1"), "112233",
+			pb.MembershipState_MEMBER_INVITED, pb.InviteCategory_REGULAR_INVITE),
+	}
+	for name, evt := range cases {
+		t.Run(name, func(t *testing.T) {
+			gc, resyncs := newEventInviteClient()
+			if res := gc.handleGChatEvent(context.Background(), evt); !res.Success {
+				t.Fatalf("handleGChatEvent() = %+v, want Success (ignored)", res)
+			}
+			if len(*resyncs) != 0 || len(pendingInvites(gc)) != 0 {
+				t.Errorf("resyncs = %d, pending = %v; want nothing", len(*resyncs), pendingInvites(gc))
+			}
+		})
+	}
+}
+
+func TestOwnMembershipAnsweredElsewhereClearsPending(t *testing.T) {
+	for _, state := range []pb.MembershipState{pb.MembershipState_MEMBER_JOINED, pb.MembershipState_MEMBER_NOT_A_MEMBER} {
+		t.Run(state.String(), func(t *testing.T) {
+			gc, resyncs := newEventInviteClient("space1", "space2")
+			gc.handleGChatEvent(context.Background(), ownMembershipEvent(spaceGroupID("space1"), "112233",
+				state, pb.InviteCategory_UNKNOWN_INVITE))
+			if got := pendingInvites(gc); !slices.Equal(got, []string{"space2"}) {
+				t.Errorf("PendingInvites = %v, want [space2]", got)
+			}
+			if len(*resyncs) != 0 {
+				t.Errorf("queued %d resyncs, want 0", len(*resyncs))
+			}
+		})
+	}
+}
+
+// --- invitedSpaceChatInfo --------------------------------------------------
+
+func TestInvitedSpaceChatInfoNeverJoinsTheUser(t *testing.T) {
+	gc, _ := newEventInviteClient()
+	gc.getGroupFn = func(context.Context, *pb.GetGroupRequest) (*pb.GetGroupResponse, error) {
+		// get_group may list the invitee among the members; it must not be
+		// what decides the user's membership.
+		return &pb.GetGroupResponse{
+			Group: &pb.Group{Name: proto.String("MyTestSpace3")},
+			Memberships: []*pb.Membership{{Id: &pb.MembershipId{
+				MemberId: &pb.MemberId{Id: &pb.MemberId_UserId{UserId: userIDProto("112233")}},
+			}}},
+		}, nil
+	}
+
+	info, err := gc.invitedSpaceChatInfo(context.Background(), spacePortal("space1"))
+	if err != nil {
+		t.Fatalf("invitedSpaceChatInfo() error = %v", err)
+	}
+	if info.Name == nil || *info.Name != "MyTestSpace3" {
+		t.Errorf("Name = %v, want the get_group name", info.Name)
+	}
+	if info.CanBackfill {
+		t.Error("CanBackfill = true, want false (history is unreadable until accepted)")
+	}
+	own := gc.ownUserID()
+	self, ok := info.Members.MemberMap[own]
+	if !ok || self.Membership != event.MembershipInvite || !self.IsFromMe || self.PrevMembership != event.MembershipLeave {
+		t.Errorf("self = %+v (present=%v), want an IsFromMe invite with PrevMembership=leave", self, ok)
+	}
+	if info.Members.IsFull || len(info.Members.MemberMap) != 1 {
+		t.Errorf("Members = %+v, want only self and not IsFull", info.Members)
+	}
+}
+
+func TestInvitedSpaceChatInfoSurvivesGetGroupFailure(t *testing.T) {
+	gc, _ := newEventInviteClient()
+	gc.getGroupFn = func(context.Context, *pb.GetGroupRequest) (*pb.GetGroupResponse, error) {
+		return nil, errors.New("403")
+	}
+
+	info, err := gc.invitedSpaceChatInfo(context.Background(), spacePortal("space1"))
+	if err != nil {
+		t.Fatalf("invitedSpaceChatInfo() error = %v, want the invite created unnamed", err)
+	}
+	if info.Members.MemberMap[gc.ownUserID()].Membership != event.MembershipInvite {
+		t.Errorf("Members = %+v, want self invited", info.Members)
+	}
+}
+
+// --- syncChats: only ever removes pending invites --------------------------
+
+func TestSyncChatsDropsOnlyJoinedPendingInvites(t *testing.T) {
+	gc, _ := newEventInviteClient("accepted-elsewhere", "still-pending")
+	gc.Main = &GChatConnector{Config: *newTestConfig(t)}
+	gc.paginatedWorldFn = func(context.Context, *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
+		return &pb.PaginatedWorldResponse{WorldItems: []*pb.WorldItemLite{worldItem("accepted-elsewhere", 100)}}, nil
 	}
 	gc.setSyncInProgress(true)
 
 	gc.syncChats(context.Background())
 
-	want := []string{"alpha", "zeta"}
-	if got := pendingInvites(gc); !slices.Equal(got, want) {
-		t.Errorf("PendingInvites = %v, want %v (stale entry replaced, sorted)", got, want)
-	}
-	if !slices.Equal(pendingAtFirstQueue, want) {
-		t.Errorf("PendingInvites at first queue = %v, want %v already recorded", pendingAtFirstQueue, want)
-	}
-	if saves == 0 {
-		t.Error("changed pending set was not saved")
-	}
-	if len(queued) != 3 {
-		t.Fatalf("len(queued) = %d, want 3 (joined + both invites)", len(queued))
+	if got := pendingInvites(gc); !slices.Equal(got, []string{"still-pending"}) {
+		t.Errorf("PendingInvites = %v, want [still-pending] (absence from the world means nothing)", got)
 	}
 }
 

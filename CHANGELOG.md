@@ -11,11 +11,12 @@ mautrix bridges.
 ### Added
 
 - Spaces you are invited to on Google Chat now show up on Matrix as a room
-  invite, without waiting for someone to post (#32). The invite is found at
-  every connect, including invites that arrived while the bridge was down.
-  Nothing is accepted on your behalf: the room stays an invite until you act
-  on it. Invites Google files as spam are skipped, as in the Google Chat web
-  client.
+  invite, without waiting for someone to post (#32). The bridge picks the
+  invite up from the live event Google sends the moment you are invited, so
+  an invite sent while the bridge is down may only appear if Google replays
+  it on reconnect. Nothing is accepted on your behalf: the room stays an
+  invite until you act on it. Invites Google files as spam are ignored, as in
+  the Google Chat web client.
 - Accepting or declining that invite on Matrix now does the same on Google
   Chat (#36). Accepting joins the space and then pulls in its members and
   recent history, which were unreadable while you were only invited.

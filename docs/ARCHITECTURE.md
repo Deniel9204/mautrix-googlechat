@@ -367,7 +367,7 @@ an undelivered event.
 | Media | both | `media.go` (download via `get_attachment_url` with manual cookie-aware redirects; upload via resumable protocol → `UPLOAD_METADATA` annotation) |
 | Membership / renames / topic | GC→Matrix | `systemmessage.go` → `ChatInfoChange` |
 | Membership actions (invite/kick/leave) | Matrix→GC (spaces) | `HandleMatrixMembership` (`handlemembership.go`) → `create_membership` / `remove_memberships` |
-| Space invites (portal + accept/decline) | both (spaces) | `sync.go` keeps invited spaces; `invites.go` marks the user invited (never auto-joined) and gates the answer on `UserLoginMetadata.PendingInvites`; accept = `create_membership` with own id, decline = `remove_memberships` |
+| Space invites (portal + accept/decline) | both (spaces) | `invites.go`: the invitee's own standalone `MembershipChangedEvent` (state `MEMBER_INVITED`) records the invite in `UserLoginMetadata.PendingInvites` and creates the portal with the user *invited* (never auto-joined); accept = `create_membership` with own id, decline = `remove_memberships`, both gated on the pending set |
 | Space rename | Matrix→GC (spaces) | `HandleMatrixRoomName` (`handleroomname.go`) → `update_group` |
 | Chat / user metadata | GC→Matrix | `GetChatInfo` (`chatinfo.go`) / `GetUserInfo` (`userinfo.go`); ghost avatars via `avatar.go` |
 | Backfill & catch-up | GC→Matrix | `FetchMessages` (`backfill.go`, `list_topics`/`list_messages`) + revision catch-up (§4) |
@@ -434,6 +434,12 @@ deployment breaks existing data or the protocol.
   programmatic access from datacenter IPs with repeated connects. A single
   long-lived channel from a normal deployment IP is the validated pattern —
   repeated harness re-connects only reinforce the block.
+- **Pending space invites are NOT in `paginated_world`** (live-verified
+  2026-09-29): the chat list only carries joined conversations, and neither a
+  `WorldFilter{membership_state=MEMBER_INVITED}` (0 items) nor an `ALL_ROOMS`
+  section returns them. The invitee instead receives a standalone
+  `MembershipChangedEvent` for its own id on the realtime channel, which is
+  what `invites.go` acts on.
 - **Google adds proto fields continuously.** The pblite decoder logging
   "skipping unknown field" is normal and expected, not an error.
 

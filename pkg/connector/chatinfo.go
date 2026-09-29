@@ -181,9 +181,7 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 // chatInfoFromWorldItem leaves Members nil for spaces (WorldItemLite carries
 // no full membership list the way GetGroupResponse.memberships does) -- a
 // freshly-created space portal starts with no participants until
-// GetChatInfo/backfill refreshes it. (An invited space is the exception: it
-// gets the user-invited member list from invitedSpaceMembers, invites.go.)
-// DM portals are unaffected: DMs are
+// GetChatInfo/backfill refreshes it. DM portals are unaffected: DMs are
 // never upgraded, so read_state.joined_users/dm_members already is the
 // fidelity-complete source for a DM's member list.
 func chatInfoFromWorldItem(item *pb.WorldItemLite, ownUserID networkid.UserID) *bridgev2.ChatInfo {
@@ -204,12 +202,6 @@ func chatInfoFromWorldItem(item *pb.WorldItemLite, ownUserID networkid.UserID) *
 	// sync.go's chat-list-sync/ChatResync path) must set it the same way.
 	info := &bridgev2.ChatInfo{Type: &roomType, CanBackfill: true}
 
-	if isInvitedSpace(item) {
-		// Not a member yet: the user is invited, not joined, and the space's
-		// history is unreadable until they accept (invites.go).
-		info.Members = invitedSpaceMembers(item, ownUserID)
-		info.CanBackfill = false
-	}
 	if isDM {
 		info.Members = dmMemberListFromWorldItem(item, ownUserID)
 	} else if item.RoomName != nil {
