@@ -401,3 +401,37 @@ func TestGetChatInfoInvalidPortalIDIsError(t *testing.T) {
 		t.Fatal("GetChatInfo with an invalid portal id = nil error, want non-nil")
 	}
 }
+
+// A space manager (ROLE_OWNER) is a Matrix moderator -- enough for name,
+// topic and kick, which only managers may change on Google Chat -- and
+// everyone else gets an explicit 0 so a demotion is reflected.
+func TestChatInfoFromGetGroupResponseSpaceRolesBecomePowerLevels(t *testing.T) {
+	owner := membership(string(ownID))
+	owner.MembershipRole = pb.MembershipRole_ROLE_OWNER.Enum()
+	member := membership("200")
+	member.MembershipRole = pb.MembershipRole_ROLE_MEMBER.Enum()
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}, Memberships: []*pb.Membership{owner, member, membership("300")}}
+
+	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1"}, resp, ownID)
+
+	for id, want := range map[networkid.UserID]int{ownID: 50, "200": 0, "300": 0} {
+		pl := info.Members.MemberMap[id].PowerLevel
+		if pl == nil || *pl != want {
+			t.Errorf("PowerLevel[%s] = %v, want %d", id, pl, want)
+		}
+	}
+}
+
+func TestChatInfoFromGetGroupResponseDMHasNoPowerLevels(t *testing.T) {
+	owner := membership(string(ownID))
+	owner.MembershipRole = pb.MembershipRole_ROLE_OWNER.Enum()
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}, Memberships: []*pb.Membership{owner, membership("200")}}
+
+	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "dm1", IsDM: true}, resp, ownID)
+
+	for id, m := range info.Members.MemberMap {
+		if m.PowerLevel != nil {
+			t.Errorf("DM member %s PowerLevel = %d, want none", id, *m.PowerLevel)
+		}
+	}
+}

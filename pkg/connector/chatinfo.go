@@ -163,6 +163,9 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 		CanBackfill: true,
 		Members:     chatMemberList(memberIDs, ownUserID, group.IsDM),
 	}
+	if !group.IsDM {
+		applySpaceRoles(info.Members, resp.GetMemberships())
+	}
 	// Name (spaces only): DM room names are derived by bridgev2 from the
 	// other member's ghost displayname. Presence-gated on the raw *string
 	// field (proto2 HasField equivalent), NOT a `!= ""` value check: an
@@ -282,6 +285,36 @@ func dmMemberListFromWorldItem(item *pb.WorldItemLite, ownUserID networkid.UserI
 // chatMemberList builds a ChatMemberList from a flat id list (the
 // GetGroupResponse.memberships shape, which carries no human/bot split).
 // isDM gates whether OtherUserID derivation runs at all.
+// Matrix power levels for a space's members. Only a Google Chat space manager
+// (ROLE_OWNER) may rename the space, edit its details or remove people, and
+// on Matrix all three -- m.room.name, m.room.topic and kick -- need 50 (the
+// state_default and kick defaults; the portal never overrides them). So a
+// manager is a Matrix moderator and everyone else stays at 0: Matrix offers
+// exactly the changes Google Chat will accept from that person.
+const (
+	spaceManagerPowerLevel = 50
+	spaceMemberPowerLevel  = 0
+)
+
+// applySpaceRoles sets each space member's Matrix power level from their
+// Google Chat role. Members get an explicit 0 rather than none, so a manager
+// who is demoted on Google Chat loses the level on the next resync.
+func applySpaceRoles(members *bridgev2.ChatMemberList, memberships []*pb.Membership) {
+	for _, m := range memberships {
+		uid := gcid.MakeUserID(m.GetId().GetMemberId().GetUserId().GetId())
+		member, ok := members.MemberMap[uid]
+		if !ok {
+			continue
+		}
+		level := spaceMemberPowerLevel
+		if m.GetMembershipRole() == pb.MembershipRole_ROLE_OWNER {
+			level = spaceManagerPowerLevel
+		}
+		member.PowerLevel = &level
+		members.MemberMap[uid] = member
+	}
+}
+
 func chatMemberList(memberIDs []string, ownUserID networkid.UserID, isDM bool) *bridgev2.ChatMemberList {
 	members := &bridgev2.ChatMemberList{
 		IsFull:    true,
