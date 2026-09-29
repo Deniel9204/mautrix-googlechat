@@ -184,3 +184,73 @@ func TestCreateGroupReportsFailedInviteButKeepsSpace(t *testing.T) {
 		t.Errorf("FailedParticipants = %v, want only bad", resp.FailedParticipants)
 	}
 }
+
+// The command's own Matrix room must become the portal, bound before anyone is
+// invited (provisionutil would otherwise create a second room).
+func TestCreateGroupBindsCommandRoomBeforeInviting(t *testing.T) {
+	var order []string
+	bound := &bridgev2.Portal{}
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
+			return createdSpace("newspace"), nil
+		},
+		bindCreatedSpaceRoomFn: func(_ context.Context, key networkid.PortalKey, params *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
+			order = append(order, "bind")
+			if key.ID != gcid.MakePortalID(gcid.GroupID{ID: "newspace"}) || params.RoomID != "!room:example.org" {
+				t.Errorf("bind(%+v, %q), want the new space and the command's room", key, params.RoomID)
+			}
+			return bound, nil
+		},
+		createMembershipFn: func(context.Context, *pb.CreateMembershipRequest) (*pb.CreateMembershipResponse, error) {
+			order = append(order, "invite")
+			return &pb.CreateMembershipResponse{}, nil
+		},
+	}
+	params := spaceParams("Team", "111")
+	params.RoomID = "!room:example.org"
+
+	resp, err := gc.CreateGroup(context.Background(), params)
+	if err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+	if len(order) != 2 || order[0] != "bind" || order[1] != "invite" {
+		t.Errorf("order = %v, want [bind invite]", order)
+	}
+	if resp.Portal != bound {
+		t.Error("response Portal is not the bound portal; provisionutil would create a new room")
+	}
+}
+
+func TestCreateGroupWithoutRoomDoesNotBind(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
+			return createdSpace("newspace"), nil
+		},
+		bindCreatedSpaceRoomFn: func(context.Context, networkid.PortalKey, *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
+			t.Error("bound a room although the request named none")
+			return nil, nil
+		},
+	}
+	if _, err := gc.CreateGroup(context.Background(), spaceParams("Team")); err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+}
+
+func TestCreateGroupBindFailureIsReported(t *testing.T) {
+	gc := &GChatClient{
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
+		createGroupChatFn: func(context.Context, *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
+			return createdSpace("newspace"), nil
+		},
+		bindCreatedSpaceRoomFn: func(context.Context, networkid.PortalKey, *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
+			return nil, errors.New("room is already a portal")
+		},
+	}
+	params := spaceParams("Team")
+	params.RoomID = "!room:example.org"
+	if _, err := gc.CreateGroup(context.Background(), params); err == nil {
+		t.Error("CreateGroup() = nil error after the room could not be bound")
+	}
+}

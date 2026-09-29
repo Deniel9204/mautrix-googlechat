@@ -52,6 +52,23 @@ func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCre
 	}
 	log.Info().Str("space_id", id).Str("request_shape", shape).Msg("googlechat: created a space")
 	group := gcid.GroupID{ID: id}
+	portalKey := gcid.MakePortalKey(group, c.UserLogin.ID)
+
+	// The command runs in an existing Matrix room, and that room must become
+	// the space's portal: provisionutil only ever creates a NEW room for a
+	// portal without one. Bound before inviting anyone, so the window in which
+	// the space's own events can create a room is as short as possible; a
+	// room they did create meanwhile is tombstoned and deleted.
+	var portal *bridgev2.Portal
+	if params.RoomID != "" {
+		bind := c.bindCreatedSpaceRoomFn
+		if bind == nil {
+			bind = c.bindCreatedSpaceRoom
+		}
+		if portal, err = bind(ctx, portalKey, params); err != nil {
+			return nil, fmt.Errorf("googlechat: created space %s but could not bridge it to this room: %w", id, err)
+		}
+	}
 
 	// Invited one by one, like the web client, so one refused invitee (an
 	// address outside what the account may reach) does not undo the space.
@@ -69,9 +86,35 @@ func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCre
 		}
 	}
 	return &bridgev2.CreateChatResponse{
-		PortalKey:          gcid.MakePortalKey(group, c.UserLogin.ID),
+		PortalKey:          portalKey,
+		Portal:             portal,
 		FailedParticipants: failed,
 	}, nil
+}
+
+// bindCreatedSpaceRoom makes params.RoomID the new space's portal room and
+// syncs the space's info (members, power levels) into it.
+func (c *GChatClient) bindCreatedSpaceRoom(ctx context.Context, key networkid.PortalKey, params *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
+	portal, err := c.UserLogin.Bridge.GetPortalByKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	info, err := c.GetChatInfo(ctx, portal)
+	if err != nil {
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("googlechat: get_group failed for the new space, bridging the room without its info")
+		info = nil
+	}
+	return portal, portal.UpdateMatrixRoomID(ctx, params.RoomID, bridgev2.UpdateMatrixRoomIDParams{
+		SyncDBMetadata: func() {
+			portal.Name = params.Name.Name
+			portal.NameSet = true
+		},
+		OverwriteOldPortal: true,
+		TombstoneOldRoom:   true,
+		DeleteOldRoom:      true,
+		ChatInfo:           info,
+		ChatInfoSource:     c.UserLogin,
+	})
 }
 
 // createSpace sends create_group, trying the web client's request shape from
