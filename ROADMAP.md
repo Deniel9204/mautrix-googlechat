@@ -100,5 +100,5 @@ Chat space manager gets.
 
 ¶ `leave` leaves a space with every one of your logins in it
 (`remove_memberships`, the same request as a room leave) and hides a DM
-(`hide_group`, as the purple-googlechat client does). Not yet exercised
-against a live account.
+(`hide_group`, as the purple-googlechat client does). Live-verified
+(2026-09-29), including a space's only manager leaving, which Google allows.

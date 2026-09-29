@@ -464,6 +464,14 @@ deployment breaks existing data or the protocol.
   redundant rather than harmful, and the reason the flag stays off by
   default. The `leave` command (`leave.go`) is the deliberate path: every
   login, and a bot kick instead of a double-puppet leave.
+- **Several logins of ONE Matrix user in the same space are not a
+  first-class setup** (observed live 2026-09-29). Each login describes the
+  shared space portal from its own side: the other login's Google account
+  appears as a separate ghost, a Matrix invite between the two accounts can
+  never show (the user is already in the room through the other login), and
+  the user's power level follows whichever login synced last (moderator as
+  the space's manager, 0 as a member). Invites, accepts and `leave` still do
+  the right thing on Google Chat; only the Matrix-side picture is muddled.
 - **Google adds proto fields continuously.** The pblite decoder logging
   "skipping unknown field" is normal and expected, not an error.
 
