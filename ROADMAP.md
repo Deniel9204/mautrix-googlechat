@@ -92,6 +92,7 @@ from the chat list, which never contains them. So an invite sent while the
 bridge is down only appears if Google replays it on reconnect. Invite,
 accept and decline are live-verified (2026-09-29).
 
-§ Sent with `update_group`'s space-details field, a shape taken from the
-maintained purple-googlechat client's schema; the space's guidelines are read
-first and sent back unchanged. Not yet exercised against a live account.
+§ Sent with `update_group`'s space-details field; the space's guidelines are
+read first and sent back unchanged. Topic and rename from Matrix are
+live-verified (2026-09-29); both need the Matrix moderator level a Google
+Chat space manager gets.
