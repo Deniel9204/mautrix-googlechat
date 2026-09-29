@@ -10,6 +10,10 @@ mautrix bridges.
 
 ### Added
 
+- Changing a bridged space's topic on Matrix now updates its description on
+  Google Chat (#38). The space's guidelines, which share the same setting on
+  Google's side, are kept as they are. Space icons are not bridged: on Google
+  Chat they are emoji, which a Matrix room avatar cannot represent.
 - Spaces you are invited to on Google Chat now show up on Matrix as a room
   invite, without waiting for someone to post (#32). The bridge picks the
   invite up from the live event Google sends the moment you are invited, so

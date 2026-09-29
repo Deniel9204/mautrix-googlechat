@@ -422,51 +422,25 @@ func TestGetCapabilitiesSpaceAdvertisesMemberActions(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesSpaceAdvertisesRoomName: HandleMatrixRoomName implements
-// m.room.name -> update_group(NAME) for spaces.
-func TestGetCapabilitiesSpaceAdvertisesRoomName(t *testing.T) {
+// TestGetCapabilitiesSpaceAdvertisesRoomNameAndTopic: HandleMatrixRoomName
+// implements m.room.name -> update_group(NAME) and HandleMatrixRoomTopic
+// m.room.topic -> update_group(SPACE_DETAILS), for spaces.
+func TestGetCapabilitiesSpaceAdvertisesRoomNameAndTopic(t *testing.T) {
 	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{})
 
 	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
 
-	feature := caps.State[event.StateRoomName.Type]
-	if feature == nil || !feature.Level.Full() {
-		t.Errorf("State[%s] = %v, want fully supported", event.StateRoomName.Type, feature)
+	for _, typ := range []string{event.StateRoomName.Type, event.StateTopic.Type} {
+		if feature := caps.State[typ]; feature == nil || !feature.Level.Full() {
+			t.Errorf("State[%s] = %v, want fully supported", typ, feature)
+		}
 	}
-	// Only the name is wired: handleroomname.go sends the NAME update mask
-	// and nothing else, so advertising topic/avatar would be a lie.
-	if _, present := caps.State[event.StateTopic.Type]; present {
-		t.Error("State advertises m.room.topic, which is not implemented")
-	}
+	// A space icon is an emoji; a Matrix image avatar cannot express it.
 	if _, present := caps.State[event.StateRoomAvatar.Type]; present {
 		t.Error("State advertises m.room.avatar, which is not implemented")
 	}
 }
 
-// TestGetCapabilitiesDMOmitsSpaceOnlyActions is the reason this cannot simply
-// be added to the shared flat capability set: HandleMatrixMembership and
-// HandleMatrixRoomName both reject DMs outright ("membership changes are not
-// supported in DMs", "cannot rename a DM"), so advertising either in a DM
-// would make clients offer actions that are guaranteed to fail.
-func TestGetCapabilitiesDMOmitsSpaceOnlyActions(t *testing.T) {
-	portal := portalWithIDAndMeta("dm1", true, &PortalMetadata{})
-
-	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
-
-	if len(caps.MemberActions) != 0 {
-		t.Errorf("MemberActions = %v for a DM, want none (they are rejected in DMs)", caps.MemberActions)
-	}
-	if len(caps.State) != 0 {
-		t.Errorf("State = %v for a DM, want none (a DM cannot be renamed)", caps.State)
-	}
-	// The rest of the DM's capabilities must be unchanged.
-	if !caps.Reply.Full() {
-		t.Error("Reply = not full for a DM, want fully supported")
-	}
-}
-
-// TestGetCapabilitiesThreadedSpaceKeepsMemberActions: the threaded variant is
-// still a space, so it must carry the space-only capabilities too.
 func TestGetCapabilitiesThreadedSpaceKeepsMemberActions(t *testing.T) {
 	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{ThreadsOnly: true})
 

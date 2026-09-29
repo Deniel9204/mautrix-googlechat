@@ -282,8 +282,9 @@ var gchatCapsThreaded *event.RoomFeatures
 // because Google Chat has no equivalent and that handler rejects it, and
 // revoke_invite is left out because nothing maps it today.
 //
-// State lists only m.room.name: handleroomname.go sends the NAME update mask
-// and nothing else, so claiming topic or avatar would be a lie.
+// State lists m.room.name (handleroomname.go, the NAME mask) and m.room.topic
+// (handleroomtopic.go, the SPACE_DETAILS mask). Not the avatar: a space's
+// icon is an emoji, which a Matrix image avatar cannot express.
 var (
 	gchatCapsSpace         *event.RoomFeatures
 	gchatCapsSpaceThreaded *event.RoomFeatures
@@ -301,6 +302,7 @@ func init() {
 	}
 	gchatCapsSpace.State = event.StateFeatureMap{
 		event.StateRoomName.Type: {Level: event.CapLevelFullySupported},
+		event.StateTopic.Type:    {Level: event.CapLevelFullySupported},
 	}
 
 	gchatCapsSpaceThreaded = gchatCapsSpace.Clone()

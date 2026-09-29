@@ -27,6 +27,8 @@
     * [x] Leave
   * [x] Room metadata changes
     * [x] Name
+    * [x] Topic (space description)§
+    * [ ] Avatar (Google Chat space icons are emoji, not images)
 * Google Chat → Matrix
   * [x] Message content
     * [x] Text
@@ -89,3 +91,7 @@ them for your account.
 from the chat list, which never contains them. So an invite sent while the
 bridge is down only appears if Google replays it on reconnect. Invite,
 accept and decline are live-verified (2026-09-29).
+
+§ Sent with `update_group`'s space-details field, a shape taken from the
+maintained purple-googlechat client's schema; the space's guidelines are read
+first and sent back unchanged. Not yet exercised against a live account.

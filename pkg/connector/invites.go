@@ -23,12 +23,10 @@ package connector
 // which files them away. Invited DMs (message requests) are out of scope.
 import (
 	"context"
-	"errors"
 	"slices"
 	"time"
 
 	"github.com/rs/zerolog"
-	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -115,24 +113,6 @@ func (c *GChatClient) invitedSpaceChatInfo(ctx context.Context, portal *bridgev2
 	info.CanBackfill = false
 	info.Members = invitedSpaceMembers(c.ownUserID())
 	return info, nil
-}
-
-func (c *GChatClient) getGroup(ctx context.Context, group gcid.GroupID) (*pb.GetGroupResponse, error) {
-	fetch := c.getGroupFn
-	if fetch == nil {
-		conn := c.getConn()
-		if conn == nil {
-			return nil, errors.New("googlechat: not connected")
-		}
-		fetch = conn.GetGroup
-	}
-	return fetch(ctx, &pb.GetGroupRequest{
-		GroupId: gchatmeow.PartsToGroupID(group.ID, group.IsDM),
-		// Production's full get_group shape (chatinfo.go): a stripped-down
-		// request has been seen to 403. The member list it returns is unused.
-		FetchOptions:     []pb.GetGroupRequest_FetchOptions{pb.GetGroupRequest_MEMBERS, pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME},
-		IncludeInviteDms: proto.Bool(true),
-	})
 }
 
 // invitedSpaceMembers is the member list for an invited space: just the user,

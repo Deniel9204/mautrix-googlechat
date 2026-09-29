@@ -272,7 +272,7 @@ All are binary-proto request/response wrappers on `*gchatmeow.Client`:
 | `ListTopics` / `ListMessages` | `list_topics` / `list_messages` | initial backfill |
 | `CatchUpGroup` / `CatchUpUser` | `catch_up_group` / `catch_up_user` | missed-event replay |
 | `CreateMembership` / `RemoveMemberships` | `create_membership` / `remove_memberships` | outbound invite / kick / leave (spaces) |
-| `UpdateGroup` | `update_group` | outbound space rename |
+| `UpdateGroup` | `update_group` | outbound space rename (`NAME`) and description (`SPACE_DETAILS`) |
 
 Mutating responses return `WriteRevision{timestamp}`; these revision timestamps
 are the resync watermarks (§4).
@@ -369,6 +369,7 @@ an undelivered event.
 | Membership actions (invite/kick/leave) | Matrix→GC (spaces) | `HandleMatrixMembership` (`handlemembership.go`) → `create_membership` / `remove_memberships` |
 | Space invites (portal + accept/decline) | both (spaces) | `invites.go`: the invitee's own standalone `MembershipChangedEvent` (state `MEMBER_INVITED`) records the invite in `UserLoginMetadata.PendingInvites` and creates the portal with the user *invited* (never auto-joined); accept = `create_membership` with own id, decline = `remove_memberships`, both gated on the pending set |
 | Space rename | Matrix→GC (spaces) | `HandleMatrixRoomName` (`handleroomname.go`) → `update_group` |
+| Space description (topic) | Matrix→GC (spaces) | `HandleMatrixRoomTopic` (`handleroomtopic.go`) → `get_group` for the current guidelines, then `update_group` with `SPACE_DETAILS` sending them back unchanged |
 | Chat / user metadata | GC→Matrix | `GetChatInfo` (`chatinfo.go`) / `GetUserInfo` (`userinfo.go`); ghost avatars via `avatar.go` |
 | Backfill & catch-up | GC→Matrix | `FetchMessages` (`backfill.go`, `list_topics`/`list_messages`) + revision catch-up (§4) |
 | Login | — | `CreateLogin` → `GChatLogin.SubmitCookies` (`login.go`), cookie flow |
@@ -378,8 +379,9 @@ an undelivered event.
 Matrix→GC membership actions and space rename are space-only (the proto has no
 DM arm) and are live-verified against Google Chat (2026-07-22).
 
-Deliberately unsupported: presence (bridgev2 has no model for it), Matrix→GC
-topic/avatar changes, and DM creation from Matrix (Google Chat requires DMs to
+Deliberately unsupported: presence (bridgev2 has no model for it), room
+avatars in either direction (a space icon is an emoji, a Matrix avatar an
+image), and DM creation from Matrix (Google Chat requires DMs to
 be created server-side). `GetCapabilities` leaves `ImplicitReadReceipts` false
 on purpose (Google Chat auto-marks self-sent messages read).
 

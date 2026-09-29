@@ -31,6 +31,7 @@ package connector
 // only the free function's signature changes.
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
@@ -86,6 +87,27 @@ func (c *GChatClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) 
 		return nil, fmt.Errorf("googlechat: get_group failed: %w", err)
 	}
 	return chatInfoFromGetGroupResponse(group, resp, c.ownUserID()), nil
+}
+
+// getGroup issues get_group for one conversation, for callers that need
+// only part of its answer (an invited space's name, a space's current
+// details). Routes through getGroupFn in tests.
+func (c *GChatClient) getGroup(ctx context.Context, group gcid.GroupID) (*pb.GetGroupResponse, error) {
+	fetch := c.getGroupFn
+	if fetch == nil {
+		conn := c.getConn()
+		if conn == nil {
+			return nil, errors.New("googlechat: not connected")
+		}
+		fetch = conn.GetGroup
+	}
+	return fetch(ctx, &pb.GetGroupRequest{
+		GroupId: gchatmeow.PartsToGroupID(group.ID, group.IsDM),
+		// Production's full get_group shape (chatinfo.go): a stripped-down
+		// request has been seen to 403. The member list it returns is unused.
+		FetchOptions:     []pb.GetGroupRequest_FetchOptions{pb.GetGroupRequest_MEMBERS, pb.GetGroupRequest_INCLUDE_DYNAMIC_GROUP_NAME},
+		IncludeInviteDms: proto.Bool(true),
+	})
 }
 
 // chatInfoFromGetGroupResponse wraps a get_group RPC response into

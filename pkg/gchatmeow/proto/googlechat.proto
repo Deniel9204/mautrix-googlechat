@@ -2641,7 +2641,8 @@ message UpdateGroupRequest {
 	optional string name = 2;
 	optional GroupVisibility visibility = 5;
 	// optional AvatarInfo avatar_info = 6;
-	// optional ?? space_details = 7;
+	// Same shape as Group.group_details (field 37): description + guidelines.
+	optional GroupDetails space_details = 7;
 }
 
 message UpdateGroupResponse {
