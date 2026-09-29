@@ -158,6 +158,13 @@ func (c *GChatClient) syncChats(ctx context.Context) {
 	plan := planChatSync(resp.GetWorldItems(), maxSync)
 	own := c.ownUserID()
 
+	// Forget pending invites the chat list now shows as joined (accepted in
+	// another client). Done before queuing: a resync can make the bridge
+	// auto-accept a portal, and that echo must not match a stale invite.
+	if err := c.dropJoinedPendingInvites(ctx, resp.GetWorldItems()); err != nil {
+		log.Err(err).Msg("googlechat: failed to update pending space invites")
+	}
+
 	for _, entry := range plan {
 		id, isDM, ok := gchatmeow.GroupIDToParts(entry.Item.GetGroupId())
 		if !ok {

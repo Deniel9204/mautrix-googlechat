@@ -20,9 +20,9 @@
   * [ ] Presence
   * [x] Typing notifications
   * [x] Read receipts
-  * [ ] Membership actions
+  * [x] Membership actions
     * [x] Invite
-    * [ ] Join (accept invite)
+    * [x] Join (accept invite)‡
     * [x] Kick
     * [x] Leave
   * [x] Room metadata changes
@@ -67,7 +67,7 @@
   * [x] Relay mode
   * [x] Automatic portal creation
     * [x] At startup
-    * [ ] When invited to chat
+    * [x] When invited to chat‡
     * [x] When receiving message
   * [x] Private chat creation by inviting Matrix puppet of Google Chat user to new room
   * [x] Option to use own Matrix account for messages sent from other Google Chat clients (double puppeting)
@@ -84,3 +84,8 @@ bridge does neither (it sends the
 a live upload confirmed it succeeds. `network.disable_outbound_media` remains
 available to turn upload attempts into clean errors if a future change breaks
 them for your account.
+
+‡ Invites are picked up from the live event Google sends to the invitee, not
+from the chat list, which never contains them. So an invite sent while the
+bridge is down only appears if Google replays it on reconnect. Invite,
+accept and decline are live-verified (2026-09-29).

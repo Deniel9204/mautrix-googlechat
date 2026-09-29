@@ -93,17 +93,14 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 	case *pb.Event_EventBody_WebPushNotification:
 		log.Debug().Msg("googlechat: unhandled WebPushNotification event (M2+)")
 	case *pb.Event_EventBody_MembershipChanged:
-		// Intentionally unhandled: membership changes
-		// (join/invite/leave/kick, the 9 MembershipChangedMetadata types)
-		// reach this bridge as a SYSTEM_MESSAGE with a MEMBERSHIP_CHANGED
-		// annotation on the MessagePosted body instead (handleMessagePosted
-		// -> systemmessage.go's trySystemMessage -> queueMembershipChanged),
-		// never via this dedicated body. See systemmessage.go's own
-		// top-of-file doc comment for why this standalone
-		// MembershipChangedEvent shape (a single member's new/prior state,
-		// no affected-members list or 9-value Type at all) cannot
-		// substitute for that path.
-		log.Debug().Msg("googlechat: unhandled MembershipChanged event (handled via SYSTEM_MESSAGE instead, see systemmessage.go)")
+		// Only the user's OWN invite state is read from this body -- it is
+		// the one place an invite to a space reaches the invitee
+		// (invites.go). Everyone else's membership changes still come from
+		// the SYSTEM_MESSAGE with a MEMBERSHIP_CHANGED annotation
+		// (systemmessage.go), which this standalone shape (a single
+		// member's new/prior state, no affected-members list or 9-value
+		// Type) cannot substitute for.
+		return c.handleOwnMembershipChanged(ctx, evt)
 	case *pb.Event_EventBody_MessageDeleted:
 		return c.queueMessageDeleted(ctx, evt)
 	case *pb.Event_EventBody_MessageReaction:
