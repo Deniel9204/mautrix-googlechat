@@ -31,7 +31,7 @@ helps other people find the project and motivates continued development.
 | Inbound media (Google Chat → Matrix: images, files) | Supported |
 | Outbound media (Matrix → Google Chat) | Supported — verified against Google's live endpoint (2026-07-22), using the [purple-googlechat](https://github.com/EionRobb/purple-googlechat) request shape (which avoids the client bug behind [upstream issue #114](https://github.com/mautrix/googlechat/issues/114)). Can be disabled via `network.disable_outbound_media` |
 | Room renames / topic changes | Supported |
-| Membership changes (joins/invites/leaves/kicks) | Supported — except that leaving a room on Matrix only leaves the Google Chat space if `bridge.bridge_matrix_leave` is on (see [Configuration](#configuration)) |
+| Membership changes (joins/invites/leaves/kicks) | Supported — to leave a space from Matrix, use the `leave` command; leaving the room alone only leaves the Google Chat space if `bridge.bridge_matrix_leave` is on (see [Configuration](#configuration)) |
 | History backfill | Supported (opt-in, see [Configuration](#configuration)) |
 
 The full mautrix-style feature matrix is in [ROADMAP.md](ROADMAP.md).
@@ -145,11 +145,19 @@ mautrix-go bridgev2 config). Notable options:
   shared across all mautrix-go bridges). While it is off, leaving a bridged
   room on Matrix does *not* leave the Google Chat space: you are still a
   member there, so the bridge puts you back in the room on its next sync,
-  e.g. after a restart. To really leave, leave or delete the space in Google
-  Chat, or set this to `true` so that leaving on Matrix leaves the space too.
-  One caveat: if your Matrix account has more than one Google Chat login in
-  the same space, a Matrix leave removes only one of them, and the room
-  comes back through the others.
+  e.g. after a restart. To really leave, send `leave` in the room (see the
+  next option), leave or delete the space in Google Chat, or set this to
+  `true` so that leaving on Matrix leaves the space too. One caveat: if your
+  Matrix account has more than one Google Chat login in the same space, a
+  Matrix leave removes only one of them, and the room comes back through the
+  others. The `leave` command does not have that problem.
+- `network.skip_leave_confirmation` — the `leave` command leaves the space on
+  Google Chat with **every** one of your logins in it (for a DM, it hides the
+  DM, since a DM can't be left) and then removes you from the room. By
+  default the first `leave` only says what it will do and waits for
+  `leave confirm`, because getting back into a private space needs a new
+  invite; set this to `true` to make `leave` act immediately. The built-in
+  `delete-chat` command does the same, without asking.
 
 ## Authentication
 

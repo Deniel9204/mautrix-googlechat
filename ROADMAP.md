@@ -24,7 +24,7 @@
     * [x] Invite
     * [x] Join (accept invite)‡
     * [x] Kick
-    * [x] Leave (needs `bridge.bridge_matrix_leave: true`)
+    * [x] Leave (the `leave` command¶, or a room leave with `bridge.bridge_matrix_leave: true`)
   * [x] Room metadata changes
     * [x] Name
     * [x] Topic (space description)§
@@ -97,3 +97,8 @@ accept and decline are live-verified (2026-09-29).
 read first and sent back unchanged. Topic and rename from Matrix are
 live-verified (2026-09-29); both need the Matrix moderator level a Google
 Chat space manager gets.
+
+¶ `leave` leaves a space with every one of your logins in it
+(`remove_memberships`, the same request as a room leave) and hides a DM
+(`hide_group`, as the purple-googlechat client does). Not yet exercised
+against a live account.

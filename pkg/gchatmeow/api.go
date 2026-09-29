@@ -482,6 +482,16 @@ func (c *Client) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest) (*
 	return resp, c.doRequestNonIdempotent(ctx, "create_group", req, resp)
 }
 
+// HideGroup hides (hide=true) or unhides a conversation in the user's own
+// chat list -- Google Chat's "archive"/hide, the only way to put a DM away
+// (a DM cannot be left). Endpoint: hide_group, the request purple-googlechat
+// sends as googlechat_archive_conversation.
+func (c *Client) HideGroup(ctx context.Context, req *pb.HideGroupRequest) (*pb.HideGroupResponse, error) {
+	req.RequestHeader = newRequestHeader()
+	resp := &pb.HideGroupResponse{}
+	return resp, c.doRequest(ctx, "hide_group", req, resp)
+}
+
 // UpdateGroup updates a space's metadata; used here to rename a space (Name +
 // the NAME update mask). Spaces only -- the request has no DM arm.
 // Endpoint: update_group.

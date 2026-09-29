@@ -53,6 +53,13 @@ type Config struct {
 	// and "link plus inline media".
 	DisableInlineURLMedia bool `yaml:"disable_inline_url_media"`
 
+	// SkipLeaveConfirmation makes the leave command act on the first call
+	// instead of first describing what it will do and waiting for
+	// `leave confirm` (leave.go). Negative so that the zero value -- and a
+	// config written before the option existed -- keeps the confirmation:
+	// leaving a private space cannot be undone without a new invite.
+	SkipLeaveConfirmation bool `yaml:"skip_leave_confirmation"`
+
 	displaynameTemplate *template.Template `yaml:"-"`
 }
 
@@ -94,4 +101,5 @@ func upgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Int, "initial_chat_sync")
 	helper.Copy(configupgrade.Bool, "disable_outbound_media")
 	helper.Copy(configupgrade.Bool, "disable_inline_url_media")
+	helper.Copy(configupgrade.Bool, "skip_leave_confirmation")
 }

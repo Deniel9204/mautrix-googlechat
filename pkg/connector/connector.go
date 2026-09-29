@@ -6,6 +6,7 @@ import (
 
 	"go.mau.fi/util/configupgrade"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/commands"
 	"maunium.net/go/mautrix/bridgev2/database"
 
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv"
@@ -35,6 +36,12 @@ type GChatConnector struct {
 	// separate fallback constant (mirrors mautrix-meta's MetaConnector,
 	// _reference/meta/pkg/connector/connector.go, which does the same).
 	MaxFileSize int64
+
+	// leavingLoginsFn / removeFromPortalFn replace the two leave.go steps that
+	// need a full bridgev2.Bridge (the user-portal table, the bot), so the
+	// leave command can be tested without one.
+	leavingLoginsFn    func(ctx context.Context, portal *bridgev2.Portal, user *bridgev2.User) ([]*GChatClient, error)
+	removeFromPortalFn func(ctx context.Context, portal *bridgev2.Portal, user *bridgev2.User, logins []*GChatClient) error
 }
 
 var _ bridgev2.NetworkConnector = (*GChatConnector)(nil)
@@ -48,6 +55,9 @@ func (gc *GChatConnector) SetMaxFileSize(maxSize int64) {
 func (gc *GChatConnector) Init(bridge *bridgev2.Bridge) {
 	gc.Bridge = bridge
 	gc.MsgConv = msgconv.New()
+	if proc, ok := bridge.Commands.(*commands.Processor); ok {
+		proc.AddHandlers(cmdLeave)
+	}
 }
 
 func (gc *GChatConnector) Start(_ context.Context) error {
