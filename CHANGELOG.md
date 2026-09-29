@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
-## [Unreleased]
+## [26.09.0] - 2026-09-29
 
 ### Added
 
@@ -24,6 +24,16 @@ mautrix bridges.
 - Accepting or declining that invite on Matrix now does the same on Google
   Chat (#36). Accepting joins the space and then pulls in its members and
   recent history, which were unreadable while you were only invited.
+
+### Fixed
+
+- Renaming a space, changing its topic and removing people from it now work
+  from Matrix for the people allowed to do so on Google Chat. Portal rooms
+  gave nobody but the bridge bot a power level, so Matrix blocked all three
+  for every user even though the bridge supports them. A Google Chat space
+  manager is now a Matrix moderator (power level 50), and everyone else stays
+  at 0. Existing rooms pick this up on their next full resync, e.g.
+  `sync-portal` in the room.
 
 ## [26.08.7] - 2026-08-29
 
