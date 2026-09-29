@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
+## [Unreleased]
+
+### Added
+
+- Create a Google Chat space from Matrix (#48): name a Matrix room, invite
+  the bridge bot, and send `create-group` there. The space is created with
+  the room's name, that room becomes its bridged room, and anyone else in
+  the room is invited to the space. If the bot is only a member of the room,
+  the bridge first raises it to admin using your own Matrix account; if it
+  cannot, it says so and creates nothing. Earlier attempts were refused by
+  Google because they never said what kind of space to create.
+
 ## [26.09.0] - 2026-09-29
 
 ### Added

@@ -117,17 +117,20 @@ func (gc *GChatConnector) GetDBMetaTypes() database.MetaTypes {
 // FI.MAU.GOOGLECHAT.EMAIL_REQUIRES_CREATE telling the client to retry with
 // create_chat, rather than a bare 500 (createchat.go).
 //
-// GroupCreation is deliberately EMPTY. create_group is implemented at the RPC
-// layer but every request shape tried so far -- including the one
-// purple-googlechat uses -- is rejected with a bare, detail-free HTTP 400 by
-// the account it was tested against, so the capability is not advertised:
-// offering a space-creation affordance that always fails is worse than not
-// offering one. See the follow-up issue linked from createchat.go.
+// GroupCreation advertises one type, a space (createspace.go): a name is
+// required, and participants are invited after the space exists.
 var gchatGeneralCaps = &bridgev2.NetworkGeneralCapabilities{
 	Provisioning: bridgev2.ProvisioningCapabilities{
 		ResolveIdentifier: bridgev2.ResolveIdentifierCapabilities{
 			CreateDM:    true,
 			LookupEmail: true,
+		},
+		GroupCreation: map[string]bridgev2.GroupTypeCapabilities{
+			spaceGroupType: {
+				TypeDescription: "a Google Chat space",
+				Name:            bridgev2.GroupFieldCapability{Allowed: true, Required: true},
+				Participants:    bridgev2.GroupFieldCapability{Allowed: true},
+			},
 		},
 	},
 }
