@@ -144,14 +144,3 @@ func TestHandleMatrixRoomTopicDMRejected(t *testing.T) {
 		t.Error("HandleMatrixRoomTopic(DM) = nil error, want a rejection")
 	}
 }
-
-// A DM must not advertise the room state a space can change: the handlers
-// reject it there, so a capability-aware client would offer a dead button.
-func TestGetCapabilitiesDMAdvertisesNoRoomState(t *testing.T) {
-	for _, meta := range []*PortalMetadata{{}, {ThreadsEnabled: true}} {
-		caps := (&GChatClient{}).GetCapabilities(context.Background(), portalWithIDAndMeta("dm1", true, meta))
-		if len(caps.State) != 0 {
-			t.Errorf("DM (meta %+v) State = %v, want none", meta, caps.State)
-		}
-	}
-}

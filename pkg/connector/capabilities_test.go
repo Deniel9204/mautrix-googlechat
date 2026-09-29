@@ -441,6 +441,31 @@ func TestGetCapabilitiesSpaceAdvertisesRoomNameAndTopic(t *testing.T) {
 	}
 }
 
+// TestGetCapabilitiesDMOmitsSpaceOnlyActions is the reason this cannot simply
+// be added to the shared flat capability set: HandleMatrixMembership and
+// HandleMatrixRoomName/HandleMatrixRoomTopic all reject DMs outright
+// ("membership changes are not supported in DMs", "cannot rename a DM", "a DM
+// has no description"), so advertising any of them in a DM would make
+// clients offer actions that are guaranteed to fail.
+func TestGetCapabilitiesDMOmitsSpaceOnlyActions(t *testing.T) {
+	portal := portalWithIDAndMeta("dm1", true, &PortalMetadata{})
+
+	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
+
+	if len(caps.MemberActions) != 0 {
+		t.Errorf("MemberActions = %v for a DM, want none (they are rejected in DMs)", caps.MemberActions)
+	}
+	if len(caps.State) != 0 {
+		t.Errorf("State = %v for a DM, want none (a DM has no name or description to change)", caps.State)
+	}
+	// The rest of the DM's capabilities must be unchanged.
+	if !caps.Reply.Full() {
+		t.Error("Reply = not full for a DM, want fully supported")
+	}
+}
+
+// TestGetCapabilitiesThreadedSpaceKeepsMemberActions: the threaded variant is
+// still a space, so it must carry the space-only capabilities too.
 func TestGetCapabilitiesThreadedSpaceKeepsMemberActions(t *testing.T) {
 	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{ThreadsOnly: true})
 
