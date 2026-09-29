@@ -85,8 +85,7 @@ a live upload confirmed it succeeds. `network.disable_outbound_media` remains
 available to turn upload attempts into clean errors if a future change breaks
 them for your account.
 
-‡ Invites are picked up from the live event Google sends to the invitee
-(verified to arrive, 2026-09-29), not from the chat list, which never
-contains them. Accepting sends the maintained purple-googlechat client's own
-join request; declining is the same request as Leave. The full
-invite → accept/decline round trip has not yet been exercised live.
+‡ Invites are picked up from the live event Google sends to the invitee, not
+from the chat list, which never contains them. So an invite sent while the
+bridge is down only appears if Google replays it on reconnect. Invite,
+accept and decline are live-verified (2026-09-29).
