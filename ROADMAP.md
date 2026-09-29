@@ -72,6 +72,7 @@
     * [x] When invited to chat‡
     * [x] When receiving message
   * [x] Private chat creation by inviting Matrix puppet of Google Chat user to new room
+  * [x] Space creation from Matrix (`create-group` in an existing room)
   * [x] Option to use own Matrix account for messages sent from other Google Chat clients (double puppeting)
   * [x] One-shot migration from the Python bridge's database (`--migrate-from-python`)
 

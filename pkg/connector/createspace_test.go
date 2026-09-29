@@ -8,7 +8,6 @@ import (
 	"errors"
 	"testing"
 
-	"google.golang.org/protobuf/proto"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
@@ -70,9 +69,6 @@ func TestCreateGroupSendsWebShapeThenInvites(t *testing.T) {
 	if gotCreate.ShouldFindExistingSpace == nil || gotCreate.GetShouldFindExistingSpace() {
 		t.Error("should_find_existing_space not explicitly false")
 	}
-	if len(gotCreate.ProtoReflect().GetUnknown()) != 0 || len(space.ProtoReflect().GetUnknown()) != 0 {
-		t.Error("first attempt carries extra wire fields; it must be the minimal shape")
-	}
 	if len(invited) != 2 || invited[0] != "111" || invited[1] != "222" {
 		t.Errorf("invited = %v, want [111 222]", invited)
 	}
@@ -97,50 +93,11 @@ func TestCreateGroupNeedsName(t *testing.T) {
 	}
 }
 
-// A 400 creates nothing, so the next shape is tried -- with the web client's
-// extra wire fields, which must survive marshalling.
-func TestCreateGroupRetriesRefusalWithWebExtras(t *testing.T) {
-	var attempts []*pb.CreateGroupRequest
-	gc := &GChatClient{
-		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
-		createGroupChatFn: func(_ context.Context, req *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
-			attempts = append(attempts, req)
-			if len(attempts) == 1 {
-				return nil, &gchatmeow.UnexpectedStatusError{Status: 400}
-			}
-			return createdSpace("newspace"), nil
-		},
-	}
-
-	if _, err := gc.CreateGroup(context.Background(), spaceParams("Team")); err != nil {
-		t.Fatalf("CreateGroup() error = %v", err)
-	}
-	if len(attempts) != 2 {
-		t.Fatalf("attempts = %d, want 2", len(attempts))
-	}
-	second := attempts[1]
-	if second.GetLocalId() != attempts[0].GetLocalId() {
-		t.Error("retry changed local_id; it is the same logical create")
-	}
-	wire, err := proto.Marshal(second)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var round pb.CreateGroupRequest
-	if err := proto.Unmarshal(wire, &round); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(round.ProtoReflect().GetUnknown()) == 0 || len(round.GetSpace().ProtoReflect().GetUnknown()) == 0 {
-		t.Error("retry lost the web client's extra fields on the wire")
-	}
-	if round.GetSpace().GetAttributeCheckerGroupType() != pb.SharedAttributeCheckerGroupType_FLAT_ROOM {
-		t.Error("retry lost the room type")
-	}
-}
-
-// After a 5xx or a transport error the space may already exist: no retry.
-func TestCreateGroupNeverRetriesAmbiguousFailure(t *testing.T) {
+// A failed create is never retried: after a 5xx or a transport error the
+// space may already exist, and even a 400 has no second shape to try.
+func TestCreateGroupNeverRetries(t *testing.T) {
 	for name, failure := range map[string]error{
+		"400":       &gchatmeow.UnexpectedStatusError{Status: 400},
 		"5xx":       &gchatmeow.UnexpectedStatusError{Status: 500},
 		"transport": errors.New("connection reset"),
 	} {

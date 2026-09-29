@@ -272,6 +272,7 @@ All are binary-proto request/response wrappers on `*gchatmeow.Client`:
 | `ListTopics` / `ListMessages` | `list_topics` / `list_messages` | initial backfill |
 | `CatchUpGroup` / `CatchUpUser` | `catch_up_group` / `catch_up_user` | missed-event replay |
 | `CreateMembership` / `RemoveMemberships` | `create_membership` / `remove_memberships` | outbound invite / kick / leave (spaces) |
+| `CreateGroup` | `create_group` | space creation from Matrix (needs `attribute_checker_group_type=FLAT_ROOM`) |
 | `UpdateGroup` | `update_group` | outbound space rename (`NAME`) and description (`SPACE_DETAILS`) |
 
 Mutating responses return `WriteRevision{timestamp}`; these revision timestamps
@@ -370,6 +371,7 @@ an undelivered event.
 | Space invites (portal + accept/decline) | both (spaces) | `invites.go`: the invitee's own standalone `MembershipChangedEvent` (state `MEMBER_INVITED`) records the invite in `UserLoginMetadata.PendingInvites` and creates the portal with the user *invited* (never auto-joined); accept = `create_membership` with own id, decline = `remove_memberships`, both gated on the pending set |
 | Space rename | Matrix→GC (spaces) | `HandleMatrixRoomName` (`handleroomname.go`) → `update_group` |
 | Space description (topic) | Matrix→GC (spaces) | `HandleMatrixRoomTopic` (`handleroomtopic.go`) → `get_group` for the current guidelines, then `update_group` with `SPACE_DETAILS` sending them back unchanged |
+| Space creation | Matrix→GC | `CreateGroup` (`createspace.go`, `create-group` command): raises the bridge bot to PL 100 in the command's room via the double puppet, `create_group` with the web client's shape (name, `FLAT_ROOM`, `local_id`, empty), binds the command's room with `UpdateMatrixRoomID`, then invites participants with `create_membership` |
 | Chat / user metadata | GC→Matrix | `GetChatInfo` (`chatinfo.go`) / `GetUserInfo` (`userinfo.go`); ghost avatars via `avatar.go` |
 | Backfill & catch-up | GC→Matrix | `FetchMessages` (`backfill.go`, `list_topics`/`list_messages`) + revision catch-up (§4) |
 | Login | — | `CreateLogin` → `GChatLogin.SubmitCookies` (`login.go`), cookie flow |
@@ -381,8 +383,7 @@ DM arm) and are live-verified against Google Chat (2026-07-22).
 
 Deliberately unsupported: presence (bridgev2 has no model for it), room
 avatars in either direction (a space icon is an emoji, a Matrix avatar an
-image), and DM creation from Matrix (Google Chat requires DMs to
-be created server-side). `GetCapabilities` leaves `ImplicitReadReceipts` false
+image). `GetCapabilities` leaves `ImplicitReadReceipts` false
 on purpose (Google Chat auto-marks self-sent messages read).
 
 ---
@@ -442,6 +443,11 @@ deployment breaks existing data or the protocol.
   section returns them. The invitee instead receives a standalone
   `MembershipChangedEvent` for its own id on the realtime channel, which is
   what `invites.go` acts on.
+- **`create_group` needs a room type** (live-verified 2026-09-29): without
+  `SpaceCreationInfo.attribute_checker_group_type` (the web client sends
+  `FLAT_ROOM`) the server answers a bare, detail-free HTTP 400 whatever else
+  the request carries. The web client creates the space empty and invites
+  people afterwards.
 - **Google adds proto fields continuously.** The pblite decoder logging
   "skipping unknown field" is normal and expected, not an error.
 
