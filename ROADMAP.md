@@ -24,7 +24,7 @@
     * [x] Invite
     * [x] Join (accept invite)‡
     * [x] Kick
-    * [x] Leave
+    * [x] Leave (needs `bridge.bridge_matrix_leave: true`)
   * [x] Room metadata changes
     * [x] Name
     * [x] Topic (space description)§
