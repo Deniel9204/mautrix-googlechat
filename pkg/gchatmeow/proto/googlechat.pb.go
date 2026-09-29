@@ -18726,6 +18726,9 @@ type UpdateGroupRequest struct {
 	UpdateMasks   []UpdateGroupRequest_UpdateMask `protobuf:"varint,4,rep,name=update_masks,json=updateMasks,enum=UpdateGroupRequest_UpdateMask" json:"update_masks,omitempty"`
 	Name          *string                         `protobuf:"bytes,2,opt,name=name" json:"name,omitempty"`
 	Visibility    *GroupVisibility                `protobuf:"bytes,5,opt,name=visibility" json:"visibility,omitempty"`
+	// optional AvatarInfo avatar_info = 6;
+	// Same shape as Group.group_details (field 37): description + guidelines.
+	SpaceDetails  *GroupDetails `protobuf:"bytes,7,opt,name=space_details,json=spaceDetails" json:"space_details,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -18791,6 +18794,13 @@ func (x *UpdateGroupRequest) GetName() string {
 func (x *UpdateGroupRequest) GetVisibility() *GroupVisibility {
 	if x != nil {
 		return x.Visibility
+	}
+	return nil
+}
+
+func (x *UpdateGroupRequest) GetSpaceDetails() *GroupDetails {
+	if x != nil {
+		return x.SpaceDetails
 	}
 	return nil
 }
@@ -25867,7 +25877,7 @@ const file_googlechat_proto_rawDesc = "" +
 	"\x16SetDndDurationResponse\x12,\n" +
 	"\vuser_status\x18\x01 \x01(\v2\v.UserStatusR\n" +
 	"userStatus\x123\n" +
-	"\ruser_revision\x18\x02 \x01(\v2\x0e.WriteRevisionR\fuserRevision\"\xf4\x02\n" +
+	"\ruser_revision\x18\x02 \x01(\v2\x0e.WriteRevisionR\fuserRevision\"\xa8\x03\n" +
 	"\x12UpdateGroupRequest\x125\n" +
 	"\x0erequest_header\x18d \x01(\v2\x0e.RequestHeaderR\rrequestHeader\x12#\n" +
 	"\bspace_id\x18\x01 \x01(\v2\b.SpaceIdR\aspaceId\x12A\n" +
@@ -25875,7 +25885,8 @@ const file_googlechat_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x120\n" +
 	"\n" +
 	"visibility\x18\x05 \x01(\v2\x10.GroupVisibilityR\n" +
-	"visibility\"y\n" +
+	"visibility\x122\n" +
+	"\rspace_details\x18\a \x01(\v2\r.GroupDetailsR\fspaceDetails\"y\n" +
 	"\n" +
 	"UpdateMask\x12\x1b\n" +
 	"\x17UPDATE_MASK_UNSPECIFIED\x10\x00\x12\b\n" +
@@ -26918,157 +26929,158 @@ var file_googlechat_proto_depIdxs = []int32{
 	151, // 440: UpdateGroupRequest.space_id:type_name -> SpaceId
 	88,  // 441: UpdateGroupRequest.update_masks:type_name -> UpdateGroupRequest.UpdateMask
 	231, // 442: UpdateGroupRequest.visibility:type_name -> GroupVisibility
-	153, // 443: UpdateGroupResponse.group:type_name -> Group
-	269, // 444: UpdateGroupResponse.group_revision:type_name -> WriteRevision
-	102, // 445: BlockEntityRequest.request_header:type_name -> RequestHeader
-	89,  // 446: BlockEntityRequest.user_id:type_name -> UserId
-	152, // 447: BlockEntityRequest.group_id:type_name -> GroupId
-	156, // 448: BlockEntityResponse.read_state:type_name -> GroupReadState
-	269, // 449: BlockEntityResponse.user_revision:type_name -> WriteRevision
-	102, // 450: SetCustomStatusRequest.request_header:type_name -> RequestHeader
-	94,  // 451: SetCustomStatusRequest.custom_status:type_name -> CustomStatus
-	95,  // 452: SetCustomStatusResponse.user_status:type_name -> UserStatus
-	269, // 453: SetCustomStatusResponse.user_revision:type_name -> WriteRevision
-	274, // 454: JAddOnsFormattedText.FormattedTextElement.styled_text:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText
-	275, // 455: JAddOnsFormattedText.FormattedTextElement.hyperlink:type_name -> JAddOnsFormattedText.FormattedTextElement.HyperLink
-	273, // 456: JAddOnsFormattedText.FormattedTextElement.StyledText.datetime:type_name -> JAddOnsFormattedText.FormattedTextElement.DateTime
-	26,  // 457: JAddOnsFormattedText.FormattedTextElement.StyledText.styles:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.Style
-	27,  // 458: JAddOnsFormattedText.FormattedTextElement.StyledText.font_weight:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.FontWeight
-	116, // 459: JAddOnsFormattedText.FormattedTextElement.StyledText.theme_colors:type_name -> JAddOnsThemeColors
-	114, // 460: JAddOnsCardItem.CardItemHeader.title:type_name -> JAddOnsFormattedText
-	114, // 461: JAddOnsCardItem.CardItemHeader.subtitle:type_name -> JAddOnsFormattedText
-	28,  // 462: JAddOnsCardItem.CardItemHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	113, // 463: JAddOnsCardItem.CardItemSection.id:type_name -> JAddOnsIdentifier
-	114, // 464: JAddOnsCardItem.CardItemSection.header:type_name -> JAddOnsFormattedText
-	127, // 465: JAddOnsCardItem.CardItemSection.widgets:type_name -> JAddOnsWidget
-	120, // 466: JAddOnsCardItem.CardItemAction.on_click:type_name -> JAddOnsOnClick
-	296, // 467: JAddOnsCardItem.CardItemFixedFooter.buttons:type_name -> JAddOnsWidget.Button
-	294, // 468: JAddOnsCardItem.CardItemFixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
-	294, // 469: JAddOnsCardItem.CardItemFixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
-	128, // 470: JAddOnsCardItem.CardItemRefreshAction.method:type_name -> JAddOnsFormAction
-	122, // 471: JAddOnsGrid.GridItem.image:type_name -> JAddOnsImageComponent
-	35,  // 472: JAddOnsGrid.GridItem.text_alignment:type_name -> JAddOnsWidget.HorizontalAlign
-	33,  // 473: JAddOnsGrid.GridItem.layout:type_name -> JAddOnsGrid.GridItem.GridItemLayout
-	120, // 474: JAddOnsGrid.GridItem.on_click:type_name -> JAddOnsOnClick
-	114, // 475: JAddOnsWidget.TextParagraph.text:type_name -> JAddOnsFormattedText
-	114, // 476: JAddOnsWidget.TextKeyValue.key:type_name -> JAddOnsFormattedText
-	114, // 477: JAddOnsWidget.TextKeyValue.text:type_name -> JAddOnsFormattedText
-	120, // 478: JAddOnsWidget.TextKeyValue.on_click:type_name -> JAddOnsOnClick
-	114, // 479: JAddOnsWidget.ImageKeyValue.text:type_name -> JAddOnsFormattedText
-	120, // 480: JAddOnsWidget.ImageKeyValue.on_click:type_name -> JAddOnsOnClick
-	113, // 481: JAddOnsWidget.Image.id:type_name -> JAddOnsIdentifier
-	120, // 482: JAddOnsWidget.Image.on_click:type_name -> JAddOnsOnClick
-	28,  // 483: JAddOnsWidget.Icon.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	28,  // 484: JAddOnsWidget.KeyValue.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	286, // 485: JAddOnsWidget.KeyValue.start_icon:type_name -> JAddOnsWidget.Icon
-	114, // 486: JAddOnsWidget.KeyValue.top_label:type_name -> JAddOnsFormattedText
-	114, // 487: JAddOnsWidget.KeyValue.content:type_name -> JAddOnsFormattedText
-	114, // 488: JAddOnsWidget.KeyValue.bottom_label:type_name -> JAddOnsFormattedText
-	120, // 489: JAddOnsWidget.KeyValue.on_click:type_name -> JAddOnsOnClick
-	296, // 490: JAddOnsWidget.KeyValue.button:type_name -> JAddOnsWidget.Button
-	297, // 491: JAddOnsWidget.KeyValue.switch_widget:type_name -> JAddOnsWidget.KeyValue.SwitchWidget
-	286, // 492: JAddOnsWidget.KeyValue.end_icon:type_name -> JAddOnsWidget.Icon
-	298, // 493: JAddOnsWidget.Menu.items:type_name -> JAddOnsWidget.Menu.MenuItem
-	128, // 494: JAddOnsWidget.Menu.on_change:type_name -> JAddOnsFormAction
-	299, // 495: JAddOnsWidget.AutoComplete.items:type_name -> JAddOnsWidget.AutoComplete.AutoCompleteItem
-	113, // 496: JAddOnsWidget.TextField.id:type_name -> JAddOnsIdentifier
-	37,  // 497: JAddOnsWidget.TextField.type:type_name -> JAddOnsWidget.TextField.TextFieldType
-	38,  // 498: JAddOnsWidget.TextField.line_type:type_name -> JAddOnsWidget.TextField.LineType
-	128, // 499: JAddOnsWidget.TextField.on_change:type_name -> JAddOnsFormAction
-	290, // 500: JAddOnsWidget.TextField.auto_complete:type_name -> JAddOnsWidget.AutoComplete
-	128, // 501: JAddOnsWidget.TextField.auto_complete_callback:type_name -> JAddOnsFormAction
-	113, // 502: JAddOnsWidget.SelectionControl.id:type_name -> JAddOnsIdentifier
-	39,  // 503: JAddOnsWidget.SelectionControl.type:type_name -> JAddOnsWidget.SelectionControl.SelectionType
-	300, // 504: JAddOnsWidget.SelectionControl.items:type_name -> JAddOnsWidget.SelectionControl.SelectionItem
-	128, // 505: JAddOnsWidget.SelectionControl.on_change:type_name -> JAddOnsFormAction
-	40,  // 506: JAddOnsWidget.DateTimePicker.type:type_name -> JAddOnsWidget.DateTimePicker.DateTimePickerType
-	128, // 507: JAddOnsWidget.DateTimePicker.on_change:type_name -> JAddOnsFormAction
-	116, // 508: JAddOnsWidget.DateTimePicker.theme_colors:type_name -> JAddOnsThemeColors
-	113, // 509: JAddOnsWidget.TextButton.id:type_name -> JAddOnsIdentifier
-	114, // 510: JAddOnsWidget.TextButton.text:type_name -> JAddOnsFormattedText
-	120, // 511: JAddOnsWidget.TextButton.on_click:type_name -> JAddOnsOnClick
-	41,  // 512: JAddOnsWidget.TextButton.style:type_name -> JAddOnsWidget.TextButton.Style
-	116, // 513: JAddOnsWidget.TextButton.background_theme_colors:type_name -> JAddOnsThemeColors
-	113, // 514: JAddOnsWidget.ImageButton.id:type_name -> JAddOnsIdentifier
-	120, // 515: JAddOnsWidget.ImageButton.on_click:type_name -> JAddOnsOnClick
-	294, // 516: JAddOnsWidget.Button.text_button:type_name -> JAddOnsWidget.TextButton
-	295, // 517: JAddOnsWidget.Button.image_button:type_name -> JAddOnsWidget.ImageButton
-	113, // 518: JAddOnsWidget.KeyValue.SwitchWidget.id:type_name -> JAddOnsIdentifier
-	128, // 519: JAddOnsWidget.KeyValue.SwitchWidget.on_change:type_name -> JAddOnsFormAction
-	36,  // 520: JAddOnsWidget.KeyValue.SwitchWidget.control_type:type_name -> JAddOnsWidget.KeyValue.SwitchWidget.ControlType
-	113, // 521: JAddOnsWidget.SelectionControl.SelectionItem.id:type_name -> JAddOnsIdentifier
-	114, // 522: JAddOnsContextualAddOn.Toolbar.name:type_name -> JAddOnsFormattedText
-	116, // 523: JAddOnsContextualAddOn.Toolbar.theme_colors:type_name -> JAddOnsThemeColors
-	304, // 524: JAddOnsContextualAddOn.Card.header:type_name -> JAddOnsContextualAddOn.Card.CardHeader
-	305, // 525: JAddOnsContextualAddOn.Card.sections:type_name -> JAddOnsContextualAddOn.Card.Section
-	306, // 526: JAddOnsContextualAddOn.Card.card_actions:type_name -> JAddOnsContextualAddOn.Card.CardAction
-	307, // 527: JAddOnsContextualAddOn.Card.fixed_footer:type_name -> JAddOnsContextualAddOn.Card.FixedFooter
-	308, // 528: JAddOnsContextualAddOn.Card.refresh_action:type_name -> JAddOnsContextualAddOn.Card.RefreshAction
-	116, // 529: JAddOnsContextualAddOn.Card.background_theme_colors:type_name -> JAddOnsThemeColors
-	114, // 530: JAddOnsContextualAddOn.Card.CardHeader.title:type_name -> JAddOnsFormattedText
-	114, // 531: JAddOnsContextualAddOn.Card.CardHeader.subtitle:type_name -> JAddOnsFormattedText
-	28,  // 532: JAddOnsContextualAddOn.Card.CardHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	113, // 533: JAddOnsContextualAddOn.Card.Section.id:type_name -> JAddOnsIdentifier
-	114, // 534: JAddOnsContextualAddOn.Card.Section.header:type_name -> JAddOnsFormattedText
-	127, // 535: JAddOnsContextualAddOn.Card.Section.widgets:type_name -> JAddOnsWidget
-	120, // 536: JAddOnsContextualAddOn.Card.CardAction.on_click:type_name -> JAddOnsOnClick
-	296, // 537: JAddOnsContextualAddOn.Card.FixedFooter.buttons:type_name -> JAddOnsWidget.Button
-	294, // 538: JAddOnsContextualAddOn.Card.FixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
-	294, // 539: JAddOnsContextualAddOn.Card.FixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
-	128, // 540: JAddOnsContextualAddOn.Card.RefreshAction.method:type_name -> JAddOnsFormAction
-	201, // 541: Event.EventBody.group_viewed:type_name -> GroupViewedEvent
-	202, // 542: Event.EventBody.group_updated:type_name -> GroupUpdatedEvent
-	195, // 543: Event.EventBody.message_posted:type_name -> MessageEvent
-	212, // 544: Event.EventBody.topic_mute_changed:type_name -> TopicMuteChangedEvent
-	203, // 545: Event.EventBody.web_push_notification:type_name -> WebPushNotificationEvent
-	213, // 546: Event.EventBody.group_unread_subscribed_topic_count_updated_event:type_name -> GroupUnreadSubscribedTopicCountUpdatedEvent
-	199, // 547: Event.EventBody.membership_changed:type_name -> MembershipChangedEvent
-	197, // 548: Event.EventBody.message_deleted:type_name -> MessageDeletedEvent
-	214, // 549: Event.EventBody.topic_created:type_name -> TopicCreatedEvent
-	196, // 550: Event.EventBody.message_reaction:type_name -> MessageReactionEvent
-	96,  // 551: Event.EventBody.user_status_updated:type_name -> UserStatusUpdatedEvent
-	215, // 552: Event.EventBody.message_smart_replies_event:type_name -> MessageSmartRepliesEvent
-	198, // 553: Event.EventBody.typing_state_changed:type_name -> TypingStateChangedEvent
-	200, // 554: Event.EventBody.read_receipt_changed:type_name -> ReadReceiptChangedEvent
-	216, // 555: Event.EventBody.group_default_sort_order_updated_event:type_name -> GroupDefaultSortOrderUpdatedEvent
-	217, // 556: Event.EventBody.group_read_state_updated_event:type_name -> GroupReadStateUpdatedEvent
-	65,  // 557: Event.EventBody.event_type:type_name -> Event.EventType
-	224, // 558: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.new_group_details:type_name -> GroupDetails
-	224, // 559: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.prev_group_details:type_name -> GroupDetails
-	67,  // 560: MeetingSpace.RecordingInfo.recording_status:type_name -> MeetingSpace.RecordingInfo.RecordingStatus
-	327, // 561: MeetingSpace.RecordingInfo.latest_recording_event:type_name -> MeetingSpace.RecordingInfo.RecordingEvent
-	13,  // 562: MeetingSpace.RecordingInfo.recording_application_type:type_name -> RecordingApplicationType
-	69,  // 563: MeetingSpace.StreamingSessionInfo.status:type_name -> MeetingSpace.StreamingSessionInfo.Status
-	13,  // 564: MeetingSpace.StreamingSessionInfo.application_type:type_name -> RecordingApplicationType
-	328, // 565: MeetingSpace.StreamingSessionInfo.latest_session_event:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent
-	14,  // 566: MeetingSpace.StreamingSessionInfo.viewer_access_policy:type_name -> BroadcastAccessPolicy
-	329, // 567: MeetingSpace.StreamingSessionInfo.viewer_stats:type_name -> MeetingSpace.StreamingSessionInfo.StreamViewerStats
-	319, // 568: MeetingSpace.CallInfo.presenter:type_name -> MeetingSpace.Presenter
-	320, // 569: MeetingSpace.CallInfo.recording_info:type_name -> MeetingSpace.RecordingInfo
-	321, // 570: MeetingSpace.CallInfo.streaming_sessions:type_name -> MeetingSpace.StreamingSessionInfo
-	330, // 571: MeetingSpace.CallInfo.settings:type_name -> MeetingSpace.CallInfo.CallSettings
-	331, // 572: MeetingSpace.CallInfo.paygate_info:type_name -> MeetingSpace.CallInfo.PaygateInfo
-	332, // 573: MeetingSpace.CallInfo.cse_info:type_name -> MeetingSpace.CallInfo.CseInfo
-	68,  // 574: MeetingSpace.RecordingInfo.RecordingEvent.type:type_name -> MeetingSpace.RecordingInfo.RecordingEvent.EventType
-	70,  // 575: MeetingSpace.StreamingSessionInfo.SessionEvent.type:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent.EventType
-	232, // 576: MeetingSpace.CallInfo.PaygateInfo.call_ending_soon_warning_time:type_name -> ComGoogleProtobufTimestamp
-	232, // 577: MeetingSpace.CallInfo.PaygateInfo.call_ending_time:type_name -> ComGoogleProtobufTimestamp
-	104, // 578: MembershipChangedMetadata.AffectedMembership.affected_member:type_name -> MemberId
-	20,  // 579: MembershipChangedMetadata.AffectedMembership.prior_membership_state:type_name -> MembershipState
-	18,  // 580: MembershipChangedMetadata.AffectedMembership.prior_membership_role:type_name -> MembershipRole
-	18,  // 581: MembershipChangedMetadata.AffectedMembership.target_membership_role:type_name -> MembershipRole
-	89,  // 582: WorldItemLite.MembershipLite.user_id:type_name -> UserId
-	20,  // 583: WorldItemLite.MembershipLite.membership_state:type_name -> MembershipState
-	89,  // 584: WorldItemLite.DmMembers.members:type_name -> UserId
-	334, // 585: WorldItemLite.DmMembers.memberships:type_name -> WorldItemLite.MembershipLite
-	89,  // 586: WorldItemLite.GroupLite.creator_id:type_name -> UserId
-	158, // 587: WorldItemLite.GroupLite.retention_settings:type_name -> RetentionSettings
-	224, // 588: WorldItemLite.GroupLite.group_details:type_name -> GroupDetails
-	589, // [589:589] is the sub-list for method output_type
-	589, // [589:589] is the sub-list for method input_type
-	589, // [589:589] is the sub-list for extension type_name
-	589, // [589:589] is the sub-list for extension extendee
-	0,   // [0:589] is the sub-list for field type_name
+	224, // 443: UpdateGroupRequest.space_details:type_name -> GroupDetails
+	153, // 444: UpdateGroupResponse.group:type_name -> Group
+	269, // 445: UpdateGroupResponse.group_revision:type_name -> WriteRevision
+	102, // 446: BlockEntityRequest.request_header:type_name -> RequestHeader
+	89,  // 447: BlockEntityRequest.user_id:type_name -> UserId
+	152, // 448: BlockEntityRequest.group_id:type_name -> GroupId
+	156, // 449: BlockEntityResponse.read_state:type_name -> GroupReadState
+	269, // 450: BlockEntityResponse.user_revision:type_name -> WriteRevision
+	102, // 451: SetCustomStatusRequest.request_header:type_name -> RequestHeader
+	94,  // 452: SetCustomStatusRequest.custom_status:type_name -> CustomStatus
+	95,  // 453: SetCustomStatusResponse.user_status:type_name -> UserStatus
+	269, // 454: SetCustomStatusResponse.user_revision:type_name -> WriteRevision
+	274, // 455: JAddOnsFormattedText.FormattedTextElement.styled_text:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText
+	275, // 456: JAddOnsFormattedText.FormattedTextElement.hyperlink:type_name -> JAddOnsFormattedText.FormattedTextElement.HyperLink
+	273, // 457: JAddOnsFormattedText.FormattedTextElement.StyledText.datetime:type_name -> JAddOnsFormattedText.FormattedTextElement.DateTime
+	26,  // 458: JAddOnsFormattedText.FormattedTextElement.StyledText.styles:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.Style
+	27,  // 459: JAddOnsFormattedText.FormattedTextElement.StyledText.font_weight:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.FontWeight
+	116, // 460: JAddOnsFormattedText.FormattedTextElement.StyledText.theme_colors:type_name -> JAddOnsThemeColors
+	114, // 461: JAddOnsCardItem.CardItemHeader.title:type_name -> JAddOnsFormattedText
+	114, // 462: JAddOnsCardItem.CardItemHeader.subtitle:type_name -> JAddOnsFormattedText
+	28,  // 463: JAddOnsCardItem.CardItemHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	113, // 464: JAddOnsCardItem.CardItemSection.id:type_name -> JAddOnsIdentifier
+	114, // 465: JAddOnsCardItem.CardItemSection.header:type_name -> JAddOnsFormattedText
+	127, // 466: JAddOnsCardItem.CardItemSection.widgets:type_name -> JAddOnsWidget
+	120, // 467: JAddOnsCardItem.CardItemAction.on_click:type_name -> JAddOnsOnClick
+	296, // 468: JAddOnsCardItem.CardItemFixedFooter.buttons:type_name -> JAddOnsWidget.Button
+	294, // 469: JAddOnsCardItem.CardItemFixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
+	294, // 470: JAddOnsCardItem.CardItemFixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
+	128, // 471: JAddOnsCardItem.CardItemRefreshAction.method:type_name -> JAddOnsFormAction
+	122, // 472: JAddOnsGrid.GridItem.image:type_name -> JAddOnsImageComponent
+	35,  // 473: JAddOnsGrid.GridItem.text_alignment:type_name -> JAddOnsWidget.HorizontalAlign
+	33,  // 474: JAddOnsGrid.GridItem.layout:type_name -> JAddOnsGrid.GridItem.GridItemLayout
+	120, // 475: JAddOnsGrid.GridItem.on_click:type_name -> JAddOnsOnClick
+	114, // 476: JAddOnsWidget.TextParagraph.text:type_name -> JAddOnsFormattedText
+	114, // 477: JAddOnsWidget.TextKeyValue.key:type_name -> JAddOnsFormattedText
+	114, // 478: JAddOnsWidget.TextKeyValue.text:type_name -> JAddOnsFormattedText
+	120, // 479: JAddOnsWidget.TextKeyValue.on_click:type_name -> JAddOnsOnClick
+	114, // 480: JAddOnsWidget.ImageKeyValue.text:type_name -> JAddOnsFormattedText
+	120, // 481: JAddOnsWidget.ImageKeyValue.on_click:type_name -> JAddOnsOnClick
+	113, // 482: JAddOnsWidget.Image.id:type_name -> JAddOnsIdentifier
+	120, // 483: JAddOnsWidget.Image.on_click:type_name -> JAddOnsOnClick
+	28,  // 484: JAddOnsWidget.Icon.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	28,  // 485: JAddOnsWidget.KeyValue.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	286, // 486: JAddOnsWidget.KeyValue.start_icon:type_name -> JAddOnsWidget.Icon
+	114, // 487: JAddOnsWidget.KeyValue.top_label:type_name -> JAddOnsFormattedText
+	114, // 488: JAddOnsWidget.KeyValue.content:type_name -> JAddOnsFormattedText
+	114, // 489: JAddOnsWidget.KeyValue.bottom_label:type_name -> JAddOnsFormattedText
+	120, // 490: JAddOnsWidget.KeyValue.on_click:type_name -> JAddOnsOnClick
+	296, // 491: JAddOnsWidget.KeyValue.button:type_name -> JAddOnsWidget.Button
+	297, // 492: JAddOnsWidget.KeyValue.switch_widget:type_name -> JAddOnsWidget.KeyValue.SwitchWidget
+	286, // 493: JAddOnsWidget.KeyValue.end_icon:type_name -> JAddOnsWidget.Icon
+	298, // 494: JAddOnsWidget.Menu.items:type_name -> JAddOnsWidget.Menu.MenuItem
+	128, // 495: JAddOnsWidget.Menu.on_change:type_name -> JAddOnsFormAction
+	299, // 496: JAddOnsWidget.AutoComplete.items:type_name -> JAddOnsWidget.AutoComplete.AutoCompleteItem
+	113, // 497: JAddOnsWidget.TextField.id:type_name -> JAddOnsIdentifier
+	37,  // 498: JAddOnsWidget.TextField.type:type_name -> JAddOnsWidget.TextField.TextFieldType
+	38,  // 499: JAddOnsWidget.TextField.line_type:type_name -> JAddOnsWidget.TextField.LineType
+	128, // 500: JAddOnsWidget.TextField.on_change:type_name -> JAddOnsFormAction
+	290, // 501: JAddOnsWidget.TextField.auto_complete:type_name -> JAddOnsWidget.AutoComplete
+	128, // 502: JAddOnsWidget.TextField.auto_complete_callback:type_name -> JAddOnsFormAction
+	113, // 503: JAddOnsWidget.SelectionControl.id:type_name -> JAddOnsIdentifier
+	39,  // 504: JAddOnsWidget.SelectionControl.type:type_name -> JAddOnsWidget.SelectionControl.SelectionType
+	300, // 505: JAddOnsWidget.SelectionControl.items:type_name -> JAddOnsWidget.SelectionControl.SelectionItem
+	128, // 506: JAddOnsWidget.SelectionControl.on_change:type_name -> JAddOnsFormAction
+	40,  // 507: JAddOnsWidget.DateTimePicker.type:type_name -> JAddOnsWidget.DateTimePicker.DateTimePickerType
+	128, // 508: JAddOnsWidget.DateTimePicker.on_change:type_name -> JAddOnsFormAction
+	116, // 509: JAddOnsWidget.DateTimePicker.theme_colors:type_name -> JAddOnsThemeColors
+	113, // 510: JAddOnsWidget.TextButton.id:type_name -> JAddOnsIdentifier
+	114, // 511: JAddOnsWidget.TextButton.text:type_name -> JAddOnsFormattedText
+	120, // 512: JAddOnsWidget.TextButton.on_click:type_name -> JAddOnsOnClick
+	41,  // 513: JAddOnsWidget.TextButton.style:type_name -> JAddOnsWidget.TextButton.Style
+	116, // 514: JAddOnsWidget.TextButton.background_theme_colors:type_name -> JAddOnsThemeColors
+	113, // 515: JAddOnsWidget.ImageButton.id:type_name -> JAddOnsIdentifier
+	120, // 516: JAddOnsWidget.ImageButton.on_click:type_name -> JAddOnsOnClick
+	294, // 517: JAddOnsWidget.Button.text_button:type_name -> JAddOnsWidget.TextButton
+	295, // 518: JAddOnsWidget.Button.image_button:type_name -> JAddOnsWidget.ImageButton
+	113, // 519: JAddOnsWidget.KeyValue.SwitchWidget.id:type_name -> JAddOnsIdentifier
+	128, // 520: JAddOnsWidget.KeyValue.SwitchWidget.on_change:type_name -> JAddOnsFormAction
+	36,  // 521: JAddOnsWidget.KeyValue.SwitchWidget.control_type:type_name -> JAddOnsWidget.KeyValue.SwitchWidget.ControlType
+	113, // 522: JAddOnsWidget.SelectionControl.SelectionItem.id:type_name -> JAddOnsIdentifier
+	114, // 523: JAddOnsContextualAddOn.Toolbar.name:type_name -> JAddOnsFormattedText
+	116, // 524: JAddOnsContextualAddOn.Toolbar.theme_colors:type_name -> JAddOnsThemeColors
+	304, // 525: JAddOnsContextualAddOn.Card.header:type_name -> JAddOnsContextualAddOn.Card.CardHeader
+	305, // 526: JAddOnsContextualAddOn.Card.sections:type_name -> JAddOnsContextualAddOn.Card.Section
+	306, // 527: JAddOnsContextualAddOn.Card.card_actions:type_name -> JAddOnsContextualAddOn.Card.CardAction
+	307, // 528: JAddOnsContextualAddOn.Card.fixed_footer:type_name -> JAddOnsContextualAddOn.Card.FixedFooter
+	308, // 529: JAddOnsContextualAddOn.Card.refresh_action:type_name -> JAddOnsContextualAddOn.Card.RefreshAction
+	116, // 530: JAddOnsContextualAddOn.Card.background_theme_colors:type_name -> JAddOnsThemeColors
+	114, // 531: JAddOnsContextualAddOn.Card.CardHeader.title:type_name -> JAddOnsFormattedText
+	114, // 532: JAddOnsContextualAddOn.Card.CardHeader.subtitle:type_name -> JAddOnsFormattedText
+	28,  // 533: JAddOnsContextualAddOn.Card.CardHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	113, // 534: JAddOnsContextualAddOn.Card.Section.id:type_name -> JAddOnsIdentifier
+	114, // 535: JAddOnsContextualAddOn.Card.Section.header:type_name -> JAddOnsFormattedText
+	127, // 536: JAddOnsContextualAddOn.Card.Section.widgets:type_name -> JAddOnsWidget
+	120, // 537: JAddOnsContextualAddOn.Card.CardAction.on_click:type_name -> JAddOnsOnClick
+	296, // 538: JAddOnsContextualAddOn.Card.FixedFooter.buttons:type_name -> JAddOnsWidget.Button
+	294, // 539: JAddOnsContextualAddOn.Card.FixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
+	294, // 540: JAddOnsContextualAddOn.Card.FixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
+	128, // 541: JAddOnsContextualAddOn.Card.RefreshAction.method:type_name -> JAddOnsFormAction
+	201, // 542: Event.EventBody.group_viewed:type_name -> GroupViewedEvent
+	202, // 543: Event.EventBody.group_updated:type_name -> GroupUpdatedEvent
+	195, // 544: Event.EventBody.message_posted:type_name -> MessageEvent
+	212, // 545: Event.EventBody.topic_mute_changed:type_name -> TopicMuteChangedEvent
+	203, // 546: Event.EventBody.web_push_notification:type_name -> WebPushNotificationEvent
+	213, // 547: Event.EventBody.group_unread_subscribed_topic_count_updated_event:type_name -> GroupUnreadSubscribedTopicCountUpdatedEvent
+	199, // 548: Event.EventBody.membership_changed:type_name -> MembershipChangedEvent
+	197, // 549: Event.EventBody.message_deleted:type_name -> MessageDeletedEvent
+	214, // 550: Event.EventBody.topic_created:type_name -> TopicCreatedEvent
+	196, // 551: Event.EventBody.message_reaction:type_name -> MessageReactionEvent
+	96,  // 552: Event.EventBody.user_status_updated:type_name -> UserStatusUpdatedEvent
+	215, // 553: Event.EventBody.message_smart_replies_event:type_name -> MessageSmartRepliesEvent
+	198, // 554: Event.EventBody.typing_state_changed:type_name -> TypingStateChangedEvent
+	200, // 555: Event.EventBody.read_receipt_changed:type_name -> ReadReceiptChangedEvent
+	216, // 556: Event.EventBody.group_default_sort_order_updated_event:type_name -> GroupDefaultSortOrderUpdatedEvent
+	217, // 557: Event.EventBody.group_read_state_updated_event:type_name -> GroupReadStateUpdatedEvent
+	65,  // 558: Event.EventBody.event_type:type_name -> Event.EventType
+	224, // 559: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.new_group_details:type_name -> GroupDetails
+	224, // 560: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.prev_group_details:type_name -> GroupDetails
+	67,  // 561: MeetingSpace.RecordingInfo.recording_status:type_name -> MeetingSpace.RecordingInfo.RecordingStatus
+	327, // 562: MeetingSpace.RecordingInfo.latest_recording_event:type_name -> MeetingSpace.RecordingInfo.RecordingEvent
+	13,  // 563: MeetingSpace.RecordingInfo.recording_application_type:type_name -> RecordingApplicationType
+	69,  // 564: MeetingSpace.StreamingSessionInfo.status:type_name -> MeetingSpace.StreamingSessionInfo.Status
+	13,  // 565: MeetingSpace.StreamingSessionInfo.application_type:type_name -> RecordingApplicationType
+	328, // 566: MeetingSpace.StreamingSessionInfo.latest_session_event:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent
+	14,  // 567: MeetingSpace.StreamingSessionInfo.viewer_access_policy:type_name -> BroadcastAccessPolicy
+	329, // 568: MeetingSpace.StreamingSessionInfo.viewer_stats:type_name -> MeetingSpace.StreamingSessionInfo.StreamViewerStats
+	319, // 569: MeetingSpace.CallInfo.presenter:type_name -> MeetingSpace.Presenter
+	320, // 570: MeetingSpace.CallInfo.recording_info:type_name -> MeetingSpace.RecordingInfo
+	321, // 571: MeetingSpace.CallInfo.streaming_sessions:type_name -> MeetingSpace.StreamingSessionInfo
+	330, // 572: MeetingSpace.CallInfo.settings:type_name -> MeetingSpace.CallInfo.CallSettings
+	331, // 573: MeetingSpace.CallInfo.paygate_info:type_name -> MeetingSpace.CallInfo.PaygateInfo
+	332, // 574: MeetingSpace.CallInfo.cse_info:type_name -> MeetingSpace.CallInfo.CseInfo
+	68,  // 575: MeetingSpace.RecordingInfo.RecordingEvent.type:type_name -> MeetingSpace.RecordingInfo.RecordingEvent.EventType
+	70,  // 576: MeetingSpace.StreamingSessionInfo.SessionEvent.type:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent.EventType
+	232, // 577: MeetingSpace.CallInfo.PaygateInfo.call_ending_soon_warning_time:type_name -> ComGoogleProtobufTimestamp
+	232, // 578: MeetingSpace.CallInfo.PaygateInfo.call_ending_time:type_name -> ComGoogleProtobufTimestamp
+	104, // 579: MembershipChangedMetadata.AffectedMembership.affected_member:type_name -> MemberId
+	20,  // 580: MembershipChangedMetadata.AffectedMembership.prior_membership_state:type_name -> MembershipState
+	18,  // 581: MembershipChangedMetadata.AffectedMembership.prior_membership_role:type_name -> MembershipRole
+	18,  // 582: MembershipChangedMetadata.AffectedMembership.target_membership_role:type_name -> MembershipRole
+	89,  // 583: WorldItemLite.MembershipLite.user_id:type_name -> UserId
+	20,  // 584: WorldItemLite.MembershipLite.membership_state:type_name -> MembershipState
+	89,  // 585: WorldItemLite.DmMembers.members:type_name -> UserId
+	334, // 586: WorldItemLite.DmMembers.memberships:type_name -> WorldItemLite.MembershipLite
+	89,  // 587: WorldItemLite.GroupLite.creator_id:type_name -> UserId
+	158, // 588: WorldItemLite.GroupLite.retention_settings:type_name -> RetentionSettings
+	224, // 589: WorldItemLite.GroupLite.group_details:type_name -> GroupDetails
+	590, // [590:590] is the sub-list for method output_type
+	590, // [590:590] is the sub-list for method input_type
+	590, // [590:590] is the sub-list for extension type_name
+	590, // [590:590] is the sub-list for extension extendee
+	0,   // [0:590] is the sub-list for field type_name
 }
 
 func init() { file_googlechat_proto_init() }
