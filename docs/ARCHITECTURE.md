@@ -448,6 +448,19 @@ deployment breaks existing data or the protocol.
   `FLAT_ROOM`) the server answers a bare, detail-free HTTP 400 whatever else
   the request carries. The web client creates the space empty and invites
   people afterwards.
+- **A Matrix leave is dropped unless `bridge.bridge_matrix_leave` is on**
+  (framework default: off). bridgev2 filters the user's own leave before
+  `HandleMatrixMembership` runs, so Google Chat never hears of it; the next
+  chat-list sync still lists the space, and `UserLogin.MarkInPortal` joins the
+  user back through the double puppet (or has the bot re-invite them). With
+  the flag on, a Matrix leave goes out through ONE login, so a Matrix user
+  with several logins in a space stays a member through the others. Also,
+  `ASIntent.SendState` adds no double-puppet marker (the same gap behind the
+  own-join echo handled in `handlemembership.go`), so by the code a leave the
+  bridge mirrors FROM Google Chat through the double puppet can come back as
+  a Matrix leave and re-send `remove_memberships` for a space already left --
+  redundant rather than harmful, and the reason the flag stays off by
+  default.
 - **Google adds proto fields continuously.** The pblite decoder logging
   "skipping unknown field" is normal and expected, not an error.
 
