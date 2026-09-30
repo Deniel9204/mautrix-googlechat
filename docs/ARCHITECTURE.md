@@ -476,9 +476,13 @@ deployment breaks existing data or the protocol.
   the right thing on Google Chat; only the Matrix-side picture is muddled.
 - **Per-chat mute is its own RPC** (captured 2026-09-29):
   `update_group_notification_settings` with the group, a type value (5 for a
-  space, 4 for a DM, meaning unknown) and a mute state where 2 is muted and 1
-  unmuted -- the reverse of `GroupNotificationSettings.state` in the chat
-  list. `SetDndDuration` looks similar but silences the whole account and
+  space, 4 for a DM, meaning unknown) and a mute sub-message where 2 is muted
+  and 1 unmuted. The chat list reads back the same shape (live-verified
+  2026-09-30): the mute is `GroupNotificationSettings` field 3, present and
+  MUTED on a muted chat and absent once unmuted. That message's fields 1 and
+  2 (`state`, `room_state`) are misnamed guesses -- field 1 is 2 on every
+  chat, field 2 the same 5/4 type value -- so neither says anything about
+  mute. `SetDndDuration` looks similar but silences the whole account and
   must never be used for a single chat. Google Chat mutes have no end time.
 - **Google adds proto fields continuously.** The pblite decoder logging
   "skipping unknown field" is normal and expected, not an error.

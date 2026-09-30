@@ -72,15 +72,17 @@ func (c *GChatClient) HandleMute(ctx context.Context, msg *bridgev2.MatrixMute) 
 }
 
 // mutedUntilFromReadState maps a chat's notification settings from the
-// chat list to bridgev2's mute value: forever, unmuted, or nil when Google
-// Chat says nothing (then the Matrix side is left alone).
+// chat list to bridgev2's mute value. The mute is settings field 3, the same
+// Mute message the update writes (live-verified): present and MUTED on a
+// muted chat, absent once unmuted. A chat whose settings Google Chat never
+// sent is left alone (nil) rather than unmuted.
 func mutedUntilFromReadState(rs *pb.GroupReadState) *bridgev2.UserLocalPortalInfo {
-	switch rs.GetNotificationSettings().GetState() {
-	case pb.GroupNotificationSettings_MUTED:
-		return &bridgev2.UserLocalPortalInfo{MutedUntil: &event.MutedForever}
-	case pb.GroupNotificationSettings_UNMUTED:
-		return &bridgev2.UserLocalPortalInfo{MutedUntil: &bridgev2.Unmuted}
-	default:
+	settings := rs.GetNotificationSettings()
+	if settings == nil {
 		return nil
 	}
+	if settings.GetMute().GetState() == pb.GroupNotificationSettingsUpdate_Mute_MUTED {
+		return &bridgev2.UserLocalPortalInfo{MutedUntil: &event.MutedForever}
+	}
+	return &bridgev2.UserLocalPortalInfo{MutedUntil: &bridgev2.Unmuted}
 }

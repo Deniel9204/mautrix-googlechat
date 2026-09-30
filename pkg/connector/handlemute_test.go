@@ -5,6 +5,7 @@ package connector
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -113,15 +114,30 @@ func TestHandleMuteRPCFailurePropagates(t *testing.T) {
 	}
 }
 
+// The settings bytes of two chats, straight from a live chat-list sync
+// (2026-09-30): a muted space, and a DM that had been muted and unmuted.
+func liveNotificationSettings(t *testing.T, hexBytes string) *pb.GroupReadState {
+	t.Helper()
+	raw, err := hex.DecodeString(hexBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings pb.GroupNotificationSettings
+	if err := proto.Unmarshal(raw, &settings); err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.ProtoReflect().GetUnknown()) != 0 {
+		t.Fatal("live settings carry fields the schema does not define")
+	}
+	return &pb.GroupReadState{NotificationSettings: &settings}
+}
+
 func TestMutedUntilFromReadState(t *testing.T) {
-	settings := func(state pb.GroupNotificationSettings_GroupNotificationState) *pb.GroupReadState {
-		return &pb.GroupReadState{NotificationSettings: &pb.GroupNotificationSettings{State: state.Enum()}}
+	if got := mutedUntilFromReadState(liveNotificationSettings(t, "080210051a020802")); got == nil || !got.MutedUntil.Equal(event.MutedForever) {
+		t.Errorf("live muted space -> %v, want muted forever", got)
 	}
-	if got := mutedUntilFromReadState(settings(pb.GroupNotificationSettings_MUTED)); got == nil || !got.MutedUntil.Equal(event.MutedForever) {
-		t.Errorf("MUTED -> %v, want muted forever", got)
-	}
-	if got := mutedUntilFromReadState(settings(pb.GroupNotificationSettings_UNMUTED)); got == nil || !got.MutedUntil.Equal(bridgev2.Unmuted) {
-		t.Errorf("UNMUTED -> %v, want unmuted", got)
+	if got := mutedUntilFromReadState(liveNotificationSettings(t, "08021004")); got == nil || !got.MutedUntil.Equal(bridgev2.Unmuted) {
+		t.Errorf("live unmuted DM -> %v, want unmuted", got)
 	}
 	if got := mutedUntilFromReadState(&pb.GroupReadState{}); got != nil {
 		t.Errorf("no settings -> %v, want nil (leave the Matrix side alone)", got)
@@ -130,7 +146,9 @@ func TestMutedUntilFromReadState(t *testing.T) {
 
 func TestChatInfoFromWorldItemCarriesMuteState(t *testing.T) {
 	item := worldItem("space1", 100)
-	item.ReadState.NotificationSettings = &pb.GroupNotificationSettings{State: pb.GroupNotificationSettings_MUTED.Enum()}
+	item.ReadState.NotificationSettings = &pb.GroupNotificationSettings{
+		Mute: &pb.GroupNotificationSettingsUpdate_Mute{State: pb.GroupNotificationSettingsUpdate_Mute_MUTED.Enum()},
+	}
 	info := chatInfoFromWorldItem(item, ownID)
 	if info.UserLocal == nil || info.UserLocal.MutedUntil == nil || !info.UserLocal.MutedUntil.Equal(event.MutedForever) {
 		t.Errorf("UserLocal = %+v, want muted forever", info.UserLocal)

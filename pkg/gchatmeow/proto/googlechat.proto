@@ -1104,6 +1104,12 @@ message GroupNotificationSettings {
 		NOTIFY_NEVER = 3;
 	}
 	optional RoomNotificationState room_state = 2;
+	// The chat's mute, in the same shape update_group_notification_settings
+	// writes (live-verified 2026-09-30): present with state MUTED on a muted
+	// chat, absent once unmuted. Note that the two fields above are misnamed
+	// guesses: live data shows field 1 as 2 on every chat and field 2 as the
+	// same type value the update carries (5 for a space, 4 for a DM).
+	optional GroupNotificationSettingsUpdate.Mute mute = 3;
 }
 
 message RetentionSettings {
@@ -2716,7 +2722,7 @@ message GroupNotificationSettingsUpdate {
 	// 5 for a space and 4 for a DM in every captured request; meaning unknown.
 	optional int32 setting_type = 2;
 	message Mute {
-		// Note the order: the reverse of GroupNotificationSettings.state.
+		// Also read back from the chat list as GroupNotificationSettings.mute.
 		enum State {
 			STATE_UNSPECIFIED = 0;
 			UNMUTED = 1;
