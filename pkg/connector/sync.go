@@ -5,6 +5,7 @@ package connector
 // creates/backfill-checks portals for it.
 import (
 	"context"
+	"encoding/hex"
 	"sort"
 	"time"
 
@@ -186,6 +187,8 @@ func (c *GChatClient) syncChats(ctx context.Context) {
 			Bool("is_dm", isDM).
 			Bool("create_portal", entry.CreatePortal).
 			Str("notification_state", entry.Item.GetReadState().GetNotificationSettings().GetState().String()).
+			Str("notification_room_state", entry.Item.GetReadState().GetNotificationSettings().GetRoomState().String()).
+			Str("notification_raw", notificationSettingsHex(entry.Item.GetReadState().GetNotificationSettings())).
 			Any("result", res).
 			Msg("googlechat: queued chat-list sync event")
 	}
@@ -269,4 +272,18 @@ func syncSleepOrDone(ctx context.Context, d time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// notificationSettingsHex is the chat list's notification settings as wire
+// bytes, unknown fields included -- debug evidence for which field carries a
+// chat's mute (#31), since the schema's reading is not yet verified live.
+func notificationSettingsHex(settings *pb.GroupNotificationSettings) string {
+	if settings == nil {
+		return ""
+	}
+	raw, err := proto.Marshal(settings)
+	if err != nil {
+		return "marshal error: " + err.Error()
+	}
+	return hex.EncodeToString(raw)
 }
