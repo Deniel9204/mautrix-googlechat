@@ -185,6 +185,7 @@ func (c *GChatClient) syncChats(ctx context.Context) {
 			Str("gcid", id).
 			Bool("is_dm", isDM).
 			Bool("create_portal", entry.CreatePortal).
+			Str("notification_state", entry.Item.GetReadState().GetNotificationSettings().GetState().String()).
 			Any("result", res).
 			Msg("googlechat: queued chat-list sync event")
 	}

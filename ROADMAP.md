@@ -18,6 +18,7 @@
   * [x] Message reactions
   * [x] Message editing (text only)
   * [ ] Presence
+  * [x] Per-chat mute (`mute` / `unmute` commands)◊
   * [x] Typing notifications
   * [x] Read receipts
   * [x] Membership actions
@@ -51,6 +52,7 @@
     * [x] Initial backfill of recent history
     * [x] Missed-event catch-up after bridge downtime
   * [ ] Presence
+  * [x] Per-chat mute◊
   * [x] Typing notifications
   * [x] Read receipts
   * [x] Membership actions
@@ -102,3 +104,8 @@ Chat space manager gets.
 (`remove_memberships`, the same request as a room leave) and hides a DM
 (`hide_group`, as the purple-googlechat client does). Live-verified
 (2026-09-29), including a space's only manager leaving, which Google allows.
+
+◊ Sent with `update_group_notification_settings`, a request taken from
+captures of the Google Chat web client (no reference client uses it); read
+from each chat's notification settings in the chat list. Not yet exercised
+against a live account.

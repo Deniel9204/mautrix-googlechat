@@ -2702,3 +2702,30 @@ enum SharedAttributeCheckerGroupType {
 	IMMUTABLE_MEMBERSHIP_HUMAN_DM = 6;
 	POST_ROOM = 7;
 }
+
+// update_group_notification_settings: per-conversation mute. In no
+// reference client; shape taken from captures of the web client (2026-09-29).
+message UpdateGroupNotificationSettingsRequest {
+	optional RequestHeader request_header = 100;
+	optional GroupId group_id = 1;
+	optional GroupNotificationSettingsUpdate update = 2;
+}
+
+message GroupNotificationSettingsUpdate {
+	// Field 1 is left unset by the web client.
+	// 5 for a space and 4 for a DM in every captured request; meaning unknown.
+	optional int32 setting_type = 2;
+	message Mute {
+		// Note the order: the reverse of GroupNotificationSettings.state.
+		enum State {
+			STATE_UNSPECIFIED = 0;
+			UNMUTED = 1;
+			MUTED = 2;
+		}
+		optional State state = 1;
+	}
+	optional Mute mute = 3;
+}
+
+message UpdateGroupNotificationSettingsResponse {
+}

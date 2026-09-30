@@ -482,6 +482,16 @@ func (c *Client) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest) (*
 	return resp, c.doRequestNonIdempotent(ctx, "create_group", req, resp)
 }
 
+// UpdateGroupNotificationSettings mutes or unmutes one conversation for the
+// user -- per conversation, unlike SetDndDuration, which silences the whole
+// account. Endpoint: update_group_notification_settings (captured from the
+// web client; no reference client uses it).
+func (c *Client) UpdateGroupNotificationSettings(ctx context.Context, req *pb.UpdateGroupNotificationSettingsRequest) (*pb.UpdateGroupNotificationSettingsResponse, error) {
+	req.RequestHeader = newRequestHeader()
+	resp := &pb.UpdateGroupNotificationSettingsResponse{}
+	return resp, c.doRequest(ctx, "update_group_notification_settings", req, resp)
+}
+
 // HideGroup hides (hide=true) or unhides a conversation in the user's own
 // chat list -- Google Chat's "archive"/hide, the only way to put a DM away
 // (a DM cannot be left). Endpoint: hide_group, the request purple-googlechat

@@ -28,6 +28,7 @@ helps other people find the project and motivates continued development.
 | Reactions | Supported |
 | Read receipts | Supported |
 | Typing notifications | Supported |
+| Per-chat mute | Supported — `mute` / `unmute` in a room mute it on Google Chat; a chat muted on Google Chat is muted on Matrix when its room is created, or on every sync with `bridge.mute_only_on_create: false` |
 | Inbound media (Google Chat → Matrix: images, files) | Supported |
 | Outbound media (Matrix → Google Chat) | Supported — verified against Google's live endpoint (2026-07-22), using the [purple-googlechat](https://github.com/EionRobb/purple-googlechat) request shape (which avoids the client bug behind [upstream issue #114](https://github.com/mautrix/googlechat/issues/114)). Can be disabled via `network.disable_outbound_media` |
 | Room renames / topic changes | Supported |
@@ -151,6 +152,11 @@ mautrix-go bridgev2 config). Notable options:
   Matrix account has more than one Google Chat login in the same space, a
   Matrix leave removes only one of them, and the room comes back through the
   others. The `leave` command does not have that problem.
+- `bridge.mute_only_on_create` — **on by default** (framework-level). A
+  chat muted on Google Chat is then muted on Matrix only when its room is
+  first created. Set it to `false` to follow Google Chat's mute state on
+  every sync (a restart or reconnect) -- at the cost of overriding a mute you
+  set in your Matrix client, which the bridge cannot see.
 - `network.skip_leave_confirmation` — the `leave` command leaves the space on
   Google Chat with **every** one of your logins in it (for a DM, it hides the
   DM, since a DM can't be left) and then removes you from the room. By

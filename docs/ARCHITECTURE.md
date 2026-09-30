@@ -273,6 +273,7 @@ All are binary-proto request/response wrappers on `*gchatmeow.Client`:
 | `CatchUpGroup` / `CatchUpUser` | `catch_up_group` / `catch_up_user` | missed-event replay |
 | `CreateMembership` / `RemoveMemberships` | `create_membership` / `remove_memberships` | outbound invite / kick / leave (spaces) |
 | `CreateGroup` | `create_group` | space creation from Matrix (needs `attribute_checker_group_type=FLAT_ROOM`) |
+| `UpdateGroupNotificationSettings` | `update_group_notification_settings` | per-chat mute (captured from the web client) |
 | `HideGroup` | `hide_group` | hiding a DM (the `leave` command; a DM cannot be left) |
 | `UpdateGroup` | `update_group` | outbound space rename (`NAME`) and description (`SPACE_DETAILS`) |
 
@@ -374,6 +375,7 @@ an undelivered event.
 | Space description (topic) | Matrix→GC (spaces) | `HandleMatrixRoomTopic` (`handleroomtopic.go`) → `get_group` for the current guidelines, then `update_group` with `SPACE_DETAILS` sending them back unchanged |
 | Space creation | Matrix→GC | `CreateGroup` (`createspace.go`, `create-group` command): raises the bridge bot to PL 100 in the command's room via the double puppet, `create_group` with the web client's shape (name, `FLAT_ROOM`, `local_id`, empty), binds the command's room with `UpdateMatrixRoomID`, then invites participants with `create_membership` |
 | Leaving a chat on purpose | Matrix→GC | `leave` command and `HandleMatrixDeleteChat` (`leave.go`): a space is left with every one of the Matrix user's logins that has it (`remove_memberships`), a DM is hidden (`hide_group`); only if all succeed does the bridge BOT remove the user from the room (never the double puppet, see §7). `network.skip_leave_confirmation` drops the `leave confirm` step |
+| Per-chat mute | both | `HandleMute` (`handlemute.go`, the built-in `mute`/`unmute`) → `update_group_notification_settings`; inbound from the chat list's `read_state.notification_settings` as `ChatInfo.UserLocal.MutedUntil` (bridgev2 applies it at room creation, or always with `mute_only_on_create: false`) |
 | Chat / user metadata | GC→Matrix | `GetChatInfo` (`chatinfo.go`) / `GetUserInfo` (`userinfo.go`); ghost avatars via `avatar.go` |
 | Backfill & catch-up | GC→Matrix | `FetchMessages` (`backfill.go`, `list_topics`/`list_messages`) + revision catch-up (§4) |
 | Login | — | `CreateLogin` → `GChatLogin.SubmitCookies` (`login.go`), cookie flow |
@@ -472,6 +474,12 @@ deployment breaks existing data or the protocol.
   the user's power level follows whichever login synced last (moderator as
   the space's manager, 0 as a member). Invites, accepts and `leave` still do
   the right thing on Google Chat; only the Matrix-side picture is muddled.
+- **Per-chat mute is its own RPC** (captured 2026-09-29):
+  `update_group_notification_settings` with the group, a type value (5 for a
+  space, 4 for a DM, meaning unknown) and a mute state where 2 is muted and 1
+  unmuted -- the reverse of `GroupNotificationSettings.state` in the chat
+  list. `SetDndDuration` looks similar but silences the whole account and
+  must never be used for a single chat. Google Chat mutes have no end time.
 - **Google adds proto fields continuously.** The pblite decoder logging
   "skipping unknown field" is normal and expected, not an error.
 

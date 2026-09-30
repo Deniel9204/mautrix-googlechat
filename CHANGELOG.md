@@ -10,6 +10,12 @@ mautrix bridges.
 
 ### Added
 
+- Per-chat mute, both ways (#31). `mute` in a room mutes that chat on Google
+  Chat and `unmute` undoes it; Google Chat has no timed mutes, so `mute` with
+  a duration is refused. A chat muted on Google Chat is muted on Matrix when
+  its room is created, or on every sync if `bridge.mute_only_on_create` is
+  set to `false`. Only that one chat is affected -- the bridge never uses
+  Google Chat's account-wide do-not-disturb.
 - A `leave` command to leave a chat on Google Chat from Matrix (#66). In a
   space it leaves with every one of your Google Chat logins in it (so the
   room does not come back through another login after a restart), then
