@@ -1104,6 +1104,12 @@ message GroupNotificationSettings {
 		NOTIFY_NEVER = 3;
 	}
 	optional RoomNotificationState room_state = 2;
+	// The chat's mute, in the same shape update_group_notification_settings
+	// writes (live-verified 2026-09-30): present with state MUTED on a muted
+	// chat, absent once unmuted. Note that the two fields above are misnamed
+	// guesses: live data shows field 1 as 2 on every chat and field 2 as the
+	// same type value the update carries (5 for a space, 4 for a DM).
+	optional GroupNotificationSettingsUpdate.Mute mute = 3;
 }
 
 message RetentionSettings {
@@ -2701,4 +2707,31 @@ enum SharedAttributeCheckerGroupType {
 	THREADED_ROOM = 5;
 	IMMUTABLE_MEMBERSHIP_HUMAN_DM = 6;
 	POST_ROOM = 7;
+}
+
+// update_group_notification_settings: per-conversation mute. In no
+// reference client; shape taken from captures of the web client (2026-09-29).
+message UpdateGroupNotificationSettingsRequest {
+	optional RequestHeader request_header = 100;
+	optional GroupId group_id = 1;
+	optional GroupNotificationSettingsUpdate update = 2;
+}
+
+message GroupNotificationSettingsUpdate {
+	// Field 1 is left unset by the web client.
+	// 5 for a space and 4 for a DM in every captured request; meaning unknown.
+	optional int32 setting_type = 2;
+	message Mute {
+		// Also read back from the chat list as GroupNotificationSettings.mute.
+		enum State {
+			STATE_UNSPECIFIED = 0;
+			UNMUTED = 1;
+			MUTED = 2;
+		}
+		optional State state = 1;
+	}
+	optional Mute mute = 3;
+}
+
+message UpdateGroupNotificationSettingsResponse {
 }

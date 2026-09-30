@@ -5902,6 +5902,66 @@ func (UpdateGroupRequest_UpdateMask) EnumDescriptor() ([]byte, []int) {
 	return file_googlechat_proto_rawDescGZIP(), []int{174, 0}
 }
 
+// Also read back from the chat list as GroupNotificationSettings.mute.
+type GroupNotificationSettingsUpdate_Mute_State int32
+
+const (
+	GroupNotificationSettingsUpdate_Mute_STATE_UNSPECIFIED GroupNotificationSettingsUpdate_Mute_State = 0
+	GroupNotificationSettingsUpdate_Mute_UNMUTED           GroupNotificationSettingsUpdate_Mute_State = 1
+	GroupNotificationSettingsUpdate_Mute_MUTED             GroupNotificationSettingsUpdate_Mute_State = 2
+)
+
+// Enum value maps for GroupNotificationSettingsUpdate_Mute_State.
+var (
+	GroupNotificationSettingsUpdate_Mute_State_name = map[int32]string{
+		0: "STATE_UNSPECIFIED",
+		1: "UNMUTED",
+		2: "MUTED",
+	}
+	GroupNotificationSettingsUpdate_Mute_State_value = map[string]int32{
+		"STATE_UNSPECIFIED": 0,
+		"UNMUTED":           1,
+		"MUTED":             2,
+	}
+)
+
+func (x GroupNotificationSettingsUpdate_Mute_State) Enum() *GroupNotificationSettingsUpdate_Mute_State {
+	p := new(GroupNotificationSettingsUpdate_Mute_State)
+	*p = x
+	return p
+}
+
+func (x GroupNotificationSettingsUpdate_Mute_State) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GroupNotificationSettingsUpdate_Mute_State) Descriptor() protoreflect.EnumDescriptor {
+	return file_googlechat_proto_enumTypes[89].Descriptor()
+}
+
+func (GroupNotificationSettingsUpdate_Mute_State) Type() protoreflect.EnumType {
+	return &file_googlechat_proto_enumTypes[89]
+}
+
+func (x GroupNotificationSettingsUpdate_Mute_State) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Do not use.
+func (x *GroupNotificationSettingsUpdate_Mute_State) UnmarshalJSON(b []byte) error {
+	num, err := protoimpl.X.UnmarshalJSONEnum(x.Descriptor(), b)
+	if err != nil {
+		return err
+	}
+	*x = GroupNotificationSettingsUpdate_Mute_State(num)
+	return nil
+}
+
+// Deprecated: Use GroupNotificationSettingsUpdate_Mute_State.Descriptor instead.
+func (GroupNotificationSettingsUpdate_Mute_State) EnumDescriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{184, 0, 0}
+}
+
 type UserId struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            *string                `protobuf:"bytes,1,opt,name=id" json:"id,omitempty"`
@@ -11396,9 +11456,15 @@ func (x *GroupReadState) GetJoinedUsers() []*UserId {
 }
 
 type GroupNotificationSettings struct {
-	state         protoimpl.MessageState                            `protogen:"open.v1"`
-	State         *GroupNotificationSettings_GroupNotificationState `protobuf:"varint,1,opt,name=state,enum=GroupNotificationSettings_GroupNotificationState" json:"state,omitempty"`
-	RoomState     *GroupNotificationSettings_RoomNotificationState  `protobuf:"varint,2,opt,name=room_state,json=roomState,enum=GroupNotificationSettings_RoomNotificationState" json:"room_state,omitempty"`
+	state     protoimpl.MessageState                            `protogen:"open.v1"`
+	State     *GroupNotificationSettings_GroupNotificationState `protobuf:"varint,1,opt,name=state,enum=GroupNotificationSettings_GroupNotificationState" json:"state,omitempty"`
+	RoomState *GroupNotificationSettings_RoomNotificationState  `protobuf:"varint,2,opt,name=room_state,json=roomState,enum=GroupNotificationSettings_RoomNotificationState" json:"room_state,omitempty"`
+	// The chat's mute, in the same shape update_group_notification_settings
+	// writes (live-verified 2026-09-30): present with state MUTED on a muted
+	// chat, absent once unmuted. Note that the two fields above are misnamed
+	// guesses: live data shows field 1 as 2 on every chat and field 2 as the
+	// same type value the update carries (5 for a space, 4 for a DM).
+	Mute          *GroupNotificationSettingsUpdate_Mute `protobuf:"bytes,3,opt,name=mute" json:"mute,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -11445,6 +11511,13 @@ func (x *GroupNotificationSettings) GetRoomState() GroupNotificationSettings_Roo
 		return *x.RoomState
 	}
 	return GroupNotificationSettings_NOTIFY_ALWAYS
+}
+
+func (x *GroupNotificationSettings) GetMute() *GroupNotificationSettingsUpdate_Mute {
+	if x != nil {
+		return x.Mute
+	}
+	return nil
 }
 
 type RetentionSettings struct {
@@ -19307,6 +19380,158 @@ func (x *ReferenceRevision) GetTimestamp() int64 {
 	return 0
 }
 
+// update_group_notification_settings: per-conversation mute. In no
+// reference client; shape taken from captures of the web client (2026-09-29).
+type UpdateGroupNotificationSettingsRequest struct {
+	state         protoimpl.MessageState           `protogen:"open.v1"`
+	RequestHeader *RequestHeader                   `protobuf:"bytes,100,opt,name=request_header,json=requestHeader" json:"request_header,omitempty"`
+	GroupId       *GroupId                         `protobuf:"bytes,1,opt,name=group_id,json=groupId" json:"group_id,omitempty"`
+	Update        *GroupNotificationSettingsUpdate `protobuf:"bytes,2,opt,name=update" json:"update,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateGroupNotificationSettingsRequest) Reset() {
+	*x = UpdateGroupNotificationSettingsRequest{}
+	mi := &file_googlechat_proto_msgTypes[183]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateGroupNotificationSettingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateGroupNotificationSettingsRequest) ProtoMessage() {}
+
+func (x *UpdateGroupNotificationSettingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[183]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateGroupNotificationSettingsRequest.ProtoReflect.Descriptor instead.
+func (*UpdateGroupNotificationSettingsRequest) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{183}
+}
+
+func (x *UpdateGroupNotificationSettingsRequest) GetRequestHeader() *RequestHeader {
+	if x != nil {
+		return x.RequestHeader
+	}
+	return nil
+}
+
+func (x *UpdateGroupNotificationSettingsRequest) GetGroupId() *GroupId {
+	if x != nil {
+		return x.GroupId
+	}
+	return nil
+}
+
+func (x *UpdateGroupNotificationSettingsRequest) GetUpdate() *GroupNotificationSettingsUpdate {
+	if x != nil {
+		return x.Update
+	}
+	return nil
+}
+
+type GroupNotificationSettingsUpdate struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Field 1 is left unset by the web client.
+	// 5 for a space and 4 for a DM in every captured request; meaning unknown.
+	SettingType   *int32                                `protobuf:"varint,2,opt,name=setting_type,json=settingType" json:"setting_type,omitempty"`
+	Mute          *GroupNotificationSettingsUpdate_Mute `protobuf:"bytes,3,opt,name=mute" json:"mute,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GroupNotificationSettingsUpdate) Reset() {
+	*x = GroupNotificationSettingsUpdate{}
+	mi := &file_googlechat_proto_msgTypes[184]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupNotificationSettingsUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupNotificationSettingsUpdate) ProtoMessage() {}
+
+func (x *GroupNotificationSettingsUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[184]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupNotificationSettingsUpdate.ProtoReflect.Descriptor instead.
+func (*GroupNotificationSettingsUpdate) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{184}
+}
+
+func (x *GroupNotificationSettingsUpdate) GetSettingType() int32 {
+	if x != nil && x.SettingType != nil {
+		return *x.SettingType
+	}
+	return 0
+}
+
+func (x *GroupNotificationSettingsUpdate) GetMute() *GroupNotificationSettingsUpdate_Mute {
+	if x != nil {
+		return x.Mute
+	}
+	return nil
+}
+
+type UpdateGroupNotificationSettingsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateGroupNotificationSettingsResponse) Reset() {
+	*x = UpdateGroupNotificationSettingsResponse{}
+	mi := &file_googlechat_proto_msgTypes[185]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateGroupNotificationSettingsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateGroupNotificationSettingsResponse) ProtoMessage() {}
+
+func (x *UpdateGroupNotificationSettingsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[185]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateGroupNotificationSettingsResponse.ProtoReflect.Descriptor instead.
+func (*UpdateGroupNotificationSettingsResponse) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{185}
+}
+
 type JAddOnsFormattedText_FormattedTextElement struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Element:
@@ -19320,7 +19545,7 @@ type JAddOnsFormattedText_FormattedTextElement struct {
 
 func (x *JAddOnsFormattedText_FormattedTextElement) Reset() {
 	*x = JAddOnsFormattedText_FormattedTextElement{}
-	mi := &file_googlechat_proto_msgTypes[183]
+	mi := &file_googlechat_proto_msgTypes[186]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19332,7 +19557,7 @@ func (x *JAddOnsFormattedText_FormattedTextElement) String() string {
 func (*JAddOnsFormattedText_FormattedTextElement) ProtoMessage() {}
 
 func (x *JAddOnsFormattedText_FormattedTextElement) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[183]
+	mi := &file_googlechat_proto_msgTypes[186]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19403,7 +19628,7 @@ type JAddOnsFormattedText_FormattedTextElement_DateTime struct {
 
 func (x *JAddOnsFormattedText_FormattedTextElement_DateTime) Reset() {
 	*x = JAddOnsFormattedText_FormattedTextElement_DateTime{}
-	mi := &file_googlechat_proto_msgTypes[184]
+	mi := &file_googlechat_proto_msgTypes[187]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19415,7 +19640,7 @@ func (x *JAddOnsFormattedText_FormattedTextElement_DateTime) String() string {
 func (*JAddOnsFormattedText_FormattedTextElement_DateTime) ProtoMessage() {}
 
 func (x *JAddOnsFormattedText_FormattedTextElement_DateTime) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[184]
+	mi := &file_googlechat_proto_msgTypes[187]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19473,7 +19698,7 @@ type JAddOnsFormattedText_FormattedTextElement_StyledText struct {
 
 func (x *JAddOnsFormattedText_FormattedTextElement_StyledText) Reset() {
 	*x = JAddOnsFormattedText_FormattedTextElement_StyledText{}
-	mi := &file_googlechat_proto_msgTypes[185]
+	mi := &file_googlechat_proto_msgTypes[188]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19485,7 +19710,7 @@ func (x *JAddOnsFormattedText_FormattedTextElement_StyledText) String() string {
 func (*JAddOnsFormattedText_FormattedTextElement_StyledText) ProtoMessage() {}
 
 func (x *JAddOnsFormattedText_FormattedTextElement_StyledText) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[185]
+	mi := &file_googlechat_proto_msgTypes[188]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19554,7 +19779,7 @@ type JAddOnsFormattedText_FormattedTextElement_HyperLink struct {
 
 func (x *JAddOnsFormattedText_FormattedTextElement_HyperLink) Reset() {
 	*x = JAddOnsFormattedText_FormattedTextElement_HyperLink{}
-	mi := &file_googlechat_proto_msgTypes[186]
+	mi := &file_googlechat_proto_msgTypes[189]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19566,7 +19791,7 @@ func (x *JAddOnsFormattedText_FormattedTextElement_HyperLink) String() string {
 func (*JAddOnsFormattedText_FormattedTextElement_HyperLink) ProtoMessage() {}
 
 func (x *JAddOnsFormattedText_FormattedTextElement_HyperLink) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[186]
+	mi := &file_googlechat_proto_msgTypes[189]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19616,7 +19841,7 @@ type JAddOnsCardItem_CardItemHeader struct {
 
 func (x *JAddOnsCardItem_CardItemHeader) Reset() {
 	*x = JAddOnsCardItem_CardItemHeader{}
-	mi := &file_googlechat_proto_msgTypes[187]
+	mi := &file_googlechat_proto_msgTypes[190]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19628,7 +19853,7 @@ func (x *JAddOnsCardItem_CardItemHeader) String() string {
 func (*JAddOnsCardItem_CardItemHeader) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[187]
+	mi := &file_googlechat_proto_msgTypes[190]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19693,7 +19918,7 @@ type JAddOnsCardItem_CardItemSection struct {
 
 func (x *JAddOnsCardItem_CardItemSection) Reset() {
 	*x = JAddOnsCardItem_CardItemSection{}
-	mi := &file_googlechat_proto_msgTypes[188]
+	mi := &file_googlechat_proto_msgTypes[191]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19705,7 +19930,7 @@ func (x *JAddOnsCardItem_CardItemSection) String() string {
 func (*JAddOnsCardItem_CardItemSection) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemSection) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[188]
+	mi := &file_googlechat_proto_msgTypes[191]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19773,7 +19998,7 @@ type JAddOnsCardItem_CardItemAction struct {
 
 func (x *JAddOnsCardItem_CardItemAction) Reset() {
 	*x = JAddOnsCardItem_CardItemAction{}
-	mi := &file_googlechat_proto_msgTypes[189]
+	mi := &file_googlechat_proto_msgTypes[192]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19785,7 +20010,7 @@ func (x *JAddOnsCardItem_CardItemAction) String() string {
 func (*JAddOnsCardItem_CardItemAction) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemAction) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[189]
+	mi := &file_googlechat_proto_msgTypes[192]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19826,7 +20051,7 @@ type JAddOnsCardItem_CardItemFixedFooter struct {
 
 func (x *JAddOnsCardItem_CardItemFixedFooter) Reset() {
 	*x = JAddOnsCardItem_CardItemFixedFooter{}
-	mi := &file_googlechat_proto_msgTypes[190]
+	mi := &file_googlechat_proto_msgTypes[193]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19838,7 +20063,7 @@ func (x *JAddOnsCardItem_CardItemFixedFooter) String() string {
 func (*JAddOnsCardItem_CardItemFixedFooter) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemFixedFooter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[190]
+	mi := &file_googlechat_proto_msgTypes[193]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19884,7 +20109,7 @@ type JAddOnsCardItem_CardItemRefreshAction struct {
 
 func (x *JAddOnsCardItem_CardItemRefreshAction) Reset() {
 	*x = JAddOnsCardItem_CardItemRefreshAction{}
-	mi := &file_googlechat_proto_msgTypes[191]
+	mi := &file_googlechat_proto_msgTypes[194]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19896,7 +20121,7 @@ func (x *JAddOnsCardItem_CardItemRefreshAction) String() string {
 func (*JAddOnsCardItem_CardItemRefreshAction) ProtoMessage() {}
 
 func (x *JAddOnsCardItem_CardItemRefreshAction) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[191]
+	mi := &file_googlechat_proto_msgTypes[194]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19934,7 +20159,7 @@ type JAddOnsGrid_GridItem struct {
 
 func (x *JAddOnsGrid_GridItem) Reset() {
 	*x = JAddOnsGrid_GridItem{}
-	mi := &file_googlechat_proto_msgTypes[192]
+	mi := &file_googlechat_proto_msgTypes[195]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19946,7 +20171,7 @@ func (x *JAddOnsGrid_GridItem) String() string {
 func (*JAddOnsGrid_GridItem) ProtoMessage() {}
 
 func (x *JAddOnsGrid_GridItem) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[192]
+	mi := &file_googlechat_proto_msgTypes[195]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20020,7 +20245,7 @@ type JAddOnsWidget_TextParagraph struct {
 
 func (x *JAddOnsWidget_TextParagraph) Reset() {
 	*x = JAddOnsWidget_TextParagraph{}
-	mi := &file_googlechat_proto_msgTypes[193]
+	mi := &file_googlechat_proto_msgTypes[196]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20032,7 +20257,7 @@ func (x *JAddOnsWidget_TextParagraph) String() string {
 func (*JAddOnsWidget_TextParagraph) ProtoMessage() {}
 
 func (x *JAddOnsWidget_TextParagraph) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[193]
+	mi := &file_googlechat_proto_msgTypes[196]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20066,7 +20291,7 @@ type JAddOnsWidget_TextKeyValue struct {
 
 func (x *JAddOnsWidget_TextKeyValue) Reset() {
 	*x = JAddOnsWidget_TextKeyValue{}
-	mi := &file_googlechat_proto_msgTypes[194]
+	mi := &file_googlechat_proto_msgTypes[197]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20078,7 +20303,7 @@ func (x *JAddOnsWidget_TextKeyValue) String() string {
 func (*JAddOnsWidget_TextKeyValue) ProtoMessage() {}
 
 func (x *JAddOnsWidget_TextKeyValue) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[194]
+	mi := &file_googlechat_proto_msgTypes[197]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20126,7 +20351,7 @@ type JAddOnsWidget_ImageKeyValue struct {
 
 func (x *JAddOnsWidget_ImageKeyValue) Reset() {
 	*x = JAddOnsWidget_ImageKeyValue{}
-	mi := &file_googlechat_proto_msgTypes[195]
+	mi := &file_googlechat_proto_msgTypes[198]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20138,7 +20363,7 @@ func (x *JAddOnsWidget_ImageKeyValue) String() string {
 func (*JAddOnsWidget_ImageKeyValue) ProtoMessage() {}
 
 func (x *JAddOnsWidget_ImageKeyValue) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[195]
+	mi := &file_googlechat_proto_msgTypes[198]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20188,7 +20413,7 @@ type JAddOnsWidget_Image struct {
 
 func (x *JAddOnsWidget_Image) Reset() {
 	*x = JAddOnsWidget_Image{}
-	mi := &file_googlechat_proto_msgTypes[196]
+	mi := &file_googlechat_proto_msgTypes[199]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20200,7 +20425,7 @@ func (x *JAddOnsWidget_Image) String() string {
 func (*JAddOnsWidget_Image) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Image) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[196]
+	mi := &file_googlechat_proto_msgTypes[199]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20262,7 +20487,7 @@ type JAddOnsWidget_Icon struct {
 
 func (x *JAddOnsWidget_Icon) Reset() {
 	*x = JAddOnsWidget_Icon{}
-	mi := &file_googlechat_proto_msgTypes[197]
+	mi := &file_googlechat_proto_msgTypes[200]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20274,7 +20499,7 @@ func (x *JAddOnsWidget_Icon) String() string {
 func (*JAddOnsWidget_Icon) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Icon) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[197]
+	mi := &file_googlechat_proto_msgTypes[200]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20334,7 +20559,7 @@ type JAddOnsWidget_KeyValue struct {
 
 func (x *JAddOnsWidget_KeyValue) Reset() {
 	*x = JAddOnsWidget_KeyValue{}
-	mi := &file_googlechat_proto_msgTypes[198]
+	mi := &file_googlechat_proto_msgTypes[201]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20346,7 +20571,7 @@ func (x *JAddOnsWidget_KeyValue) String() string {
 func (*JAddOnsWidget_KeyValue) ProtoMessage() {}
 
 func (x *JAddOnsWidget_KeyValue) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[198]
+	mi := &file_googlechat_proto_msgTypes[201]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20489,7 +20714,7 @@ type JAddOnsWidget_Divider struct {
 
 func (x *JAddOnsWidget_Divider) Reset() {
 	*x = JAddOnsWidget_Divider{}
-	mi := &file_googlechat_proto_msgTypes[199]
+	mi := &file_googlechat_proto_msgTypes[202]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20501,7 +20726,7 @@ func (x *JAddOnsWidget_Divider) String() string {
 func (*JAddOnsWidget_Divider) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Divider) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[199]
+	mi := &file_googlechat_proto_msgTypes[202]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20529,7 +20754,7 @@ type JAddOnsWidget_Menu struct {
 
 func (x *JAddOnsWidget_Menu) Reset() {
 	*x = JAddOnsWidget_Menu{}
-	mi := &file_googlechat_proto_msgTypes[200]
+	mi := &file_googlechat_proto_msgTypes[203]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20541,7 +20766,7 @@ func (x *JAddOnsWidget_Menu) String() string {
 func (*JAddOnsWidget_Menu) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Menu) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[200]
+	mi := &file_googlechat_proto_msgTypes[203]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20594,7 +20819,7 @@ type JAddOnsWidget_AutoComplete struct {
 
 func (x *JAddOnsWidget_AutoComplete) Reset() {
 	*x = JAddOnsWidget_AutoComplete{}
-	mi := &file_googlechat_proto_msgTypes[201]
+	mi := &file_googlechat_proto_msgTypes[204]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20606,7 +20831,7 @@ func (x *JAddOnsWidget_AutoComplete) String() string {
 func (*JAddOnsWidget_AutoComplete) ProtoMessage() {}
 
 func (x *JAddOnsWidget_AutoComplete) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[201]
+	mi := &file_googlechat_proto_msgTypes[204]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20649,7 +20874,7 @@ type JAddOnsWidget_TextField struct {
 
 func (x *JAddOnsWidget_TextField) Reset() {
 	*x = JAddOnsWidget_TextField{}
-	mi := &file_googlechat_proto_msgTypes[202]
+	mi := &file_googlechat_proto_msgTypes[205]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20661,7 +20886,7 @@ func (x *JAddOnsWidget_TextField) String() string {
 func (*JAddOnsWidget_TextField) ProtoMessage() {}
 
 func (x *JAddOnsWidget_TextField) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[202]
+	mi := &file_googlechat_proto_msgTypes[205]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20775,7 +21000,7 @@ type JAddOnsWidget_SelectionControl struct {
 
 func (x *JAddOnsWidget_SelectionControl) Reset() {
 	*x = JAddOnsWidget_SelectionControl{}
-	mi := &file_googlechat_proto_msgTypes[203]
+	mi := &file_googlechat_proto_msgTypes[206]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20787,7 +21012,7 @@ func (x *JAddOnsWidget_SelectionControl) String() string {
 func (*JAddOnsWidget_SelectionControl) ProtoMessage() {}
 
 func (x *JAddOnsWidget_SelectionControl) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[203]
+	mi := &file_googlechat_proto_msgTypes[206]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20861,7 +21086,7 @@ type JAddOnsWidget_DateTimePicker struct {
 
 func (x *JAddOnsWidget_DateTimePicker) Reset() {
 	*x = JAddOnsWidget_DateTimePicker{}
-	mi := &file_googlechat_proto_msgTypes[204]
+	mi := &file_googlechat_proto_msgTypes[207]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20873,7 +21098,7 @@ func (x *JAddOnsWidget_DateTimePicker) String() string {
 func (*JAddOnsWidget_DateTimePicker) ProtoMessage() {}
 
 func (x *JAddOnsWidget_DateTimePicker) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[204]
+	mi := &file_googlechat_proto_msgTypes[207]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20961,7 +21186,7 @@ type JAddOnsWidget_TextButton struct {
 
 func (x *JAddOnsWidget_TextButton) Reset() {
 	*x = JAddOnsWidget_TextButton{}
-	mi := &file_googlechat_proto_msgTypes[205]
+	mi := &file_googlechat_proto_msgTypes[208]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20973,7 +21198,7 @@ func (x *JAddOnsWidget_TextButton) String() string {
 func (*JAddOnsWidget_TextButton) ProtoMessage() {}
 
 func (x *JAddOnsWidget_TextButton) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[205]
+	mi := &file_googlechat_proto_msgTypes[208]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21057,7 +21282,7 @@ type JAddOnsWidget_ImageButton struct {
 
 func (x *JAddOnsWidget_ImageButton) Reset() {
 	*x = JAddOnsWidget_ImageButton{}
-	mi := &file_googlechat_proto_msgTypes[206]
+	mi := &file_googlechat_proto_msgTypes[209]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21069,7 +21294,7 @@ func (x *JAddOnsWidget_ImageButton) String() string {
 func (*JAddOnsWidget_ImageButton) ProtoMessage() {}
 
 func (x *JAddOnsWidget_ImageButton) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[206]
+	mi := &file_googlechat_proto_msgTypes[209]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21126,7 +21351,7 @@ type JAddOnsWidget_Button struct {
 
 func (x *JAddOnsWidget_Button) Reset() {
 	*x = JAddOnsWidget_Button{}
-	mi := &file_googlechat_proto_msgTypes[207]
+	mi := &file_googlechat_proto_msgTypes[210]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21138,7 +21363,7 @@ func (x *JAddOnsWidget_Button) String() string {
 func (*JAddOnsWidget_Button) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Button) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[207]
+	mi := &file_googlechat_proto_msgTypes[210]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21209,7 +21434,7 @@ type JAddOnsWidget_KeyValue_SwitchWidget struct {
 
 func (x *JAddOnsWidget_KeyValue_SwitchWidget) Reset() {
 	*x = JAddOnsWidget_KeyValue_SwitchWidget{}
-	mi := &file_googlechat_proto_msgTypes[208]
+	mi := &file_googlechat_proto_msgTypes[211]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21221,7 +21446,7 @@ func (x *JAddOnsWidget_KeyValue_SwitchWidget) String() string {
 func (*JAddOnsWidget_KeyValue_SwitchWidget) ProtoMessage() {}
 
 func (x *JAddOnsWidget_KeyValue_SwitchWidget) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[208]
+	mi := &file_googlechat_proto_msgTypes[211]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21290,7 +21515,7 @@ type JAddOnsWidget_Menu_MenuItem struct {
 
 func (x *JAddOnsWidget_Menu_MenuItem) Reset() {
 	*x = JAddOnsWidget_Menu_MenuItem{}
-	mi := &file_googlechat_proto_msgTypes[209]
+	mi := &file_googlechat_proto_msgTypes[212]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21302,7 +21527,7 @@ func (x *JAddOnsWidget_Menu_MenuItem) String() string {
 func (*JAddOnsWidget_Menu_MenuItem) ProtoMessage() {}
 
 func (x *JAddOnsWidget_Menu_MenuItem) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[209]
+	mi := &file_googlechat_proto_msgTypes[212]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21348,7 +21573,7 @@ type JAddOnsWidget_AutoComplete_AutoCompleteItem struct {
 
 func (x *JAddOnsWidget_AutoComplete_AutoCompleteItem) Reset() {
 	*x = JAddOnsWidget_AutoComplete_AutoCompleteItem{}
-	mi := &file_googlechat_proto_msgTypes[210]
+	mi := &file_googlechat_proto_msgTypes[213]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21360,7 +21585,7 @@ func (x *JAddOnsWidget_AutoComplete_AutoCompleteItem) String() string {
 func (*JAddOnsWidget_AutoComplete_AutoCompleteItem) ProtoMessage() {}
 
 func (x *JAddOnsWidget_AutoComplete_AutoCompleteItem) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[210]
+	mi := &file_googlechat_proto_msgTypes[213]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21395,7 +21620,7 @@ type JAddOnsWidget_SelectionControl_SelectionItem struct {
 
 func (x *JAddOnsWidget_SelectionControl_SelectionItem) Reset() {
 	*x = JAddOnsWidget_SelectionControl_SelectionItem{}
-	mi := &file_googlechat_proto_msgTypes[211]
+	mi := &file_googlechat_proto_msgTypes[214]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21407,7 +21632,7 @@ func (x *JAddOnsWidget_SelectionControl_SelectionItem) String() string {
 func (*JAddOnsWidget_SelectionControl_SelectionItem) ProtoMessage() {}
 
 func (x *JAddOnsWidget_SelectionControl_SelectionItem) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[211]
+	mi := &file_googlechat_proto_msgTypes[214]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21461,7 +21686,7 @@ type JAddOnsFormAction_ActionParameter struct {
 
 func (x *JAddOnsFormAction_ActionParameter) Reset() {
 	*x = JAddOnsFormAction_ActionParameter{}
-	mi := &file_googlechat_proto_msgTypes[212]
+	mi := &file_googlechat_proto_msgTypes[215]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21473,7 +21698,7 @@ func (x *JAddOnsFormAction_ActionParameter) String() string {
 func (*JAddOnsFormAction_ActionParameter) ProtoMessage() {}
 
 func (x *JAddOnsFormAction_ActionParameter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[212]
+	mi := &file_googlechat_proto_msgTypes[215]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21515,7 +21740,7 @@ type JAddOnsContextualAddOn_Toolbar struct {
 
 func (x *JAddOnsContextualAddOn_Toolbar) Reset() {
 	*x = JAddOnsContextualAddOn_Toolbar{}
-	mi := &file_googlechat_proto_msgTypes[213]
+	mi := &file_googlechat_proto_msgTypes[216]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21527,7 +21752,7 @@ func (x *JAddOnsContextualAddOn_Toolbar) String() string {
 func (*JAddOnsContextualAddOn_Toolbar) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Toolbar) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[213]
+	mi := &file_googlechat_proto_msgTypes[216]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21586,7 +21811,7 @@ type JAddOnsContextualAddOn_Card struct {
 
 func (x *JAddOnsContextualAddOn_Card) Reset() {
 	*x = JAddOnsContextualAddOn_Card{}
-	mi := &file_googlechat_proto_msgTypes[214]
+	mi := &file_googlechat_proto_msgTypes[217]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21598,7 +21823,7 @@ func (x *JAddOnsContextualAddOn_Card) String() string {
 func (*JAddOnsContextualAddOn_Card) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[214]
+	mi := &file_googlechat_proto_msgTypes[217]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21676,7 +21901,7 @@ type JAddOnsContextualAddOn_Card_CardHeader struct {
 
 func (x *JAddOnsContextualAddOn_Card_CardHeader) Reset() {
 	*x = JAddOnsContextualAddOn_Card_CardHeader{}
-	mi := &file_googlechat_proto_msgTypes[215]
+	mi := &file_googlechat_proto_msgTypes[218]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21688,7 +21913,7 @@ func (x *JAddOnsContextualAddOn_Card_CardHeader) String() string {
 func (*JAddOnsContextualAddOn_Card_CardHeader) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_CardHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[215]
+	mi := &file_googlechat_proto_msgTypes[218]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21753,7 +21978,7 @@ type JAddOnsContextualAddOn_Card_Section struct {
 
 func (x *JAddOnsContextualAddOn_Card_Section) Reset() {
 	*x = JAddOnsContextualAddOn_Card_Section{}
-	mi := &file_googlechat_proto_msgTypes[216]
+	mi := &file_googlechat_proto_msgTypes[219]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21765,7 +21990,7 @@ func (x *JAddOnsContextualAddOn_Card_Section) String() string {
 func (*JAddOnsContextualAddOn_Card_Section) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_Section) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[216]
+	mi := &file_googlechat_proto_msgTypes[219]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21833,7 +22058,7 @@ type JAddOnsContextualAddOn_Card_CardAction struct {
 
 func (x *JAddOnsContextualAddOn_Card_CardAction) Reset() {
 	*x = JAddOnsContextualAddOn_Card_CardAction{}
-	mi := &file_googlechat_proto_msgTypes[217]
+	mi := &file_googlechat_proto_msgTypes[220]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21845,7 +22070,7 @@ func (x *JAddOnsContextualAddOn_Card_CardAction) String() string {
 func (*JAddOnsContextualAddOn_Card_CardAction) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_CardAction) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[217]
+	mi := &file_googlechat_proto_msgTypes[220]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21886,7 +22111,7 @@ type JAddOnsContextualAddOn_Card_FixedFooter struct {
 
 func (x *JAddOnsContextualAddOn_Card_FixedFooter) Reset() {
 	*x = JAddOnsContextualAddOn_Card_FixedFooter{}
-	mi := &file_googlechat_proto_msgTypes[218]
+	mi := &file_googlechat_proto_msgTypes[221]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21898,7 +22123,7 @@ func (x *JAddOnsContextualAddOn_Card_FixedFooter) String() string {
 func (*JAddOnsContextualAddOn_Card_FixedFooter) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_FixedFooter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[218]
+	mi := &file_googlechat_proto_msgTypes[221]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21944,7 +22169,7 @@ type JAddOnsContextualAddOn_Card_RefreshAction struct {
 
 func (x *JAddOnsContextualAddOn_Card_RefreshAction) Reset() {
 	*x = JAddOnsContextualAddOn_Card_RefreshAction{}
-	mi := &file_googlechat_proto_msgTypes[219]
+	mi := &file_googlechat_proto_msgTypes[222]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21956,7 +22181,7 @@ func (x *JAddOnsContextualAddOn_Card_RefreshAction) String() string {
 func (*JAddOnsContextualAddOn_Card_RefreshAction) ProtoMessage() {}
 
 func (x *JAddOnsContextualAddOn_Card_RefreshAction) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[219]
+	mi := &file_googlechat_proto_msgTypes[222]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21987,7 +22212,7 @@ type Group_FlatGroup struct {
 
 func (x *Group_FlatGroup) Reset() {
 	*x = Group_FlatGroup{}
-	mi := &file_googlechat_proto_msgTypes[220]
+	mi := &file_googlechat_proto_msgTypes[223]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21999,7 +22224,7 @@ func (x *Group_FlatGroup) String() string {
 func (*Group_FlatGroup) ProtoMessage() {}
 
 func (x *Group_FlatGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[220]
+	mi := &file_googlechat_proto_msgTypes[223]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22023,7 +22248,7 @@ type Group_ThreadedGroup struct {
 
 func (x *Group_ThreadedGroup) Reset() {
 	*x = Group_ThreadedGroup{}
-	mi := &file_googlechat_proto_msgTypes[221]
+	mi := &file_googlechat_proto_msgTypes[224]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22035,7 +22260,7 @@ func (x *Group_ThreadedGroup) String() string {
 func (*Group_ThreadedGroup) ProtoMessage() {}
 
 func (x *Group_ThreadedGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[221]
+	mi := &file_googlechat_proto_msgTypes[224]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22059,7 +22284,7 @@ type SpaceCreationInfo_FlatGroup struct {
 
 func (x *SpaceCreationInfo_FlatGroup) Reset() {
 	*x = SpaceCreationInfo_FlatGroup{}
-	mi := &file_googlechat_proto_msgTypes[222]
+	mi := &file_googlechat_proto_msgTypes[225]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22071,7 +22296,7 @@ func (x *SpaceCreationInfo_FlatGroup) String() string {
 func (*SpaceCreationInfo_FlatGroup) ProtoMessage() {}
 
 func (x *SpaceCreationInfo_FlatGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[222]
+	mi := &file_googlechat_proto_msgTypes[225]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22095,7 +22320,7 @@ type SpaceCreationInfo_ThreadedGroup struct {
 
 func (x *SpaceCreationInfo_ThreadedGroup) Reset() {
 	*x = SpaceCreationInfo_ThreadedGroup{}
-	mi := &file_googlechat_proto_msgTypes[223]
+	mi := &file_googlechat_proto_msgTypes[226]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22107,7 +22332,7 @@ func (x *SpaceCreationInfo_ThreadedGroup) String() string {
 func (*SpaceCreationInfo_ThreadedGroup) ProtoMessage() {}
 
 func (x *SpaceCreationInfo_ThreadedGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[223]
+	mi := &file_googlechat_proto_msgTypes[226]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22131,7 +22356,7 @@ type SpaceCreationInfo_SpaceType struct {
 
 func (x *SpaceCreationInfo_SpaceType) Reset() {
 	*x = SpaceCreationInfo_SpaceType{}
-	mi := &file_googlechat_proto_msgTypes[224]
+	mi := &file_googlechat_proto_msgTypes[227]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22143,7 +22368,7 @@ func (x *SpaceCreationInfo_SpaceType) String() string {
 func (*SpaceCreationInfo_SpaceType) ProtoMessage() {}
 
 func (x *SpaceCreationInfo_SpaceType) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[224]
+	mi := &file_googlechat_proto_msgTypes[227]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22188,7 +22413,7 @@ type Event_EventBody struct {
 
 func (x *Event_EventBody) Reset() {
 	*x = Event_EventBody{}
-	mi := &file_googlechat_proto_msgTypes[225]
+	mi := &file_googlechat_proto_msgTypes[228]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22200,7 +22425,7 @@ func (x *Event_EventBody) String() string {
 func (*Event_EventBody) ProtoMessage() {}
 
 func (x *Event_EventBody) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[225]
+	mi := &file_googlechat_proto_msgTypes[228]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22531,7 +22756,7 @@ type RoomUpdatedMetadata_RoomRenameMetadata struct {
 
 func (x *RoomUpdatedMetadata_RoomRenameMetadata) Reset() {
 	*x = RoomUpdatedMetadata_RoomRenameMetadata{}
-	mi := &file_googlechat_proto_msgTypes[226]
+	mi := &file_googlechat_proto_msgTypes[229]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22543,7 +22768,7 @@ func (x *RoomUpdatedMetadata_RoomRenameMetadata) String() string {
 func (*RoomUpdatedMetadata_RoomRenameMetadata) ProtoMessage() {}
 
 func (x *RoomUpdatedMetadata_RoomRenameMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[226]
+	mi := &file_googlechat_proto_msgTypes[229]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22583,7 +22808,7 @@ type RoomUpdatedMetadata_GroupDetailsUpdatedMetadata struct {
 
 func (x *RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) Reset() {
 	*x = RoomUpdatedMetadata_GroupDetailsUpdatedMetadata{}
-	mi := &file_googlechat_proto_msgTypes[227]
+	mi := &file_googlechat_proto_msgTypes[230]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22595,7 +22820,7 @@ func (x *RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) String() string {
 func (*RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) ProtoMessage() {}
 
 func (x *RoomUpdatedMetadata_GroupDetailsUpdatedMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[227]
+	mi := &file_googlechat_proto_msgTypes[230]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22638,7 +22863,7 @@ type MeetingSpace_PhoneAccess struct {
 
 func (x *MeetingSpace_PhoneAccess) Reset() {
 	*x = MeetingSpace_PhoneAccess{}
-	mi := &file_googlechat_proto_msgTypes[228]
+	mi := &file_googlechat_proto_msgTypes[231]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22650,7 +22875,7 @@ func (x *MeetingSpace_PhoneAccess) String() string {
 func (*MeetingSpace_PhoneAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_PhoneAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[228]
+	mi := &file_googlechat_proto_msgTypes[231]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22711,7 +22936,7 @@ type MeetingSpace_UniversalPhoneAccess struct {
 
 func (x *MeetingSpace_UniversalPhoneAccess) Reset() {
 	*x = MeetingSpace_UniversalPhoneAccess{}
-	mi := &file_googlechat_proto_msgTypes[229]
+	mi := &file_googlechat_proto_msgTypes[232]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22723,7 +22948,7 @@ func (x *MeetingSpace_UniversalPhoneAccess) String() string {
 func (*MeetingSpace_UniversalPhoneAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_UniversalPhoneAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[229]
+	mi := &file_googlechat_proto_msgTypes[232]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22763,7 +22988,7 @@ type MeetingSpace_Presenter struct {
 
 func (x *MeetingSpace_Presenter) Reset() {
 	*x = MeetingSpace_Presenter{}
-	mi := &file_googlechat_proto_msgTypes[230]
+	mi := &file_googlechat_proto_msgTypes[233]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22775,7 +23000,7 @@ func (x *MeetingSpace_Presenter) String() string {
 func (*MeetingSpace_Presenter) ProtoMessage() {}
 
 func (x *MeetingSpace_Presenter) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[230]
+	mi := &file_googlechat_proto_msgTypes[233]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22819,7 +23044,7 @@ type MeetingSpace_RecordingInfo struct {
 
 func (x *MeetingSpace_RecordingInfo) Reset() {
 	*x = MeetingSpace_RecordingInfo{}
-	mi := &file_googlechat_proto_msgTypes[231]
+	mi := &file_googlechat_proto_msgTypes[234]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22831,7 +23056,7 @@ func (x *MeetingSpace_RecordingInfo) String() string {
 func (*MeetingSpace_RecordingInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_RecordingInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[231]
+	mi := &file_googlechat_proto_msgTypes[234]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22905,7 +23130,7 @@ type MeetingSpace_StreamingSessionInfo struct {
 
 func (x *MeetingSpace_StreamingSessionInfo) Reset() {
 	*x = MeetingSpace_StreamingSessionInfo{}
-	mi := &file_googlechat_proto_msgTypes[232]
+	mi := &file_googlechat_proto_msgTypes[235]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22917,7 +23142,7 @@ func (x *MeetingSpace_StreamingSessionInfo) String() string {
 func (*MeetingSpace_StreamingSessionInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_StreamingSessionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[232]
+	mi := &file_googlechat_proto_msgTypes[235]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23008,7 +23233,7 @@ type MeetingSpace_CallInfo struct {
 
 func (x *MeetingSpace_CallInfo) Reset() {
 	*x = MeetingSpace_CallInfo{}
-	mi := &file_googlechat_proto_msgTypes[233]
+	mi := &file_googlechat_proto_msgTypes[236]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23020,7 +23245,7 @@ func (x *MeetingSpace_CallInfo) String() string {
 func (*MeetingSpace_CallInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_CallInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[233]
+	mi := &file_googlechat_proto_msgTypes[236]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23122,7 +23347,7 @@ type MeetingSpace_GatewayAccess struct {
 
 func (x *MeetingSpace_GatewayAccess) Reset() {
 	*x = MeetingSpace_GatewayAccess{}
-	mi := &file_googlechat_proto_msgTypes[234]
+	mi := &file_googlechat_proto_msgTypes[237]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23134,7 +23359,7 @@ func (x *MeetingSpace_GatewayAccess) String() string {
 func (*MeetingSpace_GatewayAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_GatewayAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[234]
+	mi := &file_googlechat_proto_msgTypes[237]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23167,7 +23392,7 @@ type MeetingSpace_GatewaySipAccess struct {
 
 func (x *MeetingSpace_GatewaySipAccess) Reset() {
 	*x = MeetingSpace_GatewaySipAccess{}
-	mi := &file_googlechat_proto_msgTypes[235]
+	mi := &file_googlechat_proto_msgTypes[238]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23179,7 +23404,7 @@ func (x *MeetingSpace_GatewaySipAccess) String() string {
 func (*MeetingSpace_GatewaySipAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_GatewaySipAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[235]
+	mi := &file_googlechat_proto_msgTypes[238]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23218,7 +23443,7 @@ type MeetingSpace_BroadcastAccess struct {
 
 func (x *MeetingSpace_BroadcastAccess) Reset() {
 	*x = MeetingSpace_BroadcastAccess{}
-	mi := &file_googlechat_proto_msgTypes[236]
+	mi := &file_googlechat_proto_msgTypes[239]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23230,7 +23455,7 @@ func (x *MeetingSpace_BroadcastAccess) String() string {
 func (*MeetingSpace_BroadcastAccess) ProtoMessage() {}
 
 func (x *MeetingSpace_BroadcastAccess) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[236]
+	mi := &file_googlechat_proto_msgTypes[239]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23267,7 +23492,7 @@ type MeetingSpace_Settings struct {
 
 func (x *MeetingSpace_Settings) Reset() {
 	*x = MeetingSpace_Settings{}
-	mi := &file_googlechat_proto_msgTypes[237]
+	mi := &file_googlechat_proto_msgTypes[240]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23279,7 +23504,7 @@ func (x *MeetingSpace_Settings) String() string {
 func (*MeetingSpace_Settings) ProtoMessage() {}
 
 func (x *MeetingSpace_Settings) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[237]
+	mi := &file_googlechat_proto_msgTypes[240]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23347,7 +23572,7 @@ type MeetingSpace_RecordingInfo_RecordingEvent struct {
 
 func (x *MeetingSpace_RecordingInfo_RecordingEvent) Reset() {
 	*x = MeetingSpace_RecordingInfo_RecordingEvent{}
-	mi := &file_googlechat_proto_msgTypes[238]
+	mi := &file_googlechat_proto_msgTypes[241]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23359,7 +23584,7 @@ func (x *MeetingSpace_RecordingInfo_RecordingEvent) String() string {
 func (*MeetingSpace_RecordingInfo_RecordingEvent) ProtoMessage() {}
 
 func (x *MeetingSpace_RecordingInfo_RecordingEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[238]
+	mi := &file_googlechat_proto_msgTypes[241]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23399,7 +23624,7 @@ type MeetingSpace_StreamingSessionInfo_SessionEvent struct {
 
 func (x *MeetingSpace_StreamingSessionInfo_SessionEvent) Reset() {
 	*x = MeetingSpace_StreamingSessionInfo_SessionEvent{}
-	mi := &file_googlechat_proto_msgTypes[239]
+	mi := &file_googlechat_proto_msgTypes[242]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23411,7 +23636,7 @@ func (x *MeetingSpace_StreamingSessionInfo_SessionEvent) String() string {
 func (*MeetingSpace_StreamingSessionInfo_SessionEvent) ProtoMessage() {}
 
 func (x *MeetingSpace_StreamingSessionInfo_SessionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[239]
+	mi := &file_googlechat_proto_msgTypes[242]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23450,7 +23675,7 @@ type MeetingSpace_StreamingSessionInfo_StreamViewerStats struct {
 
 func (x *MeetingSpace_StreamingSessionInfo_StreamViewerStats) Reset() {
 	*x = MeetingSpace_StreamingSessionInfo_StreamViewerStats{}
-	mi := &file_googlechat_proto_msgTypes[240]
+	mi := &file_googlechat_proto_msgTypes[243]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23462,7 +23687,7 @@ func (x *MeetingSpace_StreamingSessionInfo_StreamViewerStats) String() string {
 func (*MeetingSpace_StreamingSessionInfo_StreamViewerStats) ProtoMessage() {}
 
 func (x *MeetingSpace_StreamingSessionInfo_StreamViewerStats) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[240]
+	mi := &file_googlechat_proto_msgTypes[243]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23501,7 +23726,7 @@ type MeetingSpace_CallInfo_CallSettings struct {
 
 func (x *MeetingSpace_CallInfo_CallSettings) Reset() {
 	*x = MeetingSpace_CallInfo_CallSettings{}
-	mi := &file_googlechat_proto_msgTypes[241]
+	mi := &file_googlechat_proto_msgTypes[244]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23513,7 +23738,7 @@ func (x *MeetingSpace_CallInfo_CallSettings) String() string {
 func (*MeetingSpace_CallInfo_CallSettings) ProtoMessage() {}
 
 func (x *MeetingSpace_CallInfo_CallSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[241]
+	mi := &file_googlechat_proto_msgTypes[244]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23597,7 +23822,7 @@ type MeetingSpace_CallInfo_PaygateInfo struct {
 
 func (x *MeetingSpace_CallInfo_PaygateInfo) Reset() {
 	*x = MeetingSpace_CallInfo_PaygateInfo{}
-	mi := &file_googlechat_proto_msgTypes[242]
+	mi := &file_googlechat_proto_msgTypes[245]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23609,7 +23834,7 @@ func (x *MeetingSpace_CallInfo_PaygateInfo) String() string {
 func (*MeetingSpace_CallInfo_PaygateInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_CallInfo_PaygateInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[242]
+	mi := &file_googlechat_proto_msgTypes[245]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23655,7 +23880,7 @@ type MeetingSpace_CallInfo_CseInfo struct {
 
 func (x *MeetingSpace_CallInfo_CseInfo) Reset() {
 	*x = MeetingSpace_CallInfo_CseInfo{}
-	mi := &file_googlechat_proto_msgTypes[243]
+	mi := &file_googlechat_proto_msgTypes[246]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23667,7 +23892,7 @@ func (x *MeetingSpace_CallInfo_CseInfo) String() string {
 func (*MeetingSpace_CallInfo_CseInfo) ProtoMessage() {}
 
 func (x *MeetingSpace_CallInfo_CseInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[243]
+	mi := &file_googlechat_proto_msgTypes[246]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23702,7 +23927,7 @@ type MembershipChangedMetadata_AffectedMembership struct {
 
 func (x *MembershipChangedMetadata_AffectedMembership) Reset() {
 	*x = MembershipChangedMetadata_AffectedMembership{}
-	mi := &file_googlechat_proto_msgTypes[244]
+	mi := &file_googlechat_proto_msgTypes[247]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23714,7 +23939,7 @@ func (x *MembershipChangedMetadata_AffectedMembership) String() string {
 func (*MembershipChangedMetadata_AffectedMembership) ProtoMessage() {}
 
 func (x *MembershipChangedMetadata_AffectedMembership) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[244]
+	mi := &file_googlechat_proto_msgTypes[247]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23768,7 +23993,7 @@ type WorldItemLite_MembershipLite struct {
 
 func (x *WorldItemLite_MembershipLite) Reset() {
 	*x = WorldItemLite_MembershipLite{}
-	mi := &file_googlechat_proto_msgTypes[245]
+	mi := &file_googlechat_proto_msgTypes[248]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23780,7 +24005,7 @@ func (x *WorldItemLite_MembershipLite) String() string {
 func (*WorldItemLite_MembershipLite) ProtoMessage() {}
 
 func (x *WorldItemLite_MembershipLite) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[245]
+	mi := &file_googlechat_proto_msgTypes[248]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23821,7 +24046,7 @@ type WorldItemLite_DmMembers struct {
 
 func (x *WorldItemLite_DmMembers) Reset() {
 	*x = WorldItemLite_DmMembers{}
-	mi := &file_googlechat_proto_msgTypes[246]
+	mi := &file_googlechat_proto_msgTypes[249]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23833,7 +24058,7 @@ func (x *WorldItemLite_DmMembers) String() string {
 func (*WorldItemLite_DmMembers) ProtoMessage() {}
 
 func (x *WorldItemLite_DmMembers) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[246]
+	mi := &file_googlechat_proto_msgTypes[249]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23886,7 +24111,7 @@ type WorldItemLite_GroupLite struct {
 
 func (x *WorldItemLite_GroupLite) Reset() {
 	*x = WorldItemLite_GroupLite{}
-	mi := &file_googlechat_proto_msgTypes[247]
+	mi := &file_googlechat_proto_msgTypes[250]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23898,7 +24123,7 @@ func (x *WorldItemLite_GroupLite) String() string {
 func (*WorldItemLite_GroupLite) ProtoMessage() {}
 
 func (x *WorldItemLite_GroupLite) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[247]
+	mi := &file_googlechat_proto_msgTypes[250]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23971,7 +24196,7 @@ type WorldItemLite_FlatGroup struct {
 
 func (x *WorldItemLite_FlatGroup) Reset() {
 	*x = WorldItemLite_FlatGroup{}
-	mi := &file_googlechat_proto_msgTypes[248]
+	mi := &file_googlechat_proto_msgTypes[251]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23983,7 +24208,7 @@ func (x *WorldItemLite_FlatGroup) String() string {
 func (*WorldItemLite_FlatGroup) ProtoMessage() {}
 
 func (x *WorldItemLite_FlatGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[248]
+	mi := &file_googlechat_proto_msgTypes[251]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24007,7 +24232,7 @@ type WorldItemLite_ThreadedGroup struct {
 
 func (x *WorldItemLite_ThreadedGroup) Reset() {
 	*x = WorldItemLite_ThreadedGroup{}
-	mi := &file_googlechat_proto_msgTypes[249]
+	mi := &file_googlechat_proto_msgTypes[252]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24019,7 +24244,7 @@ func (x *WorldItemLite_ThreadedGroup) String() string {
 func (*WorldItemLite_ThreadedGroup) ProtoMessage() {}
 
 func (x *WorldItemLite_ThreadedGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_googlechat_proto_msgTypes[249]
+	mi := &file_googlechat_proto_msgTypes[252]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24033,6 +24258,50 @@ func (x *WorldItemLite_ThreadedGroup) ProtoReflect() protoreflect.Message {
 // Deprecated: Use WorldItemLite_ThreadedGroup.ProtoReflect.Descriptor instead.
 func (*WorldItemLite_ThreadedGroup) Descriptor() ([]byte, []int) {
 	return file_googlechat_proto_rawDescGZIP(), []int{155, 4}
+}
+
+type GroupNotificationSettingsUpdate_Mute struct {
+	state         protoimpl.MessageState                      `protogen:"open.v1"`
+	State         *GroupNotificationSettingsUpdate_Mute_State `protobuf:"varint,1,opt,name=state,enum=GroupNotificationSettingsUpdate_Mute_State" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GroupNotificationSettingsUpdate_Mute) Reset() {
+	*x = GroupNotificationSettingsUpdate_Mute{}
+	mi := &file_googlechat_proto_msgTypes[253]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupNotificationSettingsUpdate_Mute) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupNotificationSettingsUpdate_Mute) ProtoMessage() {}
+
+func (x *GroupNotificationSettingsUpdate_Mute) ProtoReflect() protoreflect.Message {
+	mi := &file_googlechat_proto_msgTypes[253]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupNotificationSettingsUpdate_Mute.ProtoReflect.Descriptor instead.
+func (*GroupNotificationSettingsUpdate_Mute) Descriptor() ([]byte, []int) {
+	return file_googlechat_proto_rawDescGZIP(), []int{184, 0}
+}
+
+func (x *GroupNotificationSettingsUpdate_Mute) GetState() GroupNotificationSettingsUpdate_Mute_State {
+	if x != nil && x.State != nil {
+		return *x.State
+	}
+	return GroupNotificationSettingsUpdate_Mute_STATE_UNSPECIFIED
 }
 
 var File_googlechat_proto protoreflect.FileDescriptor
@@ -24864,11 +25133,12 @@ const file_googlechat_proto_rawDesc = "" +
 	"\x1dmark_as_unread_timestamp_usec\x18\x12 \x01(\x03R\x19markAsUnreadTimestampUsec\x121\n" +
 	"\x15visible_in_world_view\x18\x13 \x01(\bR\x12visibleInWorldView\x12F\n" +
 	" show_notification_card_in_stream\x18\x14 \x01(\bR\x1cshowNotificationCardInStream\x12*\n" +
-	"\fjoined_users\x18\x17 \x03(\v2\a.UserIdR\vjoinedUsers\"\xf8\x02\n" +
+	"\fjoined_users\x18\x17 \x03(\v2\a.UserIdR\vjoinedUsers\"\xb3\x03\n" +
 	"\x19GroupNotificationSettings\x12G\n" +
 	"\x05state\x18\x01 \x01(\x0e21.GroupNotificationSettings.GroupNotificationStateR\x05state\x12O\n" +
 	"\n" +
-	"room_state\x18\x02 \x01(\x0e20.GroupNotificationSettings.RoomNotificationStateR\troomState\"P\n" +
+	"room_state\x18\x02 \x01(\x0e20.GroupNotificationSettings.RoomNotificationStateR\troomState\x129\n" +
+	"\x04mute\x18\x03 \x01(\v2%.GroupNotificationSettingsUpdate.MuteR\x04mute\"P\n" +
 	"\x16GroupNotificationState\x12\x1e\n" +
 	"\x1aUNKNOWN_NOTIFICATION_STATE\x10\x00\x12\t\n" +
 	"\x05MUTED\x10\x01\x12\v\n" +
@@ -25926,7 +26196,21 @@ const file_googlechat_proto_rawDesc = "" +
 	"\fReadRevision\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"1\n" +
 	"\x11ReferenceRevision\x12\x1c\n" +
-	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp*\x1e\n" +
+	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"\xbe\x01\n" +
+	"&UpdateGroupNotificationSettingsRequest\x125\n" +
+	"\x0erequest_header\x18d \x01(\v2\x0e.RequestHeaderR\rrequestHeader\x12#\n" +
+	"\bgroup_id\x18\x01 \x01(\v2\b.GroupIdR\agroupId\x128\n" +
+	"\x06update\x18\x02 \x01(\v2 .GroupNotificationSettingsUpdateR\x06update\"\x83\x02\n" +
+	"\x1fGroupNotificationSettingsUpdate\x12!\n" +
+	"\fsetting_type\x18\x02 \x01(\x05R\vsettingType\x129\n" +
+	"\x04mute\x18\x03 \x01(\v2%.GroupNotificationSettingsUpdate.MuteR\x04mute\x1a\x81\x01\n" +
+	"\x04Mute\x12A\n" +
+	"\x05state\x18\x01 \x01(\x0e2+.GroupNotificationSettingsUpdate.Mute.StateR\x05state\"6\n" +
+	"\x05State\x12\x15\n" +
+	"\x11STATE_UNSPECIFIED\x10\x00\x12\v\n" +
+	"\aUNMUTED\x10\x01\x12\t\n" +
+	"\x05MUTED\x10\x02\")\n" +
+	"'UpdateGroupNotificationSettingsResponse*\x1e\n" +
 	"\bUserType\x12\t\n" +
 	"\x05HUMAN\x10\x00\x12\a\n" +
 	"\x03BOT\x10\x01*I\n" +
@@ -26142,8 +26426,8 @@ func file_googlechat_proto_rawDescGZIP() []byte {
 	return file_googlechat_proto_rawDescData
 }
 
-var file_googlechat_proto_enumTypes = make([]protoimpl.EnumInfo, 89)
-var file_googlechat_proto_msgTypes = make([]protoimpl.MessageInfo, 250)
+var file_googlechat_proto_enumTypes = make([]protoimpl.EnumInfo, 90)
+var file_googlechat_proto_msgTypes = make([]protoimpl.MessageInfo, 254)
 var file_googlechat_proto_goTypes = []any{
 	(UserType)(0),                                  // 0: UserType
 	(InviteCategory)(0),                            // 1: InviteCategory
@@ -26234,273 +26518,278 @@ var file_googlechat_proto_goTypes = []any{
 	(InviteNotificationSettings_NotificationOption)(0),                   // 86: InviteNotificationSettings.NotificationOption
 	(SetDndDurationRequest_State)(0),                                     // 87: SetDndDurationRequest.State
 	(UpdateGroupRequest_UpdateMask)(0),                                   // 88: UpdateGroupRequest.UpdateMask
-	(*UserId)(nil),                                                       // 89: UserId
-	(*User)(nil),                                                         // 90: User
-	(*UserBlockRelationship)(nil),                                        // 91: UserBlockRelationship
-	(*DndSettings)(nil),                                                  // 92: DndSettings
-	(*Emoji)(nil),                                                        // 93: Emoji
-	(*CustomStatus)(nil),                                                 // 94: CustomStatus
-	(*UserStatus)(nil),                                                   // 95: UserStatus
-	(*UserStatusUpdatedEvent)(nil),                                       // 96: UserStatusUpdatedEvent
-	(*GetUserStatusRequest)(nil),                                         // 97: GetUserStatusRequest
-	(*GetUserStatusResponse)(nil),                                        // 98: GetUserStatusResponse
-	(*GetSelfUserStatusRequest)(nil),                                     // 99: GetSelfUserStatusRequest
-	(*GetSelfUserStatusResponse)(nil),                                    // 100: GetSelfUserStatusResponse
-	(*ClientFeatureCapabilities)(nil),                                    // 101: ClientFeatureCapabilities
-	(*RequestHeader)(nil),                                                // 102: RequestHeader
-	(*Member)(nil),                                                       // 103: Member
-	(*MemberId)(nil),                                                     // 104: MemberId
-	(*MembershipId)(nil),                                                 // 105: MembershipId
-	(*Membership)(nil),                                                   // 106: Membership
-	(*MemberProfile)(nil),                                                // 107: MemberProfile
-	(*GetMembersRequest)(nil),                                            // 108: GetMembersRequest
-	(*GetMembersResponse)(nil),                                           // 109: GetMembersResponse
-	(*UserPresence)(nil),                                                 // 110: UserPresence
-	(*GetUserPresenceRequest)(nil),                                       // 111: GetUserPresenceRequest
-	(*GetUserPresenceResponse)(nil),                                      // 112: GetUserPresenceResponse
-	(*JAddOnsIdentifier)(nil),                                            // 113: JAddOnsIdentifier
-	(*JAddOnsFormattedText)(nil),                                         // 114: JAddOnsFormattedText
-	(*JAddOnsImageCropStyle)(nil),                                        // 115: JAddOnsImageCropStyle
-	(*JAddOnsThemeColors)(nil),                                           // 116: JAddOnsThemeColors
-	(*JAddOnsOpenLink)(nil),                                              // 117: JAddOnsOpenLink
-	(*JAddOnsCardItem)(nil),                                              // 118: JAddOnsCardItem
-	(*JAddOnsPushCard)(nil),                                              // 119: JAddOnsPushCard
-	(*JAddOnsOnClick)(nil),                                               // 120: JAddOnsOnClick
-	(*JAddOnsTextWidget)(nil),                                            // 121: JAddOnsTextWidget
-	(*JAddOnsImageComponent)(nil),                                        // 122: JAddOnsImageComponent
-	(*JAddOnsGrid)(nil),                                                  // 123: JAddOnsGrid
-	(*JAddOnsBorderStyle)(nil),                                           // 124: JAddOnsBorderStyle
-	(*JAddOnsLabelContentPair)(nil),                                      // 125: JAddOnsLabelContentPair
-	(*JAddOnsLabelContentPairWidget)(nil),                                // 126: JAddOnsLabelContentPairWidget
-	(*JAddOnsWidget)(nil),                                                // 127: JAddOnsWidget
-	(*JAddOnsFormAction)(nil),                                            // 128: JAddOnsFormAction
-	(*JAddOnsContextualAddOn)(nil),                                       // 129: JAddOnsContextualAddOn
-	(*Html)(nil),                                                         // 130: Html
-	(*HtmlAttachment)(nil),                                               // 131: HtmlAttachment
-	(*Attachment)(nil),                                                   // 132: Attachment
-	(*Reaction)(nil),                                                     // 133: Reaction
-	(*MessageParentId)(nil),                                              // 134: MessageParentId
-	(*MessageId)(nil),                                                    // 135: MessageId
-	(*Message)(nil),                                                      // 136: Message
-	(*ReplyToMessage)(nil),                                               // 137: ReplyToMessage
-	(*AppProfile)(nil),                                                   // 138: AppProfile
-	(*DriveMetadata)(nil),                                                // 139: DriveMetadata
-	(*Url)(nil),                                                          // 140: Url
-	(*TrustedResourceUrl)(nil),                                           // 141: TrustedResourceUrl
-	(*YoutubeMetadata)(nil),                                              // 142: YoutubeMetadata
-	(*UrlMetadata)(nil),                                                  // 143: UrlMetadata
-	(*UploadMetadata)(nil),                                               // 144: UploadMetadata
-	(*FormatMetadata)(nil),                                               // 145: FormatMetadata
-	(*Annotation)(nil),                                                   // 146: Annotation
-	(*TypingContext)(nil),                                                // 147: TypingContext
-	(*SetTypingStateRequest)(nil),                                        // 148: SetTypingStateRequest
-	(*SetTypingStateResponse)(nil),                                       // 149: SetTypingStateResponse
-	(*DmId)(nil),                                                         // 150: DmId
-	(*SpaceId)(nil),                                                      // 151: SpaceId
-	(*GroupId)(nil),                                                      // 152: GroupId
-	(*Group)(nil),                                                        // 153: Group
-	(*GroupReadStateId)(nil),                                             // 154: GroupReadStateId
-	(*InviteState)(nil),                                                  // 155: InviteState
-	(*GroupReadState)(nil),                                               // 156: GroupReadState
-	(*GroupNotificationSettings)(nil),                                    // 157: GroupNotificationSettings
-	(*RetentionSettings)(nil),                                            // 158: RetentionSettings
-	(*GroupData)(nil),                                                    // 159: GroupData
-	(*TopicId)(nil),                                                      // 160: TopicId
-	(*Topic)(nil),                                                        // 161: Topic
-	(*TopicReadState)(nil),                                               // 162: TopicReadState
-	(*SendReplyTarget)(nil),                                              // 163: SendReplyTarget
-	(*MessageInfo)(nil),                                                  // 164: MessageInfo
-	(*CreateTopicRequest)(nil),                                           // 165: CreateTopicRequest
-	(*CreateTopicResponse)(nil),                                          // 166: CreateTopicResponse
-	(*CreateMessageRequest)(nil),                                         // 167: CreateMessageRequest
-	(*CreateMessageResponse)(nil),                                        // 168: CreateMessageResponse
-	(*UpdateReactionRequest)(nil),                                        // 169: UpdateReactionRequest
-	(*UpdateReactionResponse)(nil),                                       // 170: UpdateReactionResponse
-	(*DeleteMessageRequest)(nil),                                         // 171: DeleteMessageRequest
-	(*DeleteMessageResponse)(nil),                                        // 172: DeleteMessageResponse
-	(*EditMessageRequest)(nil),                                           // 173: EditMessageRequest
-	(*EditMessageResponse)(nil),                                          // 174: EditMessageResponse
-	(*InviteeInfo)(nil),                                                  // 175: InviteeInfo
-	(*InviteeMemberInfo)(nil),                                            // 176: InviteeMemberInfo
-	(*SpaceCreationInfo)(nil),                                            // 177: SpaceCreationInfo
-	(*CreateGroupRequest)(nil),                                           // 178: CreateGroupRequest
-	(*CreateMembershipResult)(nil),                                       // 179: CreateMembershipResult
-	(*CreateGroupResponse)(nil),                                          // 180: CreateGroupResponse
-	(*CreateDmRequest)(nil),                                              // 181: CreateDmRequest
-	(*CreateDmResponse)(nil),                                             // 182: CreateDmResponse
-	(*ListTopicsResponse)(nil),                                           // 183: ListTopicsResponse
-	(*ListTopicsRequest)(nil),                                            // 184: ListTopicsRequest
-	(*ListMessagesRequest)(nil),                                          // 185: ListMessagesRequest
-	(*ListMessagesResponse)(nil),                                         // 186: ListMessagesResponse
-	(*ListMembersRequest)(nil),                                           // 187: ListMembersRequest
-	(*ListMembersResponse)(nil),                                          // 188: ListMembersResponse
-	(*ReadReceipt)(nil),                                                  // 189: ReadReceipt
-	(*ReadReceiptSet)(nil),                                               // 190: ReadReceiptSet
-	(*WebPushNotification)(nil),                                          // 191: WebPushNotification
-	(*AndroidLocalNotification)(nil),                                     // 192: AndroidLocalNotification
-	(*IosLocalNotification)(nil),                                         // 193: IosLocalNotification
-	(*MobileLocalNotification)(nil),                                      // 194: MobileLocalNotification
-	(*MessageEvent)(nil),                                                 // 195: MessageEvent
-	(*MessageReactionEvent)(nil),                                         // 196: MessageReactionEvent
-	(*MessageDeletedEvent)(nil),                                          // 197: MessageDeletedEvent
-	(*TypingStateChangedEvent)(nil),                                      // 198: TypingStateChangedEvent
-	(*MembershipChangedEvent)(nil),                                       // 199: MembershipChangedEvent
-	(*ReadReceiptChangedEvent)(nil),                                      // 200: ReadReceiptChangedEvent
-	(*GroupViewedEvent)(nil),                                             // 201: GroupViewedEvent
-	(*GroupUpdatedEvent)(nil),                                            // 202: GroupUpdatedEvent
-	(*WebPushNotificationEvent)(nil),                                     // 203: WebPushNotificationEvent
-	(*StreamEventsRequest)(nil),                                          // 204: StreamEventsRequest
-	(*ClientInfo)(nil),                                                   // 205: ClientInfo
-	(*ClientNotificationsState)(nil),                                     // 206: ClientNotificationsState
-	(*PingEvent)(nil),                                                    // 207: PingEvent
-	(*ClockSyncRequest)(nil),                                             // 208: ClockSyncRequest
-	(*ClockSyncResponse)(nil),                                            // 209: ClockSyncResponse
-	(*GroupSubscriptionEvent)(nil),                                       // 210: GroupSubscriptionEvent
-	(*StreamEventsResponse)(nil),                                         // 211: StreamEventsResponse
-	(*TopicMuteChangedEvent)(nil),                                        // 212: TopicMuteChangedEvent
-	(*GroupUnreadSubscribedTopicCountUpdatedEvent)(nil),                  // 213: GroupUnreadSubscribedTopicCountUpdatedEvent
-	(*TopicCreatedEvent)(nil),                                            // 214: TopicCreatedEvent
-	(*MessageSmartRepliesEvent)(nil),                                     // 215: MessageSmartRepliesEvent
-	(*GroupDefaultSortOrderUpdatedEvent)(nil),                            // 216: GroupDefaultSortOrderUpdatedEvent
-	(*GroupReadStateUpdatedEvent)(nil),                                   // 217: GroupReadStateUpdatedEvent
-	(*BackendMetadata)(nil),                                              // 218: BackendMetadata
-	(*Timestamp)(nil),                                                    // 219: Timestamp
-	(*Interval)(nil),                                                     // 220: Interval
-	(*LatencyData)(nil),                                                  // 221: LatencyData
-	(*Event)(nil),                                                        // 222: Event
-	(*InviteType)(nil),                                                   // 223: InviteType
-	(*GroupDetails)(nil),                                                 // 224: GroupDetails
-	(*RoomUpdatedMetadata)(nil),                                          // 225: RoomUpdatedMetadata
-	(*MeetingSpace)(nil),                                                 // 226: MeetingSpace
-	(*VideoCallMetadata)(nil),                                            // 227: VideoCallMetadata
-	(*MembershipChangedMetadata)(nil),                                    // 228: MembershipChangedMetadata
-	(*UserMentionMetadata)(nil),                                          // 229: UserMentionMetadata
-	(*SlashCommandMetadata)(nil),                                         // 230: SlashCommandMetadata
-	(*GroupVisibility)(nil),                                              // 231: GroupVisibility
-	(*ComGoogleProtobufTimestamp)(nil),                                   // 232: ComGoogleProtobufTimestamp
-	(*GetServerTimeRequest)(nil),                                         // 233: GetServerTimeRequest
-	(*GetServerTimeResponse)(nil),                                        // 234: GetServerTimeResponse
-	(*CatchUpRange)(nil),                                                 // 235: CatchUpRange
-	(*CatchUpGroupRequest)(nil),                                          // 236: CatchUpGroupRequest
-	(*CatchUpUserRequest)(nil),                                           // 237: CatchUpUserRequest
-	(*CatchUpResponse)(nil),                                              // 238: CatchUpResponse
-	(*GetGroupRequest)(nil),                                              // 239: GetGroupRequest
-	(*GetGroupResponse)(nil),                                             // 240: GetGroupResponse
-	(*WorldSection)(nil),                                                 // 241: WorldSection
-	(*WorldFilter)(nil),                                                  // 242: WorldFilter
-	(*NameUsers)(nil),                                                    // 243: NameUsers
-	(*WorldItemLite)(nil),                                                // 244: WorldItemLite
-	(*WorldSectionRequest)(nil),                                          // 245: WorldSectionRequest
-	(*WorldSectionResponse)(nil),                                         // 246: WorldSectionResponse
-	(*PaginatedWorldRequest)(nil),                                        // 247: PaginatedWorldRequest
-	(*PaginatedWorldResponse)(nil),                                       // 248: PaginatedWorldResponse
-	(*RemoveMembershipsRequest)(nil),                                     // 249: RemoveMembershipsRequest
-	(*RemoveMembershipResult)(nil),                                       // 250: RemoveMembershipResult
-	(*RemoveMembershipsResponse)(nil),                                    // 251: RemoveMembershipsResponse
-	(*HideGroupRequest)(nil),                                             // 252: HideGroupRequest
-	(*HideGroupResponse)(nil),                                            // 253: HideGroupResponse
-	(*InviteNotificationSettings)(nil),                                   // 254: InviteNotificationSettings
-	(*CreateMembershipRequest)(nil),                                      // 255: CreateMembershipRequest
-	(*CreateMembershipResponse)(nil),                                     // 256: CreateMembershipResponse
-	(*MarkGroupReadstateRequest)(nil),                                    // 257: MarkGroupReadstateRequest
-	(*MarkGroupReadstateResponse)(nil),                                   // 258: MarkGroupReadstateResponse
-	(*SetPresenceSharedRequest)(nil),                                     // 259: SetPresenceSharedRequest
-	(*SetPresenceSharedResponse)(nil),                                    // 260: SetPresenceSharedResponse
-	(*SetDndDurationRequest)(nil),                                        // 261: SetDndDurationRequest
-	(*SetDndDurationResponse)(nil),                                       // 262: SetDndDurationResponse
-	(*UpdateGroupRequest)(nil),                                           // 263: UpdateGroupRequest
-	(*UpdateGroupResponse)(nil),                                          // 264: UpdateGroupResponse
-	(*BlockEntityRequest)(nil),                                           // 265: BlockEntityRequest
-	(*BlockEntityResponse)(nil),                                          // 266: BlockEntityResponse
-	(*SetCustomStatusRequest)(nil),                                       // 267: SetCustomStatusRequest
-	(*SetCustomStatusResponse)(nil),                                      // 268: SetCustomStatusResponse
-	(*WriteRevision)(nil),                                                // 269: WriteRevision
-	(*ReadRevision)(nil),                                                 // 270: ReadRevision
-	(*ReferenceRevision)(nil),                                            // 271: ReferenceRevision
-	(*JAddOnsFormattedText_FormattedTextElement)(nil),                    // 272: JAddOnsFormattedText.FormattedTextElement
-	(*JAddOnsFormattedText_FormattedTextElement_DateTime)(nil),           // 273: JAddOnsFormattedText.FormattedTextElement.DateTime
-	(*JAddOnsFormattedText_FormattedTextElement_StyledText)(nil),         // 274: JAddOnsFormattedText.FormattedTextElement.StyledText
-	(*JAddOnsFormattedText_FormattedTextElement_HyperLink)(nil),          // 275: JAddOnsFormattedText.FormattedTextElement.HyperLink
-	(*JAddOnsCardItem_CardItemHeader)(nil),                               // 276: JAddOnsCardItem.CardItemHeader
-	(*JAddOnsCardItem_CardItemSection)(nil),                              // 277: JAddOnsCardItem.CardItemSection
-	(*JAddOnsCardItem_CardItemAction)(nil),                               // 278: JAddOnsCardItem.CardItemAction
-	(*JAddOnsCardItem_CardItemFixedFooter)(nil),                          // 279: JAddOnsCardItem.CardItemFixedFooter
-	(*JAddOnsCardItem_CardItemRefreshAction)(nil),                        // 280: JAddOnsCardItem.CardItemRefreshAction
-	(*JAddOnsGrid_GridItem)(nil),                                         // 281: JAddOnsGrid.GridItem
-	(*JAddOnsWidget_TextParagraph)(nil),                                  // 282: JAddOnsWidget.TextParagraph
-	(*JAddOnsWidget_TextKeyValue)(nil),                                   // 283: JAddOnsWidget.TextKeyValue
-	(*JAddOnsWidget_ImageKeyValue)(nil),                                  // 284: JAddOnsWidget.ImageKeyValue
-	(*JAddOnsWidget_Image)(nil),                                          // 285: JAddOnsWidget.Image
-	(*JAddOnsWidget_Icon)(nil),                                           // 286: JAddOnsWidget.Icon
-	(*JAddOnsWidget_KeyValue)(nil),                                       // 287: JAddOnsWidget.KeyValue
-	(*JAddOnsWidget_Divider)(nil),                                        // 288: JAddOnsWidget.Divider
-	(*JAddOnsWidget_Menu)(nil),                                           // 289: JAddOnsWidget.Menu
-	(*JAddOnsWidget_AutoComplete)(nil),                                   // 290: JAddOnsWidget.AutoComplete
-	(*JAddOnsWidget_TextField)(nil),                                      // 291: JAddOnsWidget.TextField
-	(*JAddOnsWidget_SelectionControl)(nil),                               // 292: JAddOnsWidget.SelectionControl
-	(*JAddOnsWidget_DateTimePicker)(nil),                                 // 293: JAddOnsWidget.DateTimePicker
-	(*JAddOnsWidget_TextButton)(nil),                                     // 294: JAddOnsWidget.TextButton
-	(*JAddOnsWidget_ImageButton)(nil),                                    // 295: JAddOnsWidget.ImageButton
-	(*JAddOnsWidget_Button)(nil),                                         // 296: JAddOnsWidget.Button
-	(*JAddOnsWidget_KeyValue_SwitchWidget)(nil),                          // 297: JAddOnsWidget.KeyValue.SwitchWidget
-	(*JAddOnsWidget_Menu_MenuItem)(nil),                                  // 298: JAddOnsWidget.Menu.MenuItem
-	(*JAddOnsWidget_AutoComplete_AutoCompleteItem)(nil),                  // 299: JAddOnsWidget.AutoComplete.AutoCompleteItem
-	(*JAddOnsWidget_SelectionControl_SelectionItem)(nil),                 // 300: JAddOnsWidget.SelectionControl.SelectionItem
-	(*JAddOnsFormAction_ActionParameter)(nil),                            // 301: JAddOnsFormAction.ActionParameter
-	(*JAddOnsContextualAddOn_Toolbar)(nil),                               // 302: JAddOnsContextualAddOn.Toolbar
-	(*JAddOnsContextualAddOn_Card)(nil),                                  // 303: JAddOnsContextualAddOn.Card
-	(*JAddOnsContextualAddOn_Card_CardHeader)(nil),                       // 304: JAddOnsContextualAddOn.Card.CardHeader
-	(*JAddOnsContextualAddOn_Card_Section)(nil),                          // 305: JAddOnsContextualAddOn.Card.Section
-	(*JAddOnsContextualAddOn_Card_CardAction)(nil),                       // 306: JAddOnsContextualAddOn.Card.CardAction
-	(*JAddOnsContextualAddOn_Card_FixedFooter)(nil),                      // 307: JAddOnsContextualAddOn.Card.FixedFooter
-	(*JAddOnsContextualAddOn_Card_RefreshAction)(nil),                    // 308: JAddOnsContextualAddOn.Card.RefreshAction
-	(*Group_FlatGroup)(nil),                                              // 309: Group.FlatGroup
-	(*Group_ThreadedGroup)(nil),                                          // 310: Group.ThreadedGroup
-	(*SpaceCreationInfo_FlatGroup)(nil),                                  // 311: SpaceCreationInfo.FlatGroup
-	(*SpaceCreationInfo_ThreadedGroup)(nil),                              // 312: SpaceCreationInfo.ThreadedGroup
-	(*SpaceCreationInfo_SpaceType)(nil),                                  // 313: SpaceCreationInfo.SpaceType
-	(*Event_EventBody)(nil),                                              // 314: Event.EventBody
-	(*RoomUpdatedMetadata_RoomRenameMetadata)(nil),                       // 315: RoomUpdatedMetadata.RoomRenameMetadata
-	(*RoomUpdatedMetadata_GroupDetailsUpdatedMetadata)(nil),              // 316: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata
-	(*MeetingSpace_PhoneAccess)(nil),                                     // 317: MeetingSpace.PhoneAccess
-	(*MeetingSpace_UniversalPhoneAccess)(nil),                            // 318: MeetingSpace.UniversalPhoneAccess
-	(*MeetingSpace_Presenter)(nil),                                       // 319: MeetingSpace.Presenter
-	(*MeetingSpace_RecordingInfo)(nil),                                   // 320: MeetingSpace.RecordingInfo
-	(*MeetingSpace_StreamingSessionInfo)(nil),                            // 321: MeetingSpace.StreamingSessionInfo
-	(*MeetingSpace_CallInfo)(nil),                                        // 322: MeetingSpace.CallInfo
-	(*MeetingSpace_GatewayAccess)(nil),                                   // 323: MeetingSpace.GatewayAccess
-	(*MeetingSpace_GatewaySipAccess)(nil),                                // 324: MeetingSpace.GatewaySipAccess
-	(*MeetingSpace_BroadcastAccess)(nil),                                 // 325: MeetingSpace.BroadcastAccess
-	(*MeetingSpace_Settings)(nil),                                        // 326: MeetingSpace.Settings
-	(*MeetingSpace_RecordingInfo_RecordingEvent)(nil),                    // 327: MeetingSpace.RecordingInfo.RecordingEvent
-	(*MeetingSpace_StreamingSessionInfo_SessionEvent)(nil),               // 328: MeetingSpace.StreamingSessionInfo.SessionEvent
-	(*MeetingSpace_StreamingSessionInfo_StreamViewerStats)(nil),          // 329: MeetingSpace.StreamingSessionInfo.StreamViewerStats
-	(*MeetingSpace_CallInfo_CallSettings)(nil),                           // 330: MeetingSpace.CallInfo.CallSettings
-	(*MeetingSpace_CallInfo_PaygateInfo)(nil),                            // 331: MeetingSpace.CallInfo.PaygateInfo
-	(*MeetingSpace_CallInfo_CseInfo)(nil),                                // 332: MeetingSpace.CallInfo.CseInfo
-	(*MembershipChangedMetadata_AffectedMembership)(nil),                 // 333: MembershipChangedMetadata.AffectedMembership
-	(*WorldItemLite_MembershipLite)(nil),                                 // 334: WorldItemLite.MembershipLite
-	(*WorldItemLite_DmMembers)(nil),                                      // 335: WorldItemLite.DmMembers
-	(*WorldItemLite_GroupLite)(nil),                                      // 336: WorldItemLite.GroupLite
-	(*WorldItemLite_FlatGroup)(nil),                                      // 337: WorldItemLite.FlatGroup
-	(*WorldItemLite_ThreadedGroup)(nil),                                  // 338: WorldItemLite.ThreadedGroup
+	(GroupNotificationSettingsUpdate_Mute_State)(0),                      // 89: GroupNotificationSettingsUpdate.Mute.State
+	(*UserId)(nil),                                               // 90: UserId
+	(*User)(nil),                                                 // 91: User
+	(*UserBlockRelationship)(nil),                                // 92: UserBlockRelationship
+	(*DndSettings)(nil),                                          // 93: DndSettings
+	(*Emoji)(nil),                                                // 94: Emoji
+	(*CustomStatus)(nil),                                         // 95: CustomStatus
+	(*UserStatus)(nil),                                           // 96: UserStatus
+	(*UserStatusUpdatedEvent)(nil),                               // 97: UserStatusUpdatedEvent
+	(*GetUserStatusRequest)(nil),                                 // 98: GetUserStatusRequest
+	(*GetUserStatusResponse)(nil),                                // 99: GetUserStatusResponse
+	(*GetSelfUserStatusRequest)(nil),                             // 100: GetSelfUserStatusRequest
+	(*GetSelfUserStatusResponse)(nil),                            // 101: GetSelfUserStatusResponse
+	(*ClientFeatureCapabilities)(nil),                            // 102: ClientFeatureCapabilities
+	(*RequestHeader)(nil),                                        // 103: RequestHeader
+	(*Member)(nil),                                               // 104: Member
+	(*MemberId)(nil),                                             // 105: MemberId
+	(*MembershipId)(nil),                                         // 106: MembershipId
+	(*Membership)(nil),                                           // 107: Membership
+	(*MemberProfile)(nil),                                        // 108: MemberProfile
+	(*GetMembersRequest)(nil),                                    // 109: GetMembersRequest
+	(*GetMembersResponse)(nil),                                   // 110: GetMembersResponse
+	(*UserPresence)(nil),                                         // 111: UserPresence
+	(*GetUserPresenceRequest)(nil),                               // 112: GetUserPresenceRequest
+	(*GetUserPresenceResponse)(nil),                              // 113: GetUserPresenceResponse
+	(*JAddOnsIdentifier)(nil),                                    // 114: JAddOnsIdentifier
+	(*JAddOnsFormattedText)(nil),                                 // 115: JAddOnsFormattedText
+	(*JAddOnsImageCropStyle)(nil),                                // 116: JAddOnsImageCropStyle
+	(*JAddOnsThemeColors)(nil),                                   // 117: JAddOnsThemeColors
+	(*JAddOnsOpenLink)(nil),                                      // 118: JAddOnsOpenLink
+	(*JAddOnsCardItem)(nil),                                      // 119: JAddOnsCardItem
+	(*JAddOnsPushCard)(nil),                                      // 120: JAddOnsPushCard
+	(*JAddOnsOnClick)(nil),                                       // 121: JAddOnsOnClick
+	(*JAddOnsTextWidget)(nil),                                    // 122: JAddOnsTextWidget
+	(*JAddOnsImageComponent)(nil),                                // 123: JAddOnsImageComponent
+	(*JAddOnsGrid)(nil),                                          // 124: JAddOnsGrid
+	(*JAddOnsBorderStyle)(nil),                                   // 125: JAddOnsBorderStyle
+	(*JAddOnsLabelContentPair)(nil),                              // 126: JAddOnsLabelContentPair
+	(*JAddOnsLabelContentPairWidget)(nil),                        // 127: JAddOnsLabelContentPairWidget
+	(*JAddOnsWidget)(nil),                                        // 128: JAddOnsWidget
+	(*JAddOnsFormAction)(nil),                                    // 129: JAddOnsFormAction
+	(*JAddOnsContextualAddOn)(nil),                               // 130: JAddOnsContextualAddOn
+	(*Html)(nil),                                                 // 131: Html
+	(*HtmlAttachment)(nil),                                       // 132: HtmlAttachment
+	(*Attachment)(nil),                                           // 133: Attachment
+	(*Reaction)(nil),                                             // 134: Reaction
+	(*MessageParentId)(nil),                                      // 135: MessageParentId
+	(*MessageId)(nil),                                            // 136: MessageId
+	(*Message)(nil),                                              // 137: Message
+	(*ReplyToMessage)(nil),                                       // 138: ReplyToMessage
+	(*AppProfile)(nil),                                           // 139: AppProfile
+	(*DriveMetadata)(nil),                                        // 140: DriveMetadata
+	(*Url)(nil),                                                  // 141: Url
+	(*TrustedResourceUrl)(nil),                                   // 142: TrustedResourceUrl
+	(*YoutubeMetadata)(nil),                                      // 143: YoutubeMetadata
+	(*UrlMetadata)(nil),                                          // 144: UrlMetadata
+	(*UploadMetadata)(nil),                                       // 145: UploadMetadata
+	(*FormatMetadata)(nil),                                       // 146: FormatMetadata
+	(*Annotation)(nil),                                           // 147: Annotation
+	(*TypingContext)(nil),                                        // 148: TypingContext
+	(*SetTypingStateRequest)(nil),                                // 149: SetTypingStateRequest
+	(*SetTypingStateResponse)(nil),                               // 150: SetTypingStateResponse
+	(*DmId)(nil),                                                 // 151: DmId
+	(*SpaceId)(nil),                                              // 152: SpaceId
+	(*GroupId)(nil),                                              // 153: GroupId
+	(*Group)(nil),                                                // 154: Group
+	(*GroupReadStateId)(nil),                                     // 155: GroupReadStateId
+	(*InviteState)(nil),                                          // 156: InviteState
+	(*GroupReadState)(nil),                                       // 157: GroupReadState
+	(*GroupNotificationSettings)(nil),                            // 158: GroupNotificationSettings
+	(*RetentionSettings)(nil),                                    // 159: RetentionSettings
+	(*GroupData)(nil),                                            // 160: GroupData
+	(*TopicId)(nil),                                              // 161: TopicId
+	(*Topic)(nil),                                                // 162: Topic
+	(*TopicReadState)(nil),                                       // 163: TopicReadState
+	(*SendReplyTarget)(nil),                                      // 164: SendReplyTarget
+	(*MessageInfo)(nil),                                          // 165: MessageInfo
+	(*CreateTopicRequest)(nil),                                   // 166: CreateTopicRequest
+	(*CreateTopicResponse)(nil),                                  // 167: CreateTopicResponse
+	(*CreateMessageRequest)(nil),                                 // 168: CreateMessageRequest
+	(*CreateMessageResponse)(nil),                                // 169: CreateMessageResponse
+	(*UpdateReactionRequest)(nil),                                // 170: UpdateReactionRequest
+	(*UpdateReactionResponse)(nil),                               // 171: UpdateReactionResponse
+	(*DeleteMessageRequest)(nil),                                 // 172: DeleteMessageRequest
+	(*DeleteMessageResponse)(nil),                                // 173: DeleteMessageResponse
+	(*EditMessageRequest)(nil),                                   // 174: EditMessageRequest
+	(*EditMessageResponse)(nil),                                  // 175: EditMessageResponse
+	(*InviteeInfo)(nil),                                          // 176: InviteeInfo
+	(*InviteeMemberInfo)(nil),                                    // 177: InviteeMemberInfo
+	(*SpaceCreationInfo)(nil),                                    // 178: SpaceCreationInfo
+	(*CreateGroupRequest)(nil),                                   // 179: CreateGroupRequest
+	(*CreateMembershipResult)(nil),                               // 180: CreateMembershipResult
+	(*CreateGroupResponse)(nil),                                  // 181: CreateGroupResponse
+	(*CreateDmRequest)(nil),                                      // 182: CreateDmRequest
+	(*CreateDmResponse)(nil),                                     // 183: CreateDmResponse
+	(*ListTopicsResponse)(nil),                                   // 184: ListTopicsResponse
+	(*ListTopicsRequest)(nil),                                    // 185: ListTopicsRequest
+	(*ListMessagesRequest)(nil),                                  // 186: ListMessagesRequest
+	(*ListMessagesResponse)(nil),                                 // 187: ListMessagesResponse
+	(*ListMembersRequest)(nil),                                   // 188: ListMembersRequest
+	(*ListMembersResponse)(nil),                                  // 189: ListMembersResponse
+	(*ReadReceipt)(nil),                                          // 190: ReadReceipt
+	(*ReadReceiptSet)(nil),                                       // 191: ReadReceiptSet
+	(*WebPushNotification)(nil),                                  // 192: WebPushNotification
+	(*AndroidLocalNotification)(nil),                             // 193: AndroidLocalNotification
+	(*IosLocalNotification)(nil),                                 // 194: IosLocalNotification
+	(*MobileLocalNotification)(nil),                              // 195: MobileLocalNotification
+	(*MessageEvent)(nil),                                         // 196: MessageEvent
+	(*MessageReactionEvent)(nil),                                 // 197: MessageReactionEvent
+	(*MessageDeletedEvent)(nil),                                  // 198: MessageDeletedEvent
+	(*TypingStateChangedEvent)(nil),                              // 199: TypingStateChangedEvent
+	(*MembershipChangedEvent)(nil),                               // 200: MembershipChangedEvent
+	(*ReadReceiptChangedEvent)(nil),                              // 201: ReadReceiptChangedEvent
+	(*GroupViewedEvent)(nil),                                     // 202: GroupViewedEvent
+	(*GroupUpdatedEvent)(nil),                                    // 203: GroupUpdatedEvent
+	(*WebPushNotificationEvent)(nil),                             // 204: WebPushNotificationEvent
+	(*StreamEventsRequest)(nil),                                  // 205: StreamEventsRequest
+	(*ClientInfo)(nil),                                           // 206: ClientInfo
+	(*ClientNotificationsState)(nil),                             // 207: ClientNotificationsState
+	(*PingEvent)(nil),                                            // 208: PingEvent
+	(*ClockSyncRequest)(nil),                                     // 209: ClockSyncRequest
+	(*ClockSyncResponse)(nil),                                    // 210: ClockSyncResponse
+	(*GroupSubscriptionEvent)(nil),                               // 211: GroupSubscriptionEvent
+	(*StreamEventsResponse)(nil),                                 // 212: StreamEventsResponse
+	(*TopicMuteChangedEvent)(nil),                                // 213: TopicMuteChangedEvent
+	(*GroupUnreadSubscribedTopicCountUpdatedEvent)(nil),          // 214: GroupUnreadSubscribedTopicCountUpdatedEvent
+	(*TopicCreatedEvent)(nil),                                    // 215: TopicCreatedEvent
+	(*MessageSmartRepliesEvent)(nil),                             // 216: MessageSmartRepliesEvent
+	(*GroupDefaultSortOrderUpdatedEvent)(nil),                    // 217: GroupDefaultSortOrderUpdatedEvent
+	(*GroupReadStateUpdatedEvent)(nil),                           // 218: GroupReadStateUpdatedEvent
+	(*BackendMetadata)(nil),                                      // 219: BackendMetadata
+	(*Timestamp)(nil),                                            // 220: Timestamp
+	(*Interval)(nil),                                             // 221: Interval
+	(*LatencyData)(nil),                                          // 222: LatencyData
+	(*Event)(nil),                                                // 223: Event
+	(*InviteType)(nil),                                           // 224: InviteType
+	(*GroupDetails)(nil),                                         // 225: GroupDetails
+	(*RoomUpdatedMetadata)(nil),                                  // 226: RoomUpdatedMetadata
+	(*MeetingSpace)(nil),                                         // 227: MeetingSpace
+	(*VideoCallMetadata)(nil),                                    // 228: VideoCallMetadata
+	(*MembershipChangedMetadata)(nil),                            // 229: MembershipChangedMetadata
+	(*UserMentionMetadata)(nil),                                  // 230: UserMentionMetadata
+	(*SlashCommandMetadata)(nil),                                 // 231: SlashCommandMetadata
+	(*GroupVisibility)(nil),                                      // 232: GroupVisibility
+	(*ComGoogleProtobufTimestamp)(nil),                           // 233: ComGoogleProtobufTimestamp
+	(*GetServerTimeRequest)(nil),                                 // 234: GetServerTimeRequest
+	(*GetServerTimeResponse)(nil),                                // 235: GetServerTimeResponse
+	(*CatchUpRange)(nil),                                         // 236: CatchUpRange
+	(*CatchUpGroupRequest)(nil),                                  // 237: CatchUpGroupRequest
+	(*CatchUpUserRequest)(nil),                                   // 238: CatchUpUserRequest
+	(*CatchUpResponse)(nil),                                      // 239: CatchUpResponse
+	(*GetGroupRequest)(nil),                                      // 240: GetGroupRequest
+	(*GetGroupResponse)(nil),                                     // 241: GetGroupResponse
+	(*WorldSection)(nil),                                         // 242: WorldSection
+	(*WorldFilter)(nil),                                          // 243: WorldFilter
+	(*NameUsers)(nil),                                            // 244: NameUsers
+	(*WorldItemLite)(nil),                                        // 245: WorldItemLite
+	(*WorldSectionRequest)(nil),                                  // 246: WorldSectionRequest
+	(*WorldSectionResponse)(nil),                                 // 247: WorldSectionResponse
+	(*PaginatedWorldRequest)(nil),                                // 248: PaginatedWorldRequest
+	(*PaginatedWorldResponse)(nil),                               // 249: PaginatedWorldResponse
+	(*RemoveMembershipsRequest)(nil),                             // 250: RemoveMembershipsRequest
+	(*RemoveMembershipResult)(nil),                               // 251: RemoveMembershipResult
+	(*RemoveMembershipsResponse)(nil),                            // 252: RemoveMembershipsResponse
+	(*HideGroupRequest)(nil),                                     // 253: HideGroupRequest
+	(*HideGroupResponse)(nil),                                    // 254: HideGroupResponse
+	(*InviteNotificationSettings)(nil),                           // 255: InviteNotificationSettings
+	(*CreateMembershipRequest)(nil),                              // 256: CreateMembershipRequest
+	(*CreateMembershipResponse)(nil),                             // 257: CreateMembershipResponse
+	(*MarkGroupReadstateRequest)(nil),                            // 258: MarkGroupReadstateRequest
+	(*MarkGroupReadstateResponse)(nil),                           // 259: MarkGroupReadstateResponse
+	(*SetPresenceSharedRequest)(nil),                             // 260: SetPresenceSharedRequest
+	(*SetPresenceSharedResponse)(nil),                            // 261: SetPresenceSharedResponse
+	(*SetDndDurationRequest)(nil),                                // 262: SetDndDurationRequest
+	(*SetDndDurationResponse)(nil),                               // 263: SetDndDurationResponse
+	(*UpdateGroupRequest)(nil),                                   // 264: UpdateGroupRequest
+	(*UpdateGroupResponse)(nil),                                  // 265: UpdateGroupResponse
+	(*BlockEntityRequest)(nil),                                   // 266: BlockEntityRequest
+	(*BlockEntityResponse)(nil),                                  // 267: BlockEntityResponse
+	(*SetCustomStatusRequest)(nil),                               // 268: SetCustomStatusRequest
+	(*SetCustomStatusResponse)(nil),                              // 269: SetCustomStatusResponse
+	(*WriteRevision)(nil),                                        // 270: WriteRevision
+	(*ReadRevision)(nil),                                         // 271: ReadRevision
+	(*ReferenceRevision)(nil),                                    // 272: ReferenceRevision
+	(*UpdateGroupNotificationSettingsRequest)(nil),               // 273: UpdateGroupNotificationSettingsRequest
+	(*GroupNotificationSettingsUpdate)(nil),                      // 274: GroupNotificationSettingsUpdate
+	(*UpdateGroupNotificationSettingsResponse)(nil),              // 275: UpdateGroupNotificationSettingsResponse
+	(*JAddOnsFormattedText_FormattedTextElement)(nil),            // 276: JAddOnsFormattedText.FormattedTextElement
+	(*JAddOnsFormattedText_FormattedTextElement_DateTime)(nil),   // 277: JAddOnsFormattedText.FormattedTextElement.DateTime
+	(*JAddOnsFormattedText_FormattedTextElement_StyledText)(nil), // 278: JAddOnsFormattedText.FormattedTextElement.StyledText
+	(*JAddOnsFormattedText_FormattedTextElement_HyperLink)(nil),  // 279: JAddOnsFormattedText.FormattedTextElement.HyperLink
+	(*JAddOnsCardItem_CardItemHeader)(nil),                       // 280: JAddOnsCardItem.CardItemHeader
+	(*JAddOnsCardItem_CardItemSection)(nil),                      // 281: JAddOnsCardItem.CardItemSection
+	(*JAddOnsCardItem_CardItemAction)(nil),                       // 282: JAddOnsCardItem.CardItemAction
+	(*JAddOnsCardItem_CardItemFixedFooter)(nil),                  // 283: JAddOnsCardItem.CardItemFixedFooter
+	(*JAddOnsCardItem_CardItemRefreshAction)(nil),                // 284: JAddOnsCardItem.CardItemRefreshAction
+	(*JAddOnsGrid_GridItem)(nil),                                 // 285: JAddOnsGrid.GridItem
+	(*JAddOnsWidget_TextParagraph)(nil),                          // 286: JAddOnsWidget.TextParagraph
+	(*JAddOnsWidget_TextKeyValue)(nil),                           // 287: JAddOnsWidget.TextKeyValue
+	(*JAddOnsWidget_ImageKeyValue)(nil),                          // 288: JAddOnsWidget.ImageKeyValue
+	(*JAddOnsWidget_Image)(nil),                                  // 289: JAddOnsWidget.Image
+	(*JAddOnsWidget_Icon)(nil),                                   // 290: JAddOnsWidget.Icon
+	(*JAddOnsWidget_KeyValue)(nil),                               // 291: JAddOnsWidget.KeyValue
+	(*JAddOnsWidget_Divider)(nil),                                // 292: JAddOnsWidget.Divider
+	(*JAddOnsWidget_Menu)(nil),                                   // 293: JAddOnsWidget.Menu
+	(*JAddOnsWidget_AutoComplete)(nil),                           // 294: JAddOnsWidget.AutoComplete
+	(*JAddOnsWidget_TextField)(nil),                              // 295: JAddOnsWidget.TextField
+	(*JAddOnsWidget_SelectionControl)(nil),                       // 296: JAddOnsWidget.SelectionControl
+	(*JAddOnsWidget_DateTimePicker)(nil),                         // 297: JAddOnsWidget.DateTimePicker
+	(*JAddOnsWidget_TextButton)(nil),                             // 298: JAddOnsWidget.TextButton
+	(*JAddOnsWidget_ImageButton)(nil),                            // 299: JAddOnsWidget.ImageButton
+	(*JAddOnsWidget_Button)(nil),                                 // 300: JAddOnsWidget.Button
+	(*JAddOnsWidget_KeyValue_SwitchWidget)(nil),                  // 301: JAddOnsWidget.KeyValue.SwitchWidget
+	(*JAddOnsWidget_Menu_MenuItem)(nil),                          // 302: JAddOnsWidget.Menu.MenuItem
+	(*JAddOnsWidget_AutoComplete_AutoCompleteItem)(nil),          // 303: JAddOnsWidget.AutoComplete.AutoCompleteItem
+	(*JAddOnsWidget_SelectionControl_SelectionItem)(nil),         // 304: JAddOnsWidget.SelectionControl.SelectionItem
+	(*JAddOnsFormAction_ActionParameter)(nil),                    // 305: JAddOnsFormAction.ActionParameter
+	(*JAddOnsContextualAddOn_Toolbar)(nil),                       // 306: JAddOnsContextualAddOn.Toolbar
+	(*JAddOnsContextualAddOn_Card)(nil),                          // 307: JAddOnsContextualAddOn.Card
+	(*JAddOnsContextualAddOn_Card_CardHeader)(nil),               // 308: JAddOnsContextualAddOn.Card.CardHeader
+	(*JAddOnsContextualAddOn_Card_Section)(nil),                  // 309: JAddOnsContextualAddOn.Card.Section
+	(*JAddOnsContextualAddOn_Card_CardAction)(nil),               // 310: JAddOnsContextualAddOn.Card.CardAction
+	(*JAddOnsContextualAddOn_Card_FixedFooter)(nil),              // 311: JAddOnsContextualAddOn.Card.FixedFooter
+	(*JAddOnsContextualAddOn_Card_RefreshAction)(nil),            // 312: JAddOnsContextualAddOn.Card.RefreshAction
+	(*Group_FlatGroup)(nil),                                      // 313: Group.FlatGroup
+	(*Group_ThreadedGroup)(nil),                                  // 314: Group.ThreadedGroup
+	(*SpaceCreationInfo_FlatGroup)(nil),                          // 315: SpaceCreationInfo.FlatGroup
+	(*SpaceCreationInfo_ThreadedGroup)(nil),                      // 316: SpaceCreationInfo.ThreadedGroup
+	(*SpaceCreationInfo_SpaceType)(nil),                          // 317: SpaceCreationInfo.SpaceType
+	(*Event_EventBody)(nil),                                      // 318: Event.EventBody
+	(*RoomUpdatedMetadata_RoomRenameMetadata)(nil),               // 319: RoomUpdatedMetadata.RoomRenameMetadata
+	(*RoomUpdatedMetadata_GroupDetailsUpdatedMetadata)(nil),      // 320: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata
+	(*MeetingSpace_PhoneAccess)(nil),                             // 321: MeetingSpace.PhoneAccess
+	(*MeetingSpace_UniversalPhoneAccess)(nil),                    // 322: MeetingSpace.UniversalPhoneAccess
+	(*MeetingSpace_Presenter)(nil),                               // 323: MeetingSpace.Presenter
+	(*MeetingSpace_RecordingInfo)(nil),                           // 324: MeetingSpace.RecordingInfo
+	(*MeetingSpace_StreamingSessionInfo)(nil),                    // 325: MeetingSpace.StreamingSessionInfo
+	(*MeetingSpace_CallInfo)(nil),                                // 326: MeetingSpace.CallInfo
+	(*MeetingSpace_GatewayAccess)(nil),                           // 327: MeetingSpace.GatewayAccess
+	(*MeetingSpace_GatewaySipAccess)(nil),                        // 328: MeetingSpace.GatewaySipAccess
+	(*MeetingSpace_BroadcastAccess)(nil),                         // 329: MeetingSpace.BroadcastAccess
+	(*MeetingSpace_Settings)(nil),                                // 330: MeetingSpace.Settings
+	(*MeetingSpace_RecordingInfo_RecordingEvent)(nil),            // 331: MeetingSpace.RecordingInfo.RecordingEvent
+	(*MeetingSpace_StreamingSessionInfo_SessionEvent)(nil),       // 332: MeetingSpace.StreamingSessionInfo.SessionEvent
+	(*MeetingSpace_StreamingSessionInfo_StreamViewerStats)(nil),  // 333: MeetingSpace.StreamingSessionInfo.StreamViewerStats
+	(*MeetingSpace_CallInfo_CallSettings)(nil),                   // 334: MeetingSpace.CallInfo.CallSettings
+	(*MeetingSpace_CallInfo_PaygateInfo)(nil),                    // 335: MeetingSpace.CallInfo.PaygateInfo
+	(*MeetingSpace_CallInfo_CseInfo)(nil),                        // 336: MeetingSpace.CallInfo.CseInfo
+	(*MembershipChangedMetadata_AffectedMembership)(nil),         // 337: MembershipChangedMetadata.AffectedMembership
+	(*WorldItemLite_MembershipLite)(nil),                         // 338: WorldItemLite.MembershipLite
+	(*WorldItemLite_DmMembers)(nil),                              // 339: WorldItemLite.DmMembers
+	(*WorldItemLite_GroupLite)(nil),                              // 340: WorldItemLite.GroupLite
+	(*WorldItemLite_FlatGroup)(nil),                              // 341: WorldItemLite.FlatGroup
+	(*WorldItemLite_ThreadedGroup)(nil),                          // 342: WorldItemLite.ThreadedGroup
+	(*GroupNotificationSettingsUpdate_Mute)(nil),                 // 343: GroupNotificationSettingsUpdate.Mute
 }
 var file_googlechat_proto_depIdxs = []int32{
 	0,   // 0: UserId.type:type_name -> UserType
-	89,  // 1: User.user_id:type_name -> UserId
-	91,  // 2: User.block_relationship:type_name -> UserBlockRelationship
+	90,  // 1: User.user_id:type_name -> UserId
+	92,  // 2: User.block_relationship:type_name -> UserBlockRelationship
 	22,  // 3: DndSettings.dnd_state:type_name -> DndSettings.DndState_State
-	93,  // 4: CustomStatus.emoji:type_name -> Emoji
-	89,  // 5: UserStatus.user_id:type_name -> UserId
-	92,  // 6: UserStatus.dnd_settings:type_name -> DndSettings
-	94,  // 7: UserStatus.custom_status:type_name -> CustomStatus
-	95,  // 8: UserStatusUpdatedEvent.user_status:type_name -> UserStatus
-	89,  // 9: GetUserStatusRequest.user_ids:type_name -> UserId
-	102, // 10: GetUserStatusRequest.request_header:type_name -> RequestHeader
-	95,  // 11: GetUserStatusResponse.user_statuses:type_name -> UserStatus
-	102, // 12: GetSelfUserStatusRequest.request_header:type_name -> RequestHeader
-	95,  // 13: GetSelfUserStatusResponse.user_status:type_name -> UserStatus
-	270, // 14: GetSelfUserStatusResponse.user_revision:type_name -> ReadRevision
+	94,  // 4: CustomStatus.emoji:type_name -> Emoji
+	90,  // 5: UserStatus.user_id:type_name -> UserId
+	93,  // 6: UserStatus.dnd_settings:type_name -> DndSettings
+	95,  // 7: UserStatus.custom_status:type_name -> CustomStatus
+	96,  // 8: UserStatusUpdatedEvent.user_status:type_name -> UserStatus
+	90,  // 9: GetUserStatusRequest.user_ids:type_name -> UserId
+	103, // 10: GetUserStatusRequest.request_header:type_name -> RequestHeader
+	96,  // 11: GetUserStatusResponse.user_statuses:type_name -> UserStatus
+	103, // 12: GetSelfUserStatusRequest.request_header:type_name -> RequestHeader
+	96,  // 13: GetSelfUserStatusResponse.user_status:type_name -> UserStatus
+	271, // 14: GetSelfUserStatusResponse.user_revision:type_name -> ReadRevision
 	23,  // 15: ClientFeatureCapabilities.spaces_level_for_testing:type_name -> ClientFeatureCapabilities.CapabilityLevel
 	23,  // 16: ClientFeatureCapabilities.dms_level_for_testing:type_name -> ClientFeatureCapabilities.CapabilityLevel
 	23,  // 17: ClientFeatureCapabilities.post_rooms_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
@@ -26508,579 +26797,585 @@ var file_googlechat_proto_depIdxs = []int32{
 	23,  // 19: ClientFeatureCapabilities.tombstone_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
 	23,  // 20: ClientFeatureCapabilities.rich_text_viewing_level:type_name -> ClientFeatureCapabilities.CapabilityLevel
 	24,  // 21: RequestHeader.client_type:type_name -> RequestHeader.ClientType
-	101, // 22: RequestHeader.client_feature_capabilities:type_name -> ClientFeatureCapabilities
-	90,  // 23: Member.user:type_name -> User
-	89,  // 24: MemberId.user_id:type_name -> UserId
-	104, // 25: MembershipId.member_id:type_name -> MemberId
-	151, // 26: MembershipId.space_id:type_name -> SpaceId
-	152, // 27: MembershipId.group_id:type_name -> GroupId
-	105, // 28: Membership.id:type_name -> MembershipId
+	102, // 22: RequestHeader.client_feature_capabilities:type_name -> ClientFeatureCapabilities
+	91,  // 23: Member.user:type_name -> User
+	90,  // 24: MemberId.user_id:type_name -> UserId
+	105, // 25: MembershipId.member_id:type_name -> MemberId
+	152, // 26: MembershipId.space_id:type_name -> SpaceId
+	153, // 27: MembershipId.group_id:type_name -> GroupId
+	106, // 28: Membership.id:type_name -> MembershipId
 	20,  // 29: Membership.membership_state:type_name -> MembershipState
 	1,   // 30: Membership.invite_category:type_name -> InviteCategory
 	18,  // 31: Membership.membership_role:type_name -> MembershipRole
-	105, // 32: MemberProfile.id:type_name -> MembershipId
-	103, // 33: MemberProfile.member:type_name -> Member
-	102, // 34: GetMembersRequest.request_header:type_name -> RequestHeader
-	104, // 35: GetMembersRequest.member_ids:type_name -> MemberId
-	105, // 36: GetMembersRequest.membership_ids:type_name -> MembershipId
-	103, // 37: GetMembersResponse.members:type_name -> Member
-	107, // 38: GetMembersResponse.member_profiles:type_name -> MemberProfile
-	89,  // 39: UserPresence.user_id:type_name -> UserId
+	106, // 32: MemberProfile.id:type_name -> MembershipId
+	104, // 33: MemberProfile.member:type_name -> Member
+	103, // 34: GetMembersRequest.request_header:type_name -> RequestHeader
+	105, // 35: GetMembersRequest.member_ids:type_name -> MemberId
+	106, // 36: GetMembersRequest.membership_ids:type_name -> MembershipId
+	104, // 37: GetMembersResponse.members:type_name -> Member
+	108, // 38: GetMembersResponse.member_profiles:type_name -> MemberProfile
+	90,  // 39: UserPresence.user_id:type_name -> UserId
 	2,   // 40: UserPresence.presence:type_name -> Presence
 	3,   // 41: UserPresence.dnd_state:type_name -> DndState_State
-	95,  // 42: UserPresence.user_status:type_name -> UserStatus
-	102, // 43: GetUserPresenceRequest.request_header:type_name -> RequestHeader
-	89,  // 44: GetUserPresenceRequest.user_ids:type_name -> UserId
-	110, // 45: GetUserPresenceResponse.user_presences:type_name -> UserPresence
-	113, // 46: JAddOnsFormattedText.id:type_name -> JAddOnsIdentifier
-	272, // 47: JAddOnsFormattedText.formatted_text_elements:type_name -> JAddOnsFormattedText.FormattedTextElement
+	96,  // 42: UserPresence.user_status:type_name -> UserStatus
+	103, // 43: GetUserPresenceRequest.request_header:type_name -> RequestHeader
+	90,  // 44: GetUserPresenceRequest.user_ids:type_name -> UserId
+	111, // 45: GetUserPresenceResponse.user_presences:type_name -> UserPresence
+	114, // 46: JAddOnsFormattedText.id:type_name -> JAddOnsIdentifier
+	276, // 47: JAddOnsFormattedText.formatted_text_elements:type_name -> JAddOnsFormattedText.FormattedTextElement
 	25,  // 48: JAddOnsFormattedText.text_align:type_name -> JAddOnsFormattedText.TextAlign
 	28,  // 49: JAddOnsImageCropStyle.type:type_name -> JAddOnsImageCropStyle.ImageCropType
 	29,  // 50: JAddOnsOpenLink.open_as:type_name -> JAddOnsOpenLink.OpenAs
 	30,  // 51: JAddOnsOpenLink.on_close:type_name -> JAddOnsOpenLink.OnClose
 	31,  // 52: JAddOnsOpenLink.load_indicator:type_name -> JAddOnsOpenLink.LoadIndicator
-	276, // 53: JAddOnsCardItem.header:type_name -> JAddOnsCardItem.CardItemHeader
-	277, // 54: JAddOnsCardItem.sections:type_name -> JAddOnsCardItem.CardItemSection
-	278, // 55: JAddOnsCardItem.card_actions:type_name -> JAddOnsCardItem.CardItemAction
-	279, // 56: JAddOnsCardItem.fixed_footer:type_name -> JAddOnsCardItem.CardItemFixedFooter
-	280, // 57: JAddOnsCardItem.refresh_action:type_name -> JAddOnsCardItem.CardItemRefreshAction
+	280, // 53: JAddOnsCardItem.header:type_name -> JAddOnsCardItem.CardItemHeader
+	281, // 54: JAddOnsCardItem.sections:type_name -> JAddOnsCardItem.CardItemSection
+	282, // 55: JAddOnsCardItem.card_actions:type_name -> JAddOnsCardItem.CardItemAction
+	283, // 56: JAddOnsCardItem.fixed_footer:type_name -> JAddOnsCardItem.CardItemFixedFooter
+	284, // 57: JAddOnsCardItem.refresh_action:type_name -> JAddOnsCardItem.CardItemRefreshAction
 	32,  // 58: JAddOnsCardItem.display_style:type_name -> JAddOnsCardItem.DisplayStyle
-	276, // 59: JAddOnsCardItem.peek_card_header:type_name -> JAddOnsCardItem.CardItemHeader
-	116, // 60: JAddOnsCardItem.background_theme_colors:type_name -> JAddOnsThemeColors
-	118, // 61: JAddOnsPushCard.card:type_name -> JAddOnsCardItem
-	128, // 62: JAddOnsOnClick.action:type_name -> JAddOnsFormAction
-	117, // 63: JAddOnsOnClick.open_link:type_name -> JAddOnsOpenLink
-	128, // 64: JAddOnsOnClick.open_link_action:type_name -> JAddOnsFormAction
-	119, // 65: JAddOnsOnClick.push_card:type_name -> JAddOnsPushCard
-	115, // 66: JAddOnsImageComponent.crop_style:type_name -> JAddOnsImageCropStyle
-	124, // 67: JAddOnsImageComponent.border_style:type_name -> JAddOnsBorderStyle
-	113, // 68: JAddOnsGrid.id:type_name -> JAddOnsIdentifier
-	281, // 69: JAddOnsGrid.items:type_name -> JAddOnsGrid.GridItem
-	124, // 70: JAddOnsGrid.border_style:type_name -> JAddOnsBorderStyle
-	120, // 71: JAddOnsGrid.on_click:type_name -> JAddOnsOnClick
+	280, // 59: JAddOnsCardItem.peek_card_header:type_name -> JAddOnsCardItem.CardItemHeader
+	117, // 60: JAddOnsCardItem.background_theme_colors:type_name -> JAddOnsThemeColors
+	119, // 61: JAddOnsPushCard.card:type_name -> JAddOnsCardItem
+	129, // 62: JAddOnsOnClick.action:type_name -> JAddOnsFormAction
+	118, // 63: JAddOnsOnClick.open_link:type_name -> JAddOnsOpenLink
+	129, // 64: JAddOnsOnClick.open_link_action:type_name -> JAddOnsFormAction
+	120, // 65: JAddOnsOnClick.push_card:type_name -> JAddOnsPushCard
+	116, // 66: JAddOnsImageComponent.crop_style:type_name -> JAddOnsImageCropStyle
+	125, // 67: JAddOnsImageComponent.border_style:type_name -> JAddOnsBorderStyle
+	114, // 68: JAddOnsGrid.id:type_name -> JAddOnsIdentifier
+	285, // 69: JAddOnsGrid.items:type_name -> JAddOnsGrid.GridItem
+	125, // 70: JAddOnsGrid.border_style:type_name -> JAddOnsBorderStyle
+	121, // 71: JAddOnsGrid.on_click:type_name -> JAddOnsOnClick
 	34,  // 72: JAddOnsBorderStyle.type:type_name -> JAddOnsBorderStyle.BorderType
-	116, // 73: JAddOnsBorderStyle.stroke_color:type_name -> JAddOnsThemeColors
-	125, // 74: JAddOnsLabelContentPairWidget.label_content_pair:type_name -> JAddOnsLabelContentPair
-	121, // 75: JAddOnsWidget.text_widget:type_name -> JAddOnsTextWidget
-	126, // 76: JAddOnsWidget.label_content_pair_widget:type_name -> JAddOnsLabelContentPairWidget
-	282, // 77: JAddOnsWidget.text_paragraph:type_name -> JAddOnsWidget.TextParagraph
-	283, // 78: JAddOnsWidget.text_key_value:type_name -> JAddOnsWidget.TextKeyValue
-	284, // 79: JAddOnsWidget.image_key_value:type_name -> JAddOnsWidget.ImageKeyValue
-	285, // 80: JAddOnsWidget.image:type_name -> JAddOnsWidget.Image
-	287, // 81: JAddOnsWidget.key_value:type_name -> JAddOnsWidget.KeyValue
-	288, // 82: JAddOnsWidget.divider:type_name -> JAddOnsWidget.Divider
-	123, // 83: JAddOnsWidget.grid:type_name -> JAddOnsGrid
-	289, // 84: JAddOnsWidget.menu:type_name -> JAddOnsWidget.Menu
-	291, // 85: JAddOnsWidget.text_field:type_name -> JAddOnsWidget.TextField
-	292, // 86: JAddOnsWidget.selection_control:type_name -> JAddOnsWidget.SelectionControl
-	293, // 87: JAddOnsWidget.date_time_picker:type_name -> JAddOnsWidget.DateTimePicker
-	296, // 88: JAddOnsWidget.buttons:type_name -> JAddOnsWidget.Button
+	117, // 73: JAddOnsBorderStyle.stroke_color:type_name -> JAddOnsThemeColors
+	126, // 74: JAddOnsLabelContentPairWidget.label_content_pair:type_name -> JAddOnsLabelContentPair
+	122, // 75: JAddOnsWidget.text_widget:type_name -> JAddOnsTextWidget
+	127, // 76: JAddOnsWidget.label_content_pair_widget:type_name -> JAddOnsLabelContentPairWidget
+	286, // 77: JAddOnsWidget.text_paragraph:type_name -> JAddOnsWidget.TextParagraph
+	287, // 78: JAddOnsWidget.text_key_value:type_name -> JAddOnsWidget.TextKeyValue
+	288, // 79: JAddOnsWidget.image_key_value:type_name -> JAddOnsWidget.ImageKeyValue
+	289, // 80: JAddOnsWidget.image:type_name -> JAddOnsWidget.Image
+	291, // 81: JAddOnsWidget.key_value:type_name -> JAddOnsWidget.KeyValue
+	292, // 82: JAddOnsWidget.divider:type_name -> JAddOnsWidget.Divider
+	124, // 83: JAddOnsWidget.grid:type_name -> JAddOnsGrid
+	293, // 84: JAddOnsWidget.menu:type_name -> JAddOnsWidget.Menu
+	295, // 85: JAddOnsWidget.text_field:type_name -> JAddOnsWidget.TextField
+	296, // 86: JAddOnsWidget.selection_control:type_name -> JAddOnsWidget.SelectionControl
+	297, // 87: JAddOnsWidget.date_time_picker:type_name -> JAddOnsWidget.DateTimePicker
+	300, // 88: JAddOnsWidget.buttons:type_name -> JAddOnsWidget.Button
 	35,  // 89: JAddOnsWidget.horizontal_align:type_name -> JAddOnsWidget.HorizontalAlign
-	301, // 90: JAddOnsFormAction.parameters:type_name -> JAddOnsFormAction.ActionParameter
+	305, // 90: JAddOnsFormAction.parameters:type_name -> JAddOnsFormAction.ActionParameter
 	42,  // 91: JAddOnsFormAction.load_indicator:type_name -> JAddOnsFormAction.LoadIndicator
-	302, // 92: JAddOnsContextualAddOn.toolbar:type_name -> JAddOnsContextualAddOn.Toolbar
-	303, // 93: JAddOnsContextualAddOn.cards:type_name -> JAddOnsContextualAddOn.Card
-	130, // 94: HtmlAttachment.html:type_name -> Html
-	131, // 95: Attachment.html:type_name -> HtmlAttachment
-	129, // 96: Attachment.add_on_data:type_name -> JAddOnsContextualAddOn
-	89,  // 97: Attachment.app_id:type_name -> UserId
-	90,  // 98: Attachment.app_user:type_name -> User
-	93,  // 99: Reaction.emoji:type_name -> Emoji
-	160, // 100: MessageParentId.topic_id:type_name -> TopicId
-	134, // 101: MessageId.parent_id:type_name -> MessageParentId
-	135, // 102: Message.id:type_name -> MessageId
+	306, // 92: JAddOnsContextualAddOn.toolbar:type_name -> JAddOnsContextualAddOn.Toolbar
+	307, // 93: JAddOnsContextualAddOn.cards:type_name -> JAddOnsContextualAddOn.Card
+	131, // 94: HtmlAttachment.html:type_name -> Html
+	132, // 95: Attachment.html:type_name -> HtmlAttachment
+	130, // 96: Attachment.add_on_data:type_name -> JAddOnsContextualAddOn
+	90,  // 97: Attachment.app_id:type_name -> UserId
+	91,  // 98: Attachment.app_user:type_name -> User
+	94,  // 99: Reaction.emoji:type_name -> Emoji
+	161, // 100: MessageParentId.topic_id:type_name -> TopicId
+	135, // 101: MessageId.parent_id:type_name -> MessageParentId
+	136, // 102: Message.id:type_name -> MessageId
 	43,  // 103: Message.message_state:type_name -> Message.MessageState
-	90,  // 104: Message.creator:type_name -> User
-	146, // 105: Message.annotations:type_name -> Annotation
-	132, // 106: Message.attachments:type_name -> Attachment
-	138, // 107: Message.app_profile:type_name -> AppProfile
-	158, // 108: Message.retention_settings:type_name -> RetentionSettings
-	133, // 109: Message.reactions:type_name -> Reaction
+	91,  // 104: Message.creator:type_name -> User
+	147, // 105: Message.annotations:type_name -> Annotation
+	133, // 106: Message.attachments:type_name -> Attachment
+	139, // 107: Message.app_profile:type_name -> AppProfile
+	159, // 108: Message.retention_settings:type_name -> RetentionSettings
+	134, // 109: Message.reactions:type_name -> Reaction
 	44,  // 110: Message.editable_by:type_name -> Message.MessagePermission
 	44,  // 111: Message.deletable_by:type_name -> Message.MessagePermission
-	136, // 112: Message.last_reply:type_name -> Message
+	137, // 112: Message.last_reply:type_name -> Message
 	45,  // 113: Message.message_type:type_name -> Message.MessageType
-	106, // 114: Message.creator_membership:type_name -> Membership
-	137, // 115: Message.reply_to:type_name -> ReplyToMessage
-	135, // 116: ReplyToMessage.id:type_name -> MessageId
-	89,  // 117: ReplyToMessage.sender_id:type_name -> UserId
-	90,  // 118: ReplyToMessage.sender:type_name -> User
-	90,  // 119: ReplyToMessage.sender_again:type_name -> User
-	141, // 120: DriveMetadata.embed_url:type_name -> TrustedResourceUrl
-	140, // 121: UrlMetadata.url:type_name -> Url
-	140, // 122: UrlMetadata.gws_url:type_name -> Url
-	140, // 123: UrlMetadata.redirect_url:type_name -> Url
+	107, // 114: Message.creator_membership:type_name -> Membership
+	138, // 115: Message.reply_to:type_name -> ReplyToMessage
+	136, // 116: ReplyToMessage.id:type_name -> MessageId
+	90,  // 117: ReplyToMessage.sender_id:type_name -> UserId
+	91,  // 118: ReplyToMessage.sender:type_name -> User
+	91,  // 119: ReplyToMessage.sender_again:type_name -> User
+	142, // 120: DriveMetadata.embed_url:type_name -> TrustedResourceUrl
+	141, // 121: UrlMetadata.url:type_name -> Url
+	141, // 122: UrlMetadata.gws_url:type_name -> Url
+	141, // 123: UrlMetadata.redirect_url:type_name -> Url
 	46,  // 124: FormatMetadata.format_type:type_name -> FormatMetadata.FormatType
 	11,  // 125: Annotation.type:type_name -> AnnotationType
 	47,  // 126: Annotation.chip_render_type:type_name -> Annotation.ChipRenderType
-	229, // 127: Annotation.user_mention_metadata:type_name -> UserMentionMetadata
-	145, // 128: Annotation.format_metadata:type_name -> FormatMetadata
-	230, // 129: Annotation.slash_command_metadata:type_name -> SlashCommandMetadata
-	139, // 130: Annotation.drive_metadata:type_name -> DriveMetadata
-	142, // 131: Annotation.youtube_metadata:type_name -> YoutubeMetadata
-	143, // 132: Annotation.url_metadata:type_name -> UrlMetadata
-	144, // 133: Annotation.upload_metadata:type_name -> UploadMetadata
-	228, // 134: Annotation.membership_changed:type_name -> MembershipChangedMetadata
-	227, // 135: Annotation.video_call_metadata:type_name -> VideoCallMetadata
-	225, // 136: Annotation.room_updated:type_name -> RoomUpdatedMetadata
-	152, // 137: TypingContext.group_id:type_name -> GroupId
-	160, // 138: TypingContext.topic_id:type_name -> TopicId
-	102, // 139: SetTypingStateRequest.request_header:type_name -> RequestHeader
+	230, // 127: Annotation.user_mention_metadata:type_name -> UserMentionMetadata
+	146, // 128: Annotation.format_metadata:type_name -> FormatMetadata
+	231, // 129: Annotation.slash_command_metadata:type_name -> SlashCommandMetadata
+	140, // 130: Annotation.drive_metadata:type_name -> DriveMetadata
+	143, // 131: Annotation.youtube_metadata:type_name -> YoutubeMetadata
+	144, // 132: Annotation.url_metadata:type_name -> UrlMetadata
+	145, // 133: Annotation.upload_metadata:type_name -> UploadMetadata
+	229, // 134: Annotation.membership_changed:type_name -> MembershipChangedMetadata
+	228, // 135: Annotation.video_call_metadata:type_name -> VideoCallMetadata
+	226, // 136: Annotation.room_updated:type_name -> RoomUpdatedMetadata
+	153, // 137: TypingContext.group_id:type_name -> GroupId
+	161, // 138: TypingContext.topic_id:type_name -> TopicId
+	103, // 139: SetTypingStateRequest.request_header:type_name -> RequestHeader
 	4,   // 140: SetTypingStateRequest.state:type_name -> TypingState
-	147, // 141: SetTypingStateRequest.context:type_name -> TypingContext
-	151, // 142: GroupId.space_id:type_name -> SpaceId
-	150, // 143: GroupId.dm_id:type_name -> DmId
-	152, // 144: Group.group_id:type_name -> GroupId
-	90,  // 145: Group.creator:type_name -> User
-	156, // 146: Group.group_read_state:type_name -> GroupReadState
-	158, // 147: Group.retention_settings:type_name -> RetentionSettings
+	148, // 141: SetTypingStateRequest.context:type_name -> TypingContext
+	152, // 142: GroupId.space_id:type_name -> SpaceId
+	151, // 143: GroupId.dm_id:type_name -> DmId
+	153, // 144: Group.group_id:type_name -> GroupId
+	91,  // 145: Group.creator:type_name -> User
+	157, // 146: Group.group_read_state:type_name -> GroupReadState
+	159, // 147: Group.retention_settings:type_name -> RetentionSettings
 	48,  // 148: Group.group_type:type_name -> Group.GroupType
-	231, // 149: Group.visibility:type_name -> GroupVisibility
-	309, // 150: Group.flat_group:type_name -> Group.FlatGroup
-	310, // 151: Group.threaded_group:type_name -> Group.ThreadedGroup
+	232, // 149: Group.visibility:type_name -> GroupVisibility
+	313, // 150: Group.flat_group:type_name -> Group.FlatGroup
+	314, // 151: Group.threaded_group:type_name -> Group.ThreadedGroup
 	21,  // 152: Group.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
-	243, // 153: Group.name_users:type_name -> NameUsers
-	224, // 154: Group.group_details:type_name -> GroupDetails
+	244, // 153: Group.name_users:type_name -> NameUsers
+	225, // 154: Group.group_details:type_name -> GroupDetails
 	6,   // 155: Group.group_support_level:type_name -> GroupSupportLevel
 	5,   // 156: Group.group_unsupported_reason:type_name -> GroupUnsupportedReason
-	89,  // 157: GroupReadStateId.user_id:type_name -> UserId
-	152, // 158: GroupReadStateId.group_id:type_name -> GroupId
-	89,  // 159: InviteState.inviter_user_id:type_name -> UserId
-	135, // 160: InviteState.invitation_message_id:type_name -> MessageId
-	223, // 161: InviteState.invite_type:type_name -> InviteType
-	154, // 162: GroupReadState.id:type_name -> GroupReadStateId
-	160, // 163: GroupReadState.unread_subscribed_topics:type_name -> TopicId
-	155, // 164: GroupReadState.invite_state:type_name -> InviteState
-	157, // 165: GroupReadState.notification_settings:type_name -> GroupNotificationSettings
-	158, // 166: GroupReadState.retention_settings:type_name -> RetentionSettings
+	90,  // 157: GroupReadStateId.user_id:type_name -> UserId
+	153, // 158: GroupReadStateId.group_id:type_name -> GroupId
+	90,  // 159: InviteState.inviter_user_id:type_name -> UserId
+	136, // 160: InviteState.invitation_message_id:type_name -> MessageId
+	224, // 161: InviteState.invite_type:type_name -> InviteType
+	155, // 162: GroupReadState.id:type_name -> GroupReadStateId
+	161, // 163: GroupReadState.unread_subscribed_topics:type_name -> TopicId
+	156, // 164: GroupReadState.invite_state:type_name -> InviteState
+	158, // 165: GroupReadState.notification_settings:type_name -> GroupNotificationSettings
+	159, // 166: GroupReadState.retention_settings:type_name -> RetentionSettings
 	18,  // 167: GroupReadState.membership_role:type_name -> MembershipRole
 	20,  // 168: GroupReadState.membership_state:type_name -> MembershipState
 	1,   // 169: GroupReadState.invite_category:type_name -> InviteCategory
-	89,  // 170: GroupReadState.joined_users:type_name -> UserId
+	90,  // 170: GroupReadState.joined_users:type_name -> UserId
 	49,  // 171: GroupNotificationSettings.state:type_name -> GroupNotificationSettings.GroupNotificationState
 	50,  // 172: GroupNotificationSettings.room_state:type_name -> GroupNotificationSettings.RoomNotificationState
-	51,  // 173: RetentionSettings.state:type_name -> RetentionSettings.RetentionState
-	51,  // 174: GroupData.retention_state:type_name -> RetentionSettings.RetentionState
-	152, // 175: TopicId.group_id:type_name -> GroupId
-	160, // 176: Topic.id:type_name -> TopicId
-	136, // 177: Topic.replies:type_name -> Message
-	162, // 178: Topic.topic_read_state:type_name -> TopicReadState
-	158, // 179: Topic.retention_settings:type_name -> RetentionSettings
-	135, // 180: SendReplyTarget.id:type_name -> MessageId
-	163, // 181: MessageInfo.reply_to:type_name -> SendReplyTarget
-	102, // 182: CreateTopicRequest.request_header:type_name -> RequestHeader
-	152, // 183: CreateTopicRequest.group_id:type_name -> GroupId
-	146, // 184: CreateTopicRequest.annotations:type_name -> Annotation
-	158, // 185: CreateTopicRequest.retention_settings:type_name -> RetentionSettings
-	164, // 186: CreateTopicRequest.message_info:type_name -> MessageInfo
-	161, // 187: CreateTopicResponse.topic:type_name -> Topic
-	269, // 188: CreateTopicResponse.group_revision:type_name -> WriteRevision
-	270, // 189: CreateTopicResponse.current_group_revision:type_name -> ReadRevision
-	102, // 190: CreateMessageRequest.request_header:type_name -> RequestHeader
-	134, // 191: CreateMessageRequest.parent_id:type_name -> MessageParentId
-	146, // 192: CreateMessageRequest.annotations:type_name -> Annotation
-	164, // 193: CreateMessageRequest.message_info:type_name -> MessageInfo
-	136, // 194: CreateMessageResponse.message:type_name -> Message
-	269, // 195: CreateMessageResponse.group_revision:type_name -> WriteRevision
-	270, // 196: CreateMessageResponse.current_group_revision:type_name -> ReadRevision
-	102, // 197: UpdateReactionRequest.request_header:type_name -> RequestHeader
-	135, // 198: UpdateReactionRequest.message_id:type_name -> MessageId
-	93,  // 199: UpdateReactionRequest.emoji:type_name -> Emoji
-	52,  // 200: UpdateReactionRequest.type:type_name -> UpdateReactionRequest.ReactionUpdateType
-	269, // 201: UpdateReactionResponse.group_revision:type_name -> WriteRevision
-	102, // 202: DeleteMessageRequest.request_header:type_name -> RequestHeader
-	135, // 203: DeleteMessageRequest.message_id:type_name -> MessageId
-	269, // 204: DeleteMessageResponse.group_revision:type_name -> WriteRevision
-	102, // 205: EditMessageRequest.request_header:type_name -> RequestHeader
-	135, // 206: EditMessageRequest.message_id:type_name -> MessageId
-	146, // 207: EditMessageRequest.annotations:type_name -> Annotation
-	164, // 208: EditMessageRequest.message_info:type_name -> MessageInfo
-	136, // 209: EditMessageResponse.message:type_name -> Message
-	269, // 210: EditMessageResponse.group_revision:type_name -> WriteRevision
-	89,  // 211: InviteeInfo.user_id:type_name -> UserId
-	175, // 212: InviteeMemberInfo.invitee_info:type_name -> InviteeInfo
-	231, // 213: SpaceCreationInfo.visibility:type_name -> GroupVisibility
-	311, // 214: SpaceCreationInfo.flat_group:type_name -> SpaceCreationInfo.FlatGroup
-	312, // 215: SpaceCreationInfo.threaded_group:type_name -> SpaceCreationInfo.ThreadedGroup
-	176, // 216: SpaceCreationInfo.invitee_member_infos:type_name -> InviteeMemberInfo
-	313, // 217: SpaceCreationInfo.space_type:type_name -> SpaceCreationInfo.SpaceType
-	21,  // 218: SpaceCreationInfo.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
-	102, // 219: CreateGroupRequest.request_header:type_name -> RequestHeader
-	177, // 220: CreateGroupRequest.space:type_name -> SpaceCreationInfo
-	106, // 221: CreateMembershipResult.membership:type_name -> Membership
-	153, // 222: CreateGroupResponse.group:type_name -> Group
-	269, // 223: CreateGroupResponse.group_revision:type_name -> WriteRevision
-	269, // 224: CreateGroupResponse.user_revision:type_name -> WriteRevision
-	179, // 225: CreateGroupResponse.results:type_name -> CreateMembershipResult
-	102, // 226: CreateDmRequest.request_header:type_name -> RequestHeader
-	53,  // 227: CreateDmRequest.fetch_options:type_name -> CreateDmRequest.FetchOptions
-	89,  // 228: CreateDmRequest.members:type_name -> UserId
-	175, // 229: CreateDmRequest.invitees:type_name -> InviteeInfo
-	158, // 230: CreateDmRequest.retention_settings:type_name -> RetentionSettings
-	153, // 231: CreateDmResponse.dm:type_name -> Group
-	161, // 232: CreateDmResponse.topic:type_name -> Topic
-	269, // 233: CreateDmResponse.group_revision:type_name -> WriteRevision
-	106, // 234: CreateDmResponse.memberships:type_name -> Membership
-	161, // 235: ListTopicsResponse.topics:type_name -> Topic
-	270, // 236: ListTopicsResponse.user_revision:type_name -> ReadRevision
-	270, // 237: ListTopicsResponse.group_revision:type_name -> ReadRevision
-	190, // 238: ListTopicsResponse.read_receipt_set:type_name -> ReadReceiptSet
-	102, // 239: ListTopicsRequest.request_header:type_name -> RequestHeader
-	152, // 240: ListTopicsRequest.group_id:type_name -> GroupId
-	54,  // 241: ListTopicsRequest.fetch_options:type_name -> ListTopicsRequest.FetchOptions
-	271, // 242: ListTopicsRequest.user_not_older_than:type_name -> ReferenceRevision
-	271, // 243: ListTopicsRequest.group_not_older_than:type_name -> ReferenceRevision
-	102, // 244: ListMessagesRequest.request_header:type_name -> RequestHeader
-	134, // 245: ListMessagesRequest.parent_id:type_name -> MessageParentId
-	136, // 246: ListMessagesResponse.messages:type_name -> Message
-	270, // 247: ListMessagesResponse.group_revision:type_name -> ReadRevision
-	102, // 248: ListMembersRequest.request_header:type_name -> RequestHeader
-	151, // 249: ListMembersRequest.space_id:type_name -> SpaceId
-	152, // 250: ListMembersRequest.group_id:type_name -> GroupId
-	271, // 251: ListMembersRequest.not_older_than:type_name -> ReferenceRevision
-	106, // 252: ListMembersResponse.memberships:type_name -> Membership
-	103, // 253: ListMembersResponse.members:type_name -> Member
-	104, // 254: ListMembersResponse.member_ids:type_name -> MemberId
-	270, // 255: ListMembersResponse.group_revision:type_name -> ReadRevision
-	104, // 256: ListMembersResponse.invited_member_ids:type_name -> MemberId
-	90,  // 257: ReadReceipt.user:type_name -> User
-	189, // 258: ReadReceiptSet.read_receipts:type_name -> ReadReceipt
-	136, // 259: WebPushNotification.message:type_name -> Message
-	7,   // 260: WebPushNotification.cause:type_name -> NotificationCause
-	21,  // 261: IosLocalNotification.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
-	192, // 262: MobileLocalNotification.android_local_notification:type_name -> AndroidLocalNotification
-	193, // 263: MobileLocalNotification.ios_local_notification:type_name -> IosLocalNotification
-	136, // 264: MessageEvent.message:type_name -> Message
-	135, // 265: MessageReactionEvent.message_id:type_name -> MessageId
-	93,  // 266: MessageReactionEvent.emoji:type_name -> Emoji
-	89,  // 267: MessageReactionEvent.user_id:type_name -> UserId
-	55,  // 268: MessageReactionEvent.type:type_name -> MessageReactionEvent.ReactionEventType
-	135, // 269: MessageDeletedEvent.message_id:type_name -> MessageId
-	4,   // 270: TypingStateChangedEvent.state:type_name -> TypingState
-	89,  // 271: TypingStateChangedEvent.user_id:type_name -> UserId
-	147, // 272: TypingStateChangedEvent.context:type_name -> TypingContext
-	106, // 273: MembershipChangedEvent.new_membership:type_name -> Membership
-	20,  // 274: MembershipChangedEvent.prior_membership_state:type_name -> MembershipState
-	18,  // 275: MembershipChangedEvent.prior_membership_role:type_name -> MembershipRole
-	152, // 276: ReadReceiptChangedEvent.group_id:type_name -> GroupId
-	190, // 277: ReadReceiptChangedEvent.read_receipt_set:type_name -> ReadReceiptSet
-	152, // 278: GroupViewedEvent.group_id:type_name -> GroupId
-	153, // 279: GroupUpdatedEvent.new:type_name -> Group
-	153, // 280: GroupUpdatedEvent.old:type_name -> Group
-	56,  // 281: GroupUpdatedEvent.update_type:type_name -> GroupUpdatedEvent.UpdateType
-	191, // 282: WebPushNotificationEvent.notification:type_name -> WebPushNotification
-	57,  // 283: WebPushNotificationEvent.dispatch_approach_type:type_name -> WebPushNotificationEvent.DispatchApproachType
-	194, // 284: WebPushNotificationEvent.mobile_local_notification:type_name -> MobileLocalNotification
-	58,  // 285: WebPushNotificationEvent.endpoint_types:type_name -> WebPushNotificationEvent.EndpointType
-	10,  // 286: StreamEventsRequest.platform:type_name -> Platform
-	205, // 287: StreamEventsRequest.client_info:type_name -> ClientInfo
-	207, // 288: StreamEventsRequest.ping_event:type_name -> PingEvent
-	208, // 289: StreamEventsRequest.clock_sync_request:type_name -> ClockSyncRequest
-	210, // 290: StreamEventsRequest.group_subscription_event:type_name -> GroupSubscriptionEvent
-	10,  // 291: ClientInfo.platform:type_name -> Platform
-	8,   // 292: ClientInfo.origin:type_name -> EventOrigin
-	59,  // 293: ClientNotificationsState.device_setting_state:type_name -> ClientNotificationsState.DeviceNotificationSettingState
-	60,  // 294: PingEvent.state:type_name -> PingEvent.State
-	61,  // 295: PingEvent.application_focus_state:type_name -> PingEvent.ApplicationFocusState
-	62,  // 296: PingEvent.client_interactive_state:type_name -> PingEvent.ClientInteractiveState
-	206, // 297: PingEvent.notifications_state:type_name -> ClientNotificationsState
-	63,  // 298: PingEvent.device_active_state:type_name -> PingEvent.DeviceActiveState
-	152, // 299: GroupSubscriptionEvent.group_ids:type_name -> GroupId
-	222, // 300: StreamEventsResponse.event:type_name -> Event
-	209, // 301: StreamEventsResponse.clock_sync_response:type_name -> ClockSyncResponse
-	160, // 302: TopicMuteChangedEvent.topic_id:type_name -> TopicId
-	152, // 303: GroupUnreadSubscribedTopicCountUpdatedEvent.group_id:type_name -> GroupId
-	161, // 304: TopicCreatedEvent.topic:type_name -> Topic
-	152, // 305: MessageSmartRepliesEvent.group_id:type_name -> GroupId
-	152, // 306: GroupDefaultSortOrderUpdatedEvent.group_id:type_name -> GroupId
-	152, // 307: GroupReadStateUpdatedEvent.group_id:type_name -> GroupId
-	9,   // 308: BackendMetadata.dimensions:type_name -> BackendMetadataDimension
-	219, // 309: Interval.start:type_name -> Timestamp
-	219, // 310: Interval.end:type_name -> Timestamp
-	64,  // 311: LatencyData.server:type_name -> LatencyData.Server
-	220, // 312: LatencyData.interval:type_name -> Interval
-	152, // 313: Event.group_id:type_name -> GroupId
-	65,  // 314: Event.type:type_name -> Event.EventType
-	314, // 315: Event.body:type_name -> Event.EventBody
-	89,  // 316: Event.user_id:type_name -> UserId
-	269, // 317: Event.user_revision:type_name -> WriteRevision
-	269, // 318: Event.group_revision:type_name -> WriteRevision
-	314, // 319: Event.bodies:type_name -> Event.EventBody
-	218, // 320: Event.backend_metadata:type_name -> BackendMetadata
-	221, // 321: Event.latency_data:type_name -> LatencyData
-	231, // 322: RoomUpdatedMetadata.visibility:type_name -> GroupVisibility
-	315, // 323: RoomUpdatedMetadata.rename_metadata:type_name -> RoomUpdatedMetadata.RoomRenameMetadata
-	316, // 324: RoomUpdatedMetadata.group_details_metadata:type_name -> RoomUpdatedMetadata.GroupDetailsUpdatedMetadata
-	90,  // 325: RoomUpdatedMetadata.initiator:type_name -> User
-	317, // 326: MeetingSpace.phone_access:type_name -> MeetingSpace.PhoneAccess
-	318, // 327: MeetingSpace.universal_phone_access:type_name -> MeetingSpace.UniversalPhoneAccess
-	322, // 328: MeetingSpace.call_info:type_name -> MeetingSpace.CallInfo
-	323, // 329: MeetingSpace.gateway_access:type_name -> MeetingSpace.GatewayAccess
-	12,  // 330: MeetingSpace.accepted_number_class:type_name -> DialInNumberClass
-	324, // 331: MeetingSpace.gateway_sip_access:type_name -> MeetingSpace.GatewaySipAccess
-	325, // 332: MeetingSpace.broadcast_access:type_name -> MeetingSpace.BroadcastAccess
-	326, // 333: MeetingSpace.settings:type_name -> MeetingSpace.Settings
-	226, // 334: VideoCallMetadata.meeting_space:type_name -> MeetingSpace
-	71,  // 335: MembershipChangedMetadata.type:type_name -> MembershipChangedMetadata.Type
-	333, // 336: MembershipChangedMetadata.affected_memberships:type_name -> MembershipChangedMetadata.AffectedMembership
-	89,  // 337: MembershipChangedMetadata.initiator:type_name -> UserId
-	104, // 338: MembershipChangedMetadata.affected_members:type_name -> MemberId
-	90,  // 339: MembershipChangedMetadata.initiator_profile:type_name -> User
-	103, // 340: MembershipChangedMetadata.affected_member_profiles:type_name -> Member
-	89,  // 341: UserMentionMetadata.id:type_name -> UserId
-	175, // 342: UserMentionMetadata.invitee_info:type_name -> InviteeInfo
-	72,  // 343: UserMentionMetadata.type:type_name -> UserMentionMetadata.Type
-	89,  // 344: SlashCommandMetadata.id:type_name -> UserId
-	73,  // 345: SlashCommandMetadata.type:type_name -> SlashCommandMetadata.Type
-	102, // 346: GetServerTimeRequest.request_header:type_name -> RequestHeader
-	232, // 347: GetServerTimeResponse.timestamp:type_name -> ComGoogleProtobufTimestamp
-	102, // 348: CatchUpGroupRequest.request_header:type_name -> RequestHeader
-	152, // 349: CatchUpGroupRequest.group_id:type_name -> GroupId
-	235, // 350: CatchUpGroupRequest.range:type_name -> CatchUpRange
-	102, // 351: CatchUpUserRequest.request_header:type_name -> RequestHeader
-	235, // 352: CatchUpUserRequest.range:type_name -> CatchUpRange
-	222, // 353: CatchUpResponse.events:type_name -> Event
-	75,  // 354: CatchUpResponse.status:type_name -> CatchUpResponse.ResponseStatus
-	159, // 355: CatchUpResponse.group_data:type_name -> GroupData
-	102, // 356: GetGroupRequest.request_header:type_name -> RequestHeader
-	152, // 357: GetGroupRequest.group_id:type_name -> GroupId
-	76,  // 358: GetGroupRequest.fetch_options:type_name -> GetGroupRequest.FetchOptions
-	271, // 359: GetGroupRequest.user_not_older_than:type_name -> ReferenceRevision
-	271, // 360: GetGroupRequest.group_not_older_than:type_name -> ReferenceRevision
-	153, // 361: GetGroupResponse.group:type_name -> Group
-	106, // 362: GetGroupResponse.memberships:type_name -> Membership
-	270, // 363: GetGroupResponse.user_revision:type_name -> ReadRevision
-	270, // 364: GetGroupResponse.group_revision:type_name -> ReadRevision
-	20,  // 365: GetGroupResponse.membership_state:type_name -> MembershipState
-	104, // 366: GetGroupResponse.joined_member_ids:type_name -> MemberId
-	104, // 367: GetGroupResponse.invited_member_ids:type_name -> MemberId
-	190, // 368: GetGroupResponse.read_receipt_set:type_name -> ReadReceiptSet
-	136, // 369: GetGroupResponse.snippet:type_name -> Message
-	77,  // 370: WorldSection.world_section_type:type_name -> WorldSection.WorldSectionType
-	78,  // 371: WorldFilter.starred_state:type_name -> WorldFilter.StarredState
-	79,  // 372: WorldFilter.visibility_state:type_name -> WorldFilter.VisibilityState
-	80,  // 373: WorldFilter.read_state:type_name -> WorldFilter.ReadState
-	81,  // 374: WorldFilter.block_state:type_name -> WorldFilter.BlockState
-	82,  // 375: WorldFilter.named_state:type_name -> WorldFilter.NamedState
-	20,  // 376: WorldFilter.membership_state:type_name -> MembershipState
-	1,   // 377: WorldFilter.invite_category:type_name -> InviteCategory
-	83,  // 378: WorldFilter.member_type:type_name -> WorldFilter.MemberType
-	84,  // 379: WorldFilter.group_type:type_name -> WorldFilter.GroupType
-	89,  // 380: NameUsers.name_user_ids:type_name -> UserId
-	152, // 381: WorldItemLite.group_id:type_name -> GroupId
-	270, // 382: WorldItemLite.group_revision:type_name -> ReadRevision
-	156, // 383: WorldItemLite.read_state:type_name -> GroupReadState
-	335, // 384: WorldItemLite.dm_members:type_name -> WorldItemLite.DmMembers
-	243, // 385: WorldItemLite.name_users:type_name -> NameUsers
-	336, // 386: WorldItemLite.group_lite:type_name -> WorldItemLite.GroupLite
-	136, // 387: WorldItemLite.message:type_name -> Message
-	337, // 388: WorldItemLite.flat_group:type_name -> WorldItemLite.FlatGroup
-	338, // 389: WorldItemLite.threaded_group:type_name -> WorldItemLite.ThreadedGroup
-	21,  // 390: WorldItemLite.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
-	6,   // 391: WorldItemLite.group_support_level:type_name -> GroupSupportLevel
-	5,   // 392: WorldItemLite.group_unsupported_reason:type_name -> GroupUnsupportedReason
-	241, // 393: WorldSectionRequest.world_section:type_name -> WorldSection
-	242, // 394: WorldSectionRequest.world_filter:type_name -> WorldFilter
-	241, // 395: WorldSectionResponse.world_section:type_name -> WorldSection
-	242, // 396: WorldSectionResponse.world_filter:type_name -> WorldFilter
-	244, // 397: WorldSectionResponse.world_items:type_name -> WorldItemLite
-	102, // 398: PaginatedWorldRequest.request_header:type_name -> RequestHeader
-	245, // 399: PaginatedWorldRequest.world_section_requests:type_name -> WorldSectionRequest
-	85,  // 400: PaginatedWorldRequest.fetch_options:type_name -> PaginatedWorldRequest.FetchOptions
-	246, // 401: PaginatedWorldResponse.world_section_responses:type_name -> WorldSectionResponse
-	270, // 402: PaginatedWorldResponse.user_revision:type_name -> ReadRevision
-	244, // 403: PaginatedWorldResponse.world_items:type_name -> WorldItemLite
-	102, // 404: RemoveMembershipsRequest.request_header:type_name -> RequestHeader
-	104, // 405: RemoveMembershipsRequest.member_ids:type_name -> MemberId
-	152, // 406: RemoveMembershipsRequest.group_id:type_name -> GroupId
-	20,  // 407: RemoveMembershipsRequest.membership_state:type_name -> MembershipState
-	102, // 408: RemoveMembershipResult.request_header:type_name -> RequestHeader
-	104, // 409: RemoveMembershipResult.member_id:type_name -> MemberId
-	250, // 410: RemoveMembershipsResponse.results:type_name -> RemoveMembershipResult
-	158, // 411: RemoveMembershipsResponse.retention_settings:type_name -> RetentionSettings
-	269, // 412: RemoveMembershipsResponse.retention_settings_group_revision:type_name -> WriteRevision
-	102, // 413: HideGroupRequest.request_header:type_name -> RequestHeader
-	152, // 414: HideGroupRequest.id:type_name -> GroupId
-	156, // 415: HideGroupResponse.read_state:type_name -> GroupReadState
-	269, // 416: HideGroupResponse.user_revision:type_name -> WriteRevision
-	86,  // 417: InviteNotificationSettings.option:type_name -> InviteNotificationSettings.NotificationOption
-	102, // 418: CreateMembershipRequest.request_header:type_name -> RequestHeader
-	104, // 419: CreateMembershipRequest.member_ids:type_name -> MemberId
-	176, // 420: CreateMembershipRequest.invitee_member_infos:type_name -> InviteeMemberInfo
-	20,  // 421: CreateMembershipRequest.membership_state:type_name -> MembershipState
-	152, // 422: CreateMembershipRequest.group_id:type_name -> GroupId
-	254, // 423: CreateMembershipRequest.notification_settings:type_name -> InviteNotificationSettings
-	179, // 424: CreateMembershipResponse.results:type_name -> CreateMembershipResult
-	269, // 425: CreateMembershipResponse.group_revision:type_name -> WriteRevision
-	158, // 426: CreateMembershipResponse.retention_settings:type_name -> RetentionSettings
-	269, // 427: CreateMembershipResponse.retention_settings_group_revision:type_name -> WriteRevision
-	102, // 428: MarkGroupReadstateRequest.request_header:type_name -> RequestHeader
-	152, // 429: MarkGroupReadstateRequest.id:type_name -> GroupId
-	156, // 430: MarkGroupReadstateResponse.read_state:type_name -> GroupReadState
-	269, // 431: MarkGroupReadstateResponse.user_revision:type_name -> WriteRevision
-	102, // 432: SetPresenceSharedRequest.request_header:type_name -> RequestHeader
-	95,  // 433: SetPresenceSharedResponse.user_status:type_name -> UserStatus
-	269, // 434: SetPresenceSharedResponse.user_revision:type_name -> WriteRevision
-	102, // 435: SetDndDurationRequest.request_header:type_name -> RequestHeader
-	87,  // 436: SetDndDurationRequest.current_dnd_state:type_name -> SetDndDurationRequest.State
-	95,  // 437: SetDndDurationResponse.user_status:type_name -> UserStatus
-	269, // 438: SetDndDurationResponse.user_revision:type_name -> WriteRevision
-	102, // 439: UpdateGroupRequest.request_header:type_name -> RequestHeader
-	151, // 440: UpdateGroupRequest.space_id:type_name -> SpaceId
-	88,  // 441: UpdateGroupRequest.update_masks:type_name -> UpdateGroupRequest.UpdateMask
-	231, // 442: UpdateGroupRequest.visibility:type_name -> GroupVisibility
-	224, // 443: UpdateGroupRequest.space_details:type_name -> GroupDetails
-	153, // 444: UpdateGroupResponse.group:type_name -> Group
-	269, // 445: UpdateGroupResponse.group_revision:type_name -> WriteRevision
-	102, // 446: BlockEntityRequest.request_header:type_name -> RequestHeader
-	89,  // 447: BlockEntityRequest.user_id:type_name -> UserId
-	152, // 448: BlockEntityRequest.group_id:type_name -> GroupId
-	156, // 449: BlockEntityResponse.read_state:type_name -> GroupReadState
-	269, // 450: BlockEntityResponse.user_revision:type_name -> WriteRevision
-	102, // 451: SetCustomStatusRequest.request_header:type_name -> RequestHeader
-	94,  // 452: SetCustomStatusRequest.custom_status:type_name -> CustomStatus
-	95,  // 453: SetCustomStatusResponse.user_status:type_name -> UserStatus
-	269, // 454: SetCustomStatusResponse.user_revision:type_name -> WriteRevision
-	274, // 455: JAddOnsFormattedText.FormattedTextElement.styled_text:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText
-	275, // 456: JAddOnsFormattedText.FormattedTextElement.hyperlink:type_name -> JAddOnsFormattedText.FormattedTextElement.HyperLink
-	273, // 457: JAddOnsFormattedText.FormattedTextElement.StyledText.datetime:type_name -> JAddOnsFormattedText.FormattedTextElement.DateTime
-	26,  // 458: JAddOnsFormattedText.FormattedTextElement.StyledText.styles:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.Style
-	27,  // 459: JAddOnsFormattedText.FormattedTextElement.StyledText.font_weight:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.FontWeight
-	116, // 460: JAddOnsFormattedText.FormattedTextElement.StyledText.theme_colors:type_name -> JAddOnsThemeColors
-	114, // 461: JAddOnsCardItem.CardItemHeader.title:type_name -> JAddOnsFormattedText
-	114, // 462: JAddOnsCardItem.CardItemHeader.subtitle:type_name -> JAddOnsFormattedText
-	28,  // 463: JAddOnsCardItem.CardItemHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	113, // 464: JAddOnsCardItem.CardItemSection.id:type_name -> JAddOnsIdentifier
-	114, // 465: JAddOnsCardItem.CardItemSection.header:type_name -> JAddOnsFormattedText
-	127, // 466: JAddOnsCardItem.CardItemSection.widgets:type_name -> JAddOnsWidget
-	120, // 467: JAddOnsCardItem.CardItemAction.on_click:type_name -> JAddOnsOnClick
-	296, // 468: JAddOnsCardItem.CardItemFixedFooter.buttons:type_name -> JAddOnsWidget.Button
-	294, // 469: JAddOnsCardItem.CardItemFixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
-	294, // 470: JAddOnsCardItem.CardItemFixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
-	128, // 471: JAddOnsCardItem.CardItemRefreshAction.method:type_name -> JAddOnsFormAction
-	122, // 472: JAddOnsGrid.GridItem.image:type_name -> JAddOnsImageComponent
-	35,  // 473: JAddOnsGrid.GridItem.text_alignment:type_name -> JAddOnsWidget.HorizontalAlign
-	33,  // 474: JAddOnsGrid.GridItem.layout:type_name -> JAddOnsGrid.GridItem.GridItemLayout
-	120, // 475: JAddOnsGrid.GridItem.on_click:type_name -> JAddOnsOnClick
-	114, // 476: JAddOnsWidget.TextParagraph.text:type_name -> JAddOnsFormattedText
-	114, // 477: JAddOnsWidget.TextKeyValue.key:type_name -> JAddOnsFormattedText
-	114, // 478: JAddOnsWidget.TextKeyValue.text:type_name -> JAddOnsFormattedText
-	120, // 479: JAddOnsWidget.TextKeyValue.on_click:type_name -> JAddOnsOnClick
-	114, // 480: JAddOnsWidget.ImageKeyValue.text:type_name -> JAddOnsFormattedText
-	120, // 481: JAddOnsWidget.ImageKeyValue.on_click:type_name -> JAddOnsOnClick
-	113, // 482: JAddOnsWidget.Image.id:type_name -> JAddOnsIdentifier
-	120, // 483: JAddOnsWidget.Image.on_click:type_name -> JAddOnsOnClick
-	28,  // 484: JAddOnsWidget.Icon.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	28,  // 485: JAddOnsWidget.KeyValue.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	286, // 486: JAddOnsWidget.KeyValue.start_icon:type_name -> JAddOnsWidget.Icon
-	114, // 487: JAddOnsWidget.KeyValue.top_label:type_name -> JAddOnsFormattedText
-	114, // 488: JAddOnsWidget.KeyValue.content:type_name -> JAddOnsFormattedText
-	114, // 489: JAddOnsWidget.KeyValue.bottom_label:type_name -> JAddOnsFormattedText
-	120, // 490: JAddOnsWidget.KeyValue.on_click:type_name -> JAddOnsOnClick
-	296, // 491: JAddOnsWidget.KeyValue.button:type_name -> JAddOnsWidget.Button
-	297, // 492: JAddOnsWidget.KeyValue.switch_widget:type_name -> JAddOnsWidget.KeyValue.SwitchWidget
-	286, // 493: JAddOnsWidget.KeyValue.end_icon:type_name -> JAddOnsWidget.Icon
-	298, // 494: JAddOnsWidget.Menu.items:type_name -> JAddOnsWidget.Menu.MenuItem
-	128, // 495: JAddOnsWidget.Menu.on_change:type_name -> JAddOnsFormAction
-	299, // 496: JAddOnsWidget.AutoComplete.items:type_name -> JAddOnsWidget.AutoComplete.AutoCompleteItem
-	113, // 497: JAddOnsWidget.TextField.id:type_name -> JAddOnsIdentifier
-	37,  // 498: JAddOnsWidget.TextField.type:type_name -> JAddOnsWidget.TextField.TextFieldType
-	38,  // 499: JAddOnsWidget.TextField.line_type:type_name -> JAddOnsWidget.TextField.LineType
-	128, // 500: JAddOnsWidget.TextField.on_change:type_name -> JAddOnsFormAction
-	290, // 501: JAddOnsWidget.TextField.auto_complete:type_name -> JAddOnsWidget.AutoComplete
-	128, // 502: JAddOnsWidget.TextField.auto_complete_callback:type_name -> JAddOnsFormAction
-	113, // 503: JAddOnsWidget.SelectionControl.id:type_name -> JAddOnsIdentifier
-	39,  // 504: JAddOnsWidget.SelectionControl.type:type_name -> JAddOnsWidget.SelectionControl.SelectionType
-	300, // 505: JAddOnsWidget.SelectionControl.items:type_name -> JAddOnsWidget.SelectionControl.SelectionItem
-	128, // 506: JAddOnsWidget.SelectionControl.on_change:type_name -> JAddOnsFormAction
-	40,  // 507: JAddOnsWidget.DateTimePicker.type:type_name -> JAddOnsWidget.DateTimePicker.DateTimePickerType
-	128, // 508: JAddOnsWidget.DateTimePicker.on_change:type_name -> JAddOnsFormAction
-	116, // 509: JAddOnsWidget.DateTimePicker.theme_colors:type_name -> JAddOnsThemeColors
-	113, // 510: JAddOnsWidget.TextButton.id:type_name -> JAddOnsIdentifier
-	114, // 511: JAddOnsWidget.TextButton.text:type_name -> JAddOnsFormattedText
-	120, // 512: JAddOnsWidget.TextButton.on_click:type_name -> JAddOnsOnClick
-	41,  // 513: JAddOnsWidget.TextButton.style:type_name -> JAddOnsWidget.TextButton.Style
-	116, // 514: JAddOnsWidget.TextButton.background_theme_colors:type_name -> JAddOnsThemeColors
-	113, // 515: JAddOnsWidget.ImageButton.id:type_name -> JAddOnsIdentifier
-	120, // 516: JAddOnsWidget.ImageButton.on_click:type_name -> JAddOnsOnClick
-	294, // 517: JAddOnsWidget.Button.text_button:type_name -> JAddOnsWidget.TextButton
-	295, // 518: JAddOnsWidget.Button.image_button:type_name -> JAddOnsWidget.ImageButton
-	113, // 519: JAddOnsWidget.KeyValue.SwitchWidget.id:type_name -> JAddOnsIdentifier
-	128, // 520: JAddOnsWidget.KeyValue.SwitchWidget.on_change:type_name -> JAddOnsFormAction
-	36,  // 521: JAddOnsWidget.KeyValue.SwitchWidget.control_type:type_name -> JAddOnsWidget.KeyValue.SwitchWidget.ControlType
-	113, // 522: JAddOnsWidget.SelectionControl.SelectionItem.id:type_name -> JAddOnsIdentifier
-	114, // 523: JAddOnsContextualAddOn.Toolbar.name:type_name -> JAddOnsFormattedText
-	116, // 524: JAddOnsContextualAddOn.Toolbar.theme_colors:type_name -> JAddOnsThemeColors
-	304, // 525: JAddOnsContextualAddOn.Card.header:type_name -> JAddOnsContextualAddOn.Card.CardHeader
-	305, // 526: JAddOnsContextualAddOn.Card.sections:type_name -> JAddOnsContextualAddOn.Card.Section
-	306, // 527: JAddOnsContextualAddOn.Card.card_actions:type_name -> JAddOnsContextualAddOn.Card.CardAction
-	307, // 528: JAddOnsContextualAddOn.Card.fixed_footer:type_name -> JAddOnsContextualAddOn.Card.FixedFooter
-	308, // 529: JAddOnsContextualAddOn.Card.refresh_action:type_name -> JAddOnsContextualAddOn.Card.RefreshAction
-	116, // 530: JAddOnsContextualAddOn.Card.background_theme_colors:type_name -> JAddOnsThemeColors
-	114, // 531: JAddOnsContextualAddOn.Card.CardHeader.title:type_name -> JAddOnsFormattedText
-	114, // 532: JAddOnsContextualAddOn.Card.CardHeader.subtitle:type_name -> JAddOnsFormattedText
-	28,  // 533: JAddOnsContextualAddOn.Card.CardHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
-	113, // 534: JAddOnsContextualAddOn.Card.Section.id:type_name -> JAddOnsIdentifier
-	114, // 535: JAddOnsContextualAddOn.Card.Section.header:type_name -> JAddOnsFormattedText
-	127, // 536: JAddOnsContextualAddOn.Card.Section.widgets:type_name -> JAddOnsWidget
-	120, // 537: JAddOnsContextualAddOn.Card.CardAction.on_click:type_name -> JAddOnsOnClick
-	296, // 538: JAddOnsContextualAddOn.Card.FixedFooter.buttons:type_name -> JAddOnsWidget.Button
-	294, // 539: JAddOnsContextualAddOn.Card.FixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
-	294, // 540: JAddOnsContextualAddOn.Card.FixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
-	128, // 541: JAddOnsContextualAddOn.Card.RefreshAction.method:type_name -> JAddOnsFormAction
-	201, // 542: Event.EventBody.group_viewed:type_name -> GroupViewedEvent
-	202, // 543: Event.EventBody.group_updated:type_name -> GroupUpdatedEvent
-	195, // 544: Event.EventBody.message_posted:type_name -> MessageEvent
-	212, // 545: Event.EventBody.topic_mute_changed:type_name -> TopicMuteChangedEvent
-	203, // 546: Event.EventBody.web_push_notification:type_name -> WebPushNotificationEvent
-	213, // 547: Event.EventBody.group_unread_subscribed_topic_count_updated_event:type_name -> GroupUnreadSubscribedTopicCountUpdatedEvent
-	199, // 548: Event.EventBody.membership_changed:type_name -> MembershipChangedEvent
-	197, // 549: Event.EventBody.message_deleted:type_name -> MessageDeletedEvent
-	214, // 550: Event.EventBody.topic_created:type_name -> TopicCreatedEvent
-	196, // 551: Event.EventBody.message_reaction:type_name -> MessageReactionEvent
-	96,  // 552: Event.EventBody.user_status_updated:type_name -> UserStatusUpdatedEvent
-	215, // 553: Event.EventBody.message_smart_replies_event:type_name -> MessageSmartRepliesEvent
-	198, // 554: Event.EventBody.typing_state_changed:type_name -> TypingStateChangedEvent
-	200, // 555: Event.EventBody.read_receipt_changed:type_name -> ReadReceiptChangedEvent
-	216, // 556: Event.EventBody.group_default_sort_order_updated_event:type_name -> GroupDefaultSortOrderUpdatedEvent
-	217, // 557: Event.EventBody.group_read_state_updated_event:type_name -> GroupReadStateUpdatedEvent
-	65,  // 558: Event.EventBody.event_type:type_name -> Event.EventType
-	224, // 559: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.new_group_details:type_name -> GroupDetails
-	224, // 560: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.prev_group_details:type_name -> GroupDetails
-	67,  // 561: MeetingSpace.RecordingInfo.recording_status:type_name -> MeetingSpace.RecordingInfo.RecordingStatus
-	327, // 562: MeetingSpace.RecordingInfo.latest_recording_event:type_name -> MeetingSpace.RecordingInfo.RecordingEvent
-	13,  // 563: MeetingSpace.RecordingInfo.recording_application_type:type_name -> RecordingApplicationType
-	69,  // 564: MeetingSpace.StreamingSessionInfo.status:type_name -> MeetingSpace.StreamingSessionInfo.Status
-	13,  // 565: MeetingSpace.StreamingSessionInfo.application_type:type_name -> RecordingApplicationType
-	328, // 566: MeetingSpace.StreamingSessionInfo.latest_session_event:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent
-	14,  // 567: MeetingSpace.StreamingSessionInfo.viewer_access_policy:type_name -> BroadcastAccessPolicy
-	329, // 568: MeetingSpace.StreamingSessionInfo.viewer_stats:type_name -> MeetingSpace.StreamingSessionInfo.StreamViewerStats
-	319, // 569: MeetingSpace.CallInfo.presenter:type_name -> MeetingSpace.Presenter
-	320, // 570: MeetingSpace.CallInfo.recording_info:type_name -> MeetingSpace.RecordingInfo
-	321, // 571: MeetingSpace.CallInfo.streaming_sessions:type_name -> MeetingSpace.StreamingSessionInfo
-	330, // 572: MeetingSpace.CallInfo.settings:type_name -> MeetingSpace.CallInfo.CallSettings
-	331, // 573: MeetingSpace.CallInfo.paygate_info:type_name -> MeetingSpace.CallInfo.PaygateInfo
-	332, // 574: MeetingSpace.CallInfo.cse_info:type_name -> MeetingSpace.CallInfo.CseInfo
-	68,  // 575: MeetingSpace.RecordingInfo.RecordingEvent.type:type_name -> MeetingSpace.RecordingInfo.RecordingEvent.EventType
-	70,  // 576: MeetingSpace.StreamingSessionInfo.SessionEvent.type:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent.EventType
-	232, // 577: MeetingSpace.CallInfo.PaygateInfo.call_ending_soon_warning_time:type_name -> ComGoogleProtobufTimestamp
-	232, // 578: MeetingSpace.CallInfo.PaygateInfo.call_ending_time:type_name -> ComGoogleProtobufTimestamp
-	104, // 579: MembershipChangedMetadata.AffectedMembership.affected_member:type_name -> MemberId
-	20,  // 580: MembershipChangedMetadata.AffectedMembership.prior_membership_state:type_name -> MembershipState
-	18,  // 581: MembershipChangedMetadata.AffectedMembership.prior_membership_role:type_name -> MembershipRole
-	18,  // 582: MembershipChangedMetadata.AffectedMembership.target_membership_role:type_name -> MembershipRole
-	89,  // 583: WorldItemLite.MembershipLite.user_id:type_name -> UserId
-	20,  // 584: WorldItemLite.MembershipLite.membership_state:type_name -> MembershipState
-	89,  // 585: WorldItemLite.DmMembers.members:type_name -> UserId
-	334, // 586: WorldItemLite.DmMembers.memberships:type_name -> WorldItemLite.MembershipLite
-	89,  // 587: WorldItemLite.GroupLite.creator_id:type_name -> UserId
-	158, // 588: WorldItemLite.GroupLite.retention_settings:type_name -> RetentionSettings
-	224, // 589: WorldItemLite.GroupLite.group_details:type_name -> GroupDetails
-	590, // [590:590] is the sub-list for method output_type
-	590, // [590:590] is the sub-list for method input_type
-	590, // [590:590] is the sub-list for extension type_name
-	590, // [590:590] is the sub-list for extension extendee
-	0,   // [0:590] is the sub-list for field type_name
+	343, // 173: GroupNotificationSettings.mute:type_name -> GroupNotificationSettingsUpdate.Mute
+	51,  // 174: RetentionSettings.state:type_name -> RetentionSettings.RetentionState
+	51,  // 175: GroupData.retention_state:type_name -> RetentionSettings.RetentionState
+	153, // 176: TopicId.group_id:type_name -> GroupId
+	161, // 177: Topic.id:type_name -> TopicId
+	137, // 178: Topic.replies:type_name -> Message
+	163, // 179: Topic.topic_read_state:type_name -> TopicReadState
+	159, // 180: Topic.retention_settings:type_name -> RetentionSettings
+	136, // 181: SendReplyTarget.id:type_name -> MessageId
+	164, // 182: MessageInfo.reply_to:type_name -> SendReplyTarget
+	103, // 183: CreateTopicRequest.request_header:type_name -> RequestHeader
+	153, // 184: CreateTopicRequest.group_id:type_name -> GroupId
+	147, // 185: CreateTopicRequest.annotations:type_name -> Annotation
+	159, // 186: CreateTopicRequest.retention_settings:type_name -> RetentionSettings
+	165, // 187: CreateTopicRequest.message_info:type_name -> MessageInfo
+	162, // 188: CreateTopicResponse.topic:type_name -> Topic
+	270, // 189: CreateTopicResponse.group_revision:type_name -> WriteRevision
+	271, // 190: CreateTopicResponse.current_group_revision:type_name -> ReadRevision
+	103, // 191: CreateMessageRequest.request_header:type_name -> RequestHeader
+	135, // 192: CreateMessageRequest.parent_id:type_name -> MessageParentId
+	147, // 193: CreateMessageRequest.annotations:type_name -> Annotation
+	165, // 194: CreateMessageRequest.message_info:type_name -> MessageInfo
+	137, // 195: CreateMessageResponse.message:type_name -> Message
+	270, // 196: CreateMessageResponse.group_revision:type_name -> WriteRevision
+	271, // 197: CreateMessageResponse.current_group_revision:type_name -> ReadRevision
+	103, // 198: UpdateReactionRequest.request_header:type_name -> RequestHeader
+	136, // 199: UpdateReactionRequest.message_id:type_name -> MessageId
+	94,  // 200: UpdateReactionRequest.emoji:type_name -> Emoji
+	52,  // 201: UpdateReactionRequest.type:type_name -> UpdateReactionRequest.ReactionUpdateType
+	270, // 202: UpdateReactionResponse.group_revision:type_name -> WriteRevision
+	103, // 203: DeleteMessageRequest.request_header:type_name -> RequestHeader
+	136, // 204: DeleteMessageRequest.message_id:type_name -> MessageId
+	270, // 205: DeleteMessageResponse.group_revision:type_name -> WriteRevision
+	103, // 206: EditMessageRequest.request_header:type_name -> RequestHeader
+	136, // 207: EditMessageRequest.message_id:type_name -> MessageId
+	147, // 208: EditMessageRequest.annotations:type_name -> Annotation
+	165, // 209: EditMessageRequest.message_info:type_name -> MessageInfo
+	137, // 210: EditMessageResponse.message:type_name -> Message
+	270, // 211: EditMessageResponse.group_revision:type_name -> WriteRevision
+	90,  // 212: InviteeInfo.user_id:type_name -> UserId
+	176, // 213: InviteeMemberInfo.invitee_info:type_name -> InviteeInfo
+	232, // 214: SpaceCreationInfo.visibility:type_name -> GroupVisibility
+	315, // 215: SpaceCreationInfo.flat_group:type_name -> SpaceCreationInfo.FlatGroup
+	316, // 216: SpaceCreationInfo.threaded_group:type_name -> SpaceCreationInfo.ThreadedGroup
+	177, // 217: SpaceCreationInfo.invitee_member_infos:type_name -> InviteeMemberInfo
+	317, // 218: SpaceCreationInfo.space_type:type_name -> SpaceCreationInfo.SpaceType
+	21,  // 219: SpaceCreationInfo.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
+	103, // 220: CreateGroupRequest.request_header:type_name -> RequestHeader
+	178, // 221: CreateGroupRequest.space:type_name -> SpaceCreationInfo
+	107, // 222: CreateMembershipResult.membership:type_name -> Membership
+	154, // 223: CreateGroupResponse.group:type_name -> Group
+	270, // 224: CreateGroupResponse.group_revision:type_name -> WriteRevision
+	270, // 225: CreateGroupResponse.user_revision:type_name -> WriteRevision
+	180, // 226: CreateGroupResponse.results:type_name -> CreateMembershipResult
+	103, // 227: CreateDmRequest.request_header:type_name -> RequestHeader
+	53,  // 228: CreateDmRequest.fetch_options:type_name -> CreateDmRequest.FetchOptions
+	90,  // 229: CreateDmRequest.members:type_name -> UserId
+	176, // 230: CreateDmRequest.invitees:type_name -> InviteeInfo
+	159, // 231: CreateDmRequest.retention_settings:type_name -> RetentionSettings
+	154, // 232: CreateDmResponse.dm:type_name -> Group
+	162, // 233: CreateDmResponse.topic:type_name -> Topic
+	270, // 234: CreateDmResponse.group_revision:type_name -> WriteRevision
+	107, // 235: CreateDmResponse.memberships:type_name -> Membership
+	162, // 236: ListTopicsResponse.topics:type_name -> Topic
+	271, // 237: ListTopicsResponse.user_revision:type_name -> ReadRevision
+	271, // 238: ListTopicsResponse.group_revision:type_name -> ReadRevision
+	191, // 239: ListTopicsResponse.read_receipt_set:type_name -> ReadReceiptSet
+	103, // 240: ListTopicsRequest.request_header:type_name -> RequestHeader
+	153, // 241: ListTopicsRequest.group_id:type_name -> GroupId
+	54,  // 242: ListTopicsRequest.fetch_options:type_name -> ListTopicsRequest.FetchOptions
+	272, // 243: ListTopicsRequest.user_not_older_than:type_name -> ReferenceRevision
+	272, // 244: ListTopicsRequest.group_not_older_than:type_name -> ReferenceRevision
+	103, // 245: ListMessagesRequest.request_header:type_name -> RequestHeader
+	135, // 246: ListMessagesRequest.parent_id:type_name -> MessageParentId
+	137, // 247: ListMessagesResponse.messages:type_name -> Message
+	271, // 248: ListMessagesResponse.group_revision:type_name -> ReadRevision
+	103, // 249: ListMembersRequest.request_header:type_name -> RequestHeader
+	152, // 250: ListMembersRequest.space_id:type_name -> SpaceId
+	153, // 251: ListMembersRequest.group_id:type_name -> GroupId
+	272, // 252: ListMembersRequest.not_older_than:type_name -> ReferenceRevision
+	107, // 253: ListMembersResponse.memberships:type_name -> Membership
+	104, // 254: ListMembersResponse.members:type_name -> Member
+	105, // 255: ListMembersResponse.member_ids:type_name -> MemberId
+	271, // 256: ListMembersResponse.group_revision:type_name -> ReadRevision
+	105, // 257: ListMembersResponse.invited_member_ids:type_name -> MemberId
+	91,  // 258: ReadReceipt.user:type_name -> User
+	190, // 259: ReadReceiptSet.read_receipts:type_name -> ReadReceipt
+	137, // 260: WebPushNotification.message:type_name -> Message
+	7,   // 261: WebPushNotification.cause:type_name -> NotificationCause
+	21,  // 262: IosLocalNotification.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
+	193, // 263: MobileLocalNotification.android_local_notification:type_name -> AndroidLocalNotification
+	194, // 264: MobileLocalNotification.ios_local_notification:type_name -> IosLocalNotification
+	137, // 265: MessageEvent.message:type_name -> Message
+	136, // 266: MessageReactionEvent.message_id:type_name -> MessageId
+	94,  // 267: MessageReactionEvent.emoji:type_name -> Emoji
+	90,  // 268: MessageReactionEvent.user_id:type_name -> UserId
+	55,  // 269: MessageReactionEvent.type:type_name -> MessageReactionEvent.ReactionEventType
+	136, // 270: MessageDeletedEvent.message_id:type_name -> MessageId
+	4,   // 271: TypingStateChangedEvent.state:type_name -> TypingState
+	90,  // 272: TypingStateChangedEvent.user_id:type_name -> UserId
+	148, // 273: TypingStateChangedEvent.context:type_name -> TypingContext
+	107, // 274: MembershipChangedEvent.new_membership:type_name -> Membership
+	20,  // 275: MembershipChangedEvent.prior_membership_state:type_name -> MembershipState
+	18,  // 276: MembershipChangedEvent.prior_membership_role:type_name -> MembershipRole
+	153, // 277: ReadReceiptChangedEvent.group_id:type_name -> GroupId
+	191, // 278: ReadReceiptChangedEvent.read_receipt_set:type_name -> ReadReceiptSet
+	153, // 279: GroupViewedEvent.group_id:type_name -> GroupId
+	154, // 280: GroupUpdatedEvent.new:type_name -> Group
+	154, // 281: GroupUpdatedEvent.old:type_name -> Group
+	56,  // 282: GroupUpdatedEvent.update_type:type_name -> GroupUpdatedEvent.UpdateType
+	192, // 283: WebPushNotificationEvent.notification:type_name -> WebPushNotification
+	57,  // 284: WebPushNotificationEvent.dispatch_approach_type:type_name -> WebPushNotificationEvent.DispatchApproachType
+	195, // 285: WebPushNotificationEvent.mobile_local_notification:type_name -> MobileLocalNotification
+	58,  // 286: WebPushNotificationEvent.endpoint_types:type_name -> WebPushNotificationEvent.EndpointType
+	10,  // 287: StreamEventsRequest.platform:type_name -> Platform
+	206, // 288: StreamEventsRequest.client_info:type_name -> ClientInfo
+	208, // 289: StreamEventsRequest.ping_event:type_name -> PingEvent
+	209, // 290: StreamEventsRequest.clock_sync_request:type_name -> ClockSyncRequest
+	211, // 291: StreamEventsRequest.group_subscription_event:type_name -> GroupSubscriptionEvent
+	10,  // 292: ClientInfo.platform:type_name -> Platform
+	8,   // 293: ClientInfo.origin:type_name -> EventOrigin
+	59,  // 294: ClientNotificationsState.device_setting_state:type_name -> ClientNotificationsState.DeviceNotificationSettingState
+	60,  // 295: PingEvent.state:type_name -> PingEvent.State
+	61,  // 296: PingEvent.application_focus_state:type_name -> PingEvent.ApplicationFocusState
+	62,  // 297: PingEvent.client_interactive_state:type_name -> PingEvent.ClientInteractiveState
+	207, // 298: PingEvent.notifications_state:type_name -> ClientNotificationsState
+	63,  // 299: PingEvent.device_active_state:type_name -> PingEvent.DeviceActiveState
+	153, // 300: GroupSubscriptionEvent.group_ids:type_name -> GroupId
+	223, // 301: StreamEventsResponse.event:type_name -> Event
+	210, // 302: StreamEventsResponse.clock_sync_response:type_name -> ClockSyncResponse
+	161, // 303: TopicMuteChangedEvent.topic_id:type_name -> TopicId
+	153, // 304: GroupUnreadSubscribedTopicCountUpdatedEvent.group_id:type_name -> GroupId
+	162, // 305: TopicCreatedEvent.topic:type_name -> Topic
+	153, // 306: MessageSmartRepliesEvent.group_id:type_name -> GroupId
+	153, // 307: GroupDefaultSortOrderUpdatedEvent.group_id:type_name -> GroupId
+	153, // 308: GroupReadStateUpdatedEvent.group_id:type_name -> GroupId
+	9,   // 309: BackendMetadata.dimensions:type_name -> BackendMetadataDimension
+	220, // 310: Interval.start:type_name -> Timestamp
+	220, // 311: Interval.end:type_name -> Timestamp
+	64,  // 312: LatencyData.server:type_name -> LatencyData.Server
+	221, // 313: LatencyData.interval:type_name -> Interval
+	153, // 314: Event.group_id:type_name -> GroupId
+	65,  // 315: Event.type:type_name -> Event.EventType
+	318, // 316: Event.body:type_name -> Event.EventBody
+	90,  // 317: Event.user_id:type_name -> UserId
+	270, // 318: Event.user_revision:type_name -> WriteRevision
+	270, // 319: Event.group_revision:type_name -> WriteRevision
+	318, // 320: Event.bodies:type_name -> Event.EventBody
+	219, // 321: Event.backend_metadata:type_name -> BackendMetadata
+	222, // 322: Event.latency_data:type_name -> LatencyData
+	232, // 323: RoomUpdatedMetadata.visibility:type_name -> GroupVisibility
+	319, // 324: RoomUpdatedMetadata.rename_metadata:type_name -> RoomUpdatedMetadata.RoomRenameMetadata
+	320, // 325: RoomUpdatedMetadata.group_details_metadata:type_name -> RoomUpdatedMetadata.GroupDetailsUpdatedMetadata
+	91,  // 326: RoomUpdatedMetadata.initiator:type_name -> User
+	321, // 327: MeetingSpace.phone_access:type_name -> MeetingSpace.PhoneAccess
+	322, // 328: MeetingSpace.universal_phone_access:type_name -> MeetingSpace.UniversalPhoneAccess
+	326, // 329: MeetingSpace.call_info:type_name -> MeetingSpace.CallInfo
+	327, // 330: MeetingSpace.gateway_access:type_name -> MeetingSpace.GatewayAccess
+	12,  // 331: MeetingSpace.accepted_number_class:type_name -> DialInNumberClass
+	328, // 332: MeetingSpace.gateway_sip_access:type_name -> MeetingSpace.GatewaySipAccess
+	329, // 333: MeetingSpace.broadcast_access:type_name -> MeetingSpace.BroadcastAccess
+	330, // 334: MeetingSpace.settings:type_name -> MeetingSpace.Settings
+	227, // 335: VideoCallMetadata.meeting_space:type_name -> MeetingSpace
+	71,  // 336: MembershipChangedMetadata.type:type_name -> MembershipChangedMetadata.Type
+	337, // 337: MembershipChangedMetadata.affected_memberships:type_name -> MembershipChangedMetadata.AffectedMembership
+	90,  // 338: MembershipChangedMetadata.initiator:type_name -> UserId
+	105, // 339: MembershipChangedMetadata.affected_members:type_name -> MemberId
+	91,  // 340: MembershipChangedMetadata.initiator_profile:type_name -> User
+	104, // 341: MembershipChangedMetadata.affected_member_profiles:type_name -> Member
+	90,  // 342: UserMentionMetadata.id:type_name -> UserId
+	176, // 343: UserMentionMetadata.invitee_info:type_name -> InviteeInfo
+	72,  // 344: UserMentionMetadata.type:type_name -> UserMentionMetadata.Type
+	90,  // 345: SlashCommandMetadata.id:type_name -> UserId
+	73,  // 346: SlashCommandMetadata.type:type_name -> SlashCommandMetadata.Type
+	103, // 347: GetServerTimeRequest.request_header:type_name -> RequestHeader
+	233, // 348: GetServerTimeResponse.timestamp:type_name -> ComGoogleProtobufTimestamp
+	103, // 349: CatchUpGroupRequest.request_header:type_name -> RequestHeader
+	153, // 350: CatchUpGroupRequest.group_id:type_name -> GroupId
+	236, // 351: CatchUpGroupRequest.range:type_name -> CatchUpRange
+	103, // 352: CatchUpUserRequest.request_header:type_name -> RequestHeader
+	236, // 353: CatchUpUserRequest.range:type_name -> CatchUpRange
+	223, // 354: CatchUpResponse.events:type_name -> Event
+	75,  // 355: CatchUpResponse.status:type_name -> CatchUpResponse.ResponseStatus
+	160, // 356: CatchUpResponse.group_data:type_name -> GroupData
+	103, // 357: GetGroupRequest.request_header:type_name -> RequestHeader
+	153, // 358: GetGroupRequest.group_id:type_name -> GroupId
+	76,  // 359: GetGroupRequest.fetch_options:type_name -> GetGroupRequest.FetchOptions
+	272, // 360: GetGroupRequest.user_not_older_than:type_name -> ReferenceRevision
+	272, // 361: GetGroupRequest.group_not_older_than:type_name -> ReferenceRevision
+	154, // 362: GetGroupResponse.group:type_name -> Group
+	107, // 363: GetGroupResponse.memberships:type_name -> Membership
+	271, // 364: GetGroupResponse.user_revision:type_name -> ReadRevision
+	271, // 365: GetGroupResponse.group_revision:type_name -> ReadRevision
+	20,  // 366: GetGroupResponse.membership_state:type_name -> MembershipState
+	105, // 367: GetGroupResponse.joined_member_ids:type_name -> MemberId
+	105, // 368: GetGroupResponse.invited_member_ids:type_name -> MemberId
+	191, // 369: GetGroupResponse.read_receipt_set:type_name -> ReadReceiptSet
+	137, // 370: GetGroupResponse.snippet:type_name -> Message
+	77,  // 371: WorldSection.world_section_type:type_name -> WorldSection.WorldSectionType
+	78,  // 372: WorldFilter.starred_state:type_name -> WorldFilter.StarredState
+	79,  // 373: WorldFilter.visibility_state:type_name -> WorldFilter.VisibilityState
+	80,  // 374: WorldFilter.read_state:type_name -> WorldFilter.ReadState
+	81,  // 375: WorldFilter.block_state:type_name -> WorldFilter.BlockState
+	82,  // 376: WorldFilter.named_state:type_name -> WorldFilter.NamedState
+	20,  // 377: WorldFilter.membership_state:type_name -> MembershipState
+	1,   // 378: WorldFilter.invite_category:type_name -> InviteCategory
+	83,  // 379: WorldFilter.member_type:type_name -> WorldFilter.MemberType
+	84,  // 380: WorldFilter.group_type:type_name -> WorldFilter.GroupType
+	90,  // 381: NameUsers.name_user_ids:type_name -> UserId
+	153, // 382: WorldItemLite.group_id:type_name -> GroupId
+	271, // 383: WorldItemLite.group_revision:type_name -> ReadRevision
+	157, // 384: WorldItemLite.read_state:type_name -> GroupReadState
+	339, // 385: WorldItemLite.dm_members:type_name -> WorldItemLite.DmMembers
+	244, // 386: WorldItemLite.name_users:type_name -> NameUsers
+	340, // 387: WorldItemLite.group_lite:type_name -> WorldItemLite.GroupLite
+	137, // 388: WorldItemLite.message:type_name -> Message
+	341, // 389: WorldItemLite.flat_group:type_name -> WorldItemLite.FlatGroup
+	342, // 390: WorldItemLite.threaded_group:type_name -> WorldItemLite.ThreadedGroup
+	21,  // 391: WorldItemLite.attribute_checker_group_type:type_name -> SharedAttributeCheckerGroupType
+	6,   // 392: WorldItemLite.group_support_level:type_name -> GroupSupportLevel
+	5,   // 393: WorldItemLite.group_unsupported_reason:type_name -> GroupUnsupportedReason
+	242, // 394: WorldSectionRequest.world_section:type_name -> WorldSection
+	243, // 395: WorldSectionRequest.world_filter:type_name -> WorldFilter
+	242, // 396: WorldSectionResponse.world_section:type_name -> WorldSection
+	243, // 397: WorldSectionResponse.world_filter:type_name -> WorldFilter
+	245, // 398: WorldSectionResponse.world_items:type_name -> WorldItemLite
+	103, // 399: PaginatedWorldRequest.request_header:type_name -> RequestHeader
+	246, // 400: PaginatedWorldRequest.world_section_requests:type_name -> WorldSectionRequest
+	85,  // 401: PaginatedWorldRequest.fetch_options:type_name -> PaginatedWorldRequest.FetchOptions
+	247, // 402: PaginatedWorldResponse.world_section_responses:type_name -> WorldSectionResponse
+	271, // 403: PaginatedWorldResponse.user_revision:type_name -> ReadRevision
+	245, // 404: PaginatedWorldResponse.world_items:type_name -> WorldItemLite
+	103, // 405: RemoveMembershipsRequest.request_header:type_name -> RequestHeader
+	105, // 406: RemoveMembershipsRequest.member_ids:type_name -> MemberId
+	153, // 407: RemoveMembershipsRequest.group_id:type_name -> GroupId
+	20,  // 408: RemoveMembershipsRequest.membership_state:type_name -> MembershipState
+	103, // 409: RemoveMembershipResult.request_header:type_name -> RequestHeader
+	105, // 410: RemoveMembershipResult.member_id:type_name -> MemberId
+	251, // 411: RemoveMembershipsResponse.results:type_name -> RemoveMembershipResult
+	159, // 412: RemoveMembershipsResponse.retention_settings:type_name -> RetentionSettings
+	270, // 413: RemoveMembershipsResponse.retention_settings_group_revision:type_name -> WriteRevision
+	103, // 414: HideGroupRequest.request_header:type_name -> RequestHeader
+	153, // 415: HideGroupRequest.id:type_name -> GroupId
+	157, // 416: HideGroupResponse.read_state:type_name -> GroupReadState
+	270, // 417: HideGroupResponse.user_revision:type_name -> WriteRevision
+	86,  // 418: InviteNotificationSettings.option:type_name -> InviteNotificationSettings.NotificationOption
+	103, // 419: CreateMembershipRequest.request_header:type_name -> RequestHeader
+	105, // 420: CreateMembershipRequest.member_ids:type_name -> MemberId
+	177, // 421: CreateMembershipRequest.invitee_member_infos:type_name -> InviteeMemberInfo
+	20,  // 422: CreateMembershipRequest.membership_state:type_name -> MembershipState
+	153, // 423: CreateMembershipRequest.group_id:type_name -> GroupId
+	255, // 424: CreateMembershipRequest.notification_settings:type_name -> InviteNotificationSettings
+	180, // 425: CreateMembershipResponse.results:type_name -> CreateMembershipResult
+	270, // 426: CreateMembershipResponse.group_revision:type_name -> WriteRevision
+	159, // 427: CreateMembershipResponse.retention_settings:type_name -> RetentionSettings
+	270, // 428: CreateMembershipResponse.retention_settings_group_revision:type_name -> WriteRevision
+	103, // 429: MarkGroupReadstateRequest.request_header:type_name -> RequestHeader
+	153, // 430: MarkGroupReadstateRequest.id:type_name -> GroupId
+	157, // 431: MarkGroupReadstateResponse.read_state:type_name -> GroupReadState
+	270, // 432: MarkGroupReadstateResponse.user_revision:type_name -> WriteRevision
+	103, // 433: SetPresenceSharedRequest.request_header:type_name -> RequestHeader
+	96,  // 434: SetPresenceSharedResponse.user_status:type_name -> UserStatus
+	270, // 435: SetPresenceSharedResponse.user_revision:type_name -> WriteRevision
+	103, // 436: SetDndDurationRequest.request_header:type_name -> RequestHeader
+	87,  // 437: SetDndDurationRequest.current_dnd_state:type_name -> SetDndDurationRequest.State
+	96,  // 438: SetDndDurationResponse.user_status:type_name -> UserStatus
+	270, // 439: SetDndDurationResponse.user_revision:type_name -> WriteRevision
+	103, // 440: UpdateGroupRequest.request_header:type_name -> RequestHeader
+	152, // 441: UpdateGroupRequest.space_id:type_name -> SpaceId
+	88,  // 442: UpdateGroupRequest.update_masks:type_name -> UpdateGroupRequest.UpdateMask
+	232, // 443: UpdateGroupRequest.visibility:type_name -> GroupVisibility
+	225, // 444: UpdateGroupRequest.space_details:type_name -> GroupDetails
+	154, // 445: UpdateGroupResponse.group:type_name -> Group
+	270, // 446: UpdateGroupResponse.group_revision:type_name -> WriteRevision
+	103, // 447: BlockEntityRequest.request_header:type_name -> RequestHeader
+	90,  // 448: BlockEntityRequest.user_id:type_name -> UserId
+	153, // 449: BlockEntityRequest.group_id:type_name -> GroupId
+	157, // 450: BlockEntityResponse.read_state:type_name -> GroupReadState
+	270, // 451: BlockEntityResponse.user_revision:type_name -> WriteRevision
+	103, // 452: SetCustomStatusRequest.request_header:type_name -> RequestHeader
+	95,  // 453: SetCustomStatusRequest.custom_status:type_name -> CustomStatus
+	96,  // 454: SetCustomStatusResponse.user_status:type_name -> UserStatus
+	270, // 455: SetCustomStatusResponse.user_revision:type_name -> WriteRevision
+	103, // 456: UpdateGroupNotificationSettingsRequest.request_header:type_name -> RequestHeader
+	153, // 457: UpdateGroupNotificationSettingsRequest.group_id:type_name -> GroupId
+	274, // 458: UpdateGroupNotificationSettingsRequest.update:type_name -> GroupNotificationSettingsUpdate
+	343, // 459: GroupNotificationSettingsUpdate.mute:type_name -> GroupNotificationSettingsUpdate.Mute
+	278, // 460: JAddOnsFormattedText.FormattedTextElement.styled_text:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText
+	279, // 461: JAddOnsFormattedText.FormattedTextElement.hyperlink:type_name -> JAddOnsFormattedText.FormattedTextElement.HyperLink
+	277, // 462: JAddOnsFormattedText.FormattedTextElement.StyledText.datetime:type_name -> JAddOnsFormattedText.FormattedTextElement.DateTime
+	26,  // 463: JAddOnsFormattedText.FormattedTextElement.StyledText.styles:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.Style
+	27,  // 464: JAddOnsFormattedText.FormattedTextElement.StyledText.font_weight:type_name -> JAddOnsFormattedText.FormattedTextElement.StyledText.FontWeight
+	117, // 465: JAddOnsFormattedText.FormattedTextElement.StyledText.theme_colors:type_name -> JAddOnsThemeColors
+	115, // 466: JAddOnsCardItem.CardItemHeader.title:type_name -> JAddOnsFormattedText
+	115, // 467: JAddOnsCardItem.CardItemHeader.subtitle:type_name -> JAddOnsFormattedText
+	28,  // 468: JAddOnsCardItem.CardItemHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	114, // 469: JAddOnsCardItem.CardItemSection.id:type_name -> JAddOnsIdentifier
+	115, // 470: JAddOnsCardItem.CardItemSection.header:type_name -> JAddOnsFormattedText
+	128, // 471: JAddOnsCardItem.CardItemSection.widgets:type_name -> JAddOnsWidget
+	121, // 472: JAddOnsCardItem.CardItemAction.on_click:type_name -> JAddOnsOnClick
+	300, // 473: JAddOnsCardItem.CardItemFixedFooter.buttons:type_name -> JAddOnsWidget.Button
+	298, // 474: JAddOnsCardItem.CardItemFixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
+	298, // 475: JAddOnsCardItem.CardItemFixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
+	129, // 476: JAddOnsCardItem.CardItemRefreshAction.method:type_name -> JAddOnsFormAction
+	123, // 477: JAddOnsGrid.GridItem.image:type_name -> JAddOnsImageComponent
+	35,  // 478: JAddOnsGrid.GridItem.text_alignment:type_name -> JAddOnsWidget.HorizontalAlign
+	33,  // 479: JAddOnsGrid.GridItem.layout:type_name -> JAddOnsGrid.GridItem.GridItemLayout
+	121, // 480: JAddOnsGrid.GridItem.on_click:type_name -> JAddOnsOnClick
+	115, // 481: JAddOnsWidget.TextParagraph.text:type_name -> JAddOnsFormattedText
+	115, // 482: JAddOnsWidget.TextKeyValue.key:type_name -> JAddOnsFormattedText
+	115, // 483: JAddOnsWidget.TextKeyValue.text:type_name -> JAddOnsFormattedText
+	121, // 484: JAddOnsWidget.TextKeyValue.on_click:type_name -> JAddOnsOnClick
+	115, // 485: JAddOnsWidget.ImageKeyValue.text:type_name -> JAddOnsFormattedText
+	121, // 486: JAddOnsWidget.ImageKeyValue.on_click:type_name -> JAddOnsOnClick
+	114, // 487: JAddOnsWidget.Image.id:type_name -> JAddOnsIdentifier
+	121, // 488: JAddOnsWidget.Image.on_click:type_name -> JAddOnsOnClick
+	28,  // 489: JAddOnsWidget.Icon.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	28,  // 490: JAddOnsWidget.KeyValue.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	290, // 491: JAddOnsWidget.KeyValue.start_icon:type_name -> JAddOnsWidget.Icon
+	115, // 492: JAddOnsWidget.KeyValue.top_label:type_name -> JAddOnsFormattedText
+	115, // 493: JAddOnsWidget.KeyValue.content:type_name -> JAddOnsFormattedText
+	115, // 494: JAddOnsWidget.KeyValue.bottom_label:type_name -> JAddOnsFormattedText
+	121, // 495: JAddOnsWidget.KeyValue.on_click:type_name -> JAddOnsOnClick
+	300, // 496: JAddOnsWidget.KeyValue.button:type_name -> JAddOnsWidget.Button
+	301, // 497: JAddOnsWidget.KeyValue.switch_widget:type_name -> JAddOnsWidget.KeyValue.SwitchWidget
+	290, // 498: JAddOnsWidget.KeyValue.end_icon:type_name -> JAddOnsWidget.Icon
+	302, // 499: JAddOnsWidget.Menu.items:type_name -> JAddOnsWidget.Menu.MenuItem
+	129, // 500: JAddOnsWidget.Menu.on_change:type_name -> JAddOnsFormAction
+	303, // 501: JAddOnsWidget.AutoComplete.items:type_name -> JAddOnsWidget.AutoComplete.AutoCompleteItem
+	114, // 502: JAddOnsWidget.TextField.id:type_name -> JAddOnsIdentifier
+	37,  // 503: JAddOnsWidget.TextField.type:type_name -> JAddOnsWidget.TextField.TextFieldType
+	38,  // 504: JAddOnsWidget.TextField.line_type:type_name -> JAddOnsWidget.TextField.LineType
+	129, // 505: JAddOnsWidget.TextField.on_change:type_name -> JAddOnsFormAction
+	294, // 506: JAddOnsWidget.TextField.auto_complete:type_name -> JAddOnsWidget.AutoComplete
+	129, // 507: JAddOnsWidget.TextField.auto_complete_callback:type_name -> JAddOnsFormAction
+	114, // 508: JAddOnsWidget.SelectionControl.id:type_name -> JAddOnsIdentifier
+	39,  // 509: JAddOnsWidget.SelectionControl.type:type_name -> JAddOnsWidget.SelectionControl.SelectionType
+	304, // 510: JAddOnsWidget.SelectionControl.items:type_name -> JAddOnsWidget.SelectionControl.SelectionItem
+	129, // 511: JAddOnsWidget.SelectionControl.on_change:type_name -> JAddOnsFormAction
+	40,  // 512: JAddOnsWidget.DateTimePicker.type:type_name -> JAddOnsWidget.DateTimePicker.DateTimePickerType
+	129, // 513: JAddOnsWidget.DateTimePicker.on_change:type_name -> JAddOnsFormAction
+	117, // 514: JAddOnsWidget.DateTimePicker.theme_colors:type_name -> JAddOnsThemeColors
+	114, // 515: JAddOnsWidget.TextButton.id:type_name -> JAddOnsIdentifier
+	115, // 516: JAddOnsWidget.TextButton.text:type_name -> JAddOnsFormattedText
+	121, // 517: JAddOnsWidget.TextButton.on_click:type_name -> JAddOnsOnClick
+	41,  // 518: JAddOnsWidget.TextButton.style:type_name -> JAddOnsWidget.TextButton.Style
+	117, // 519: JAddOnsWidget.TextButton.background_theme_colors:type_name -> JAddOnsThemeColors
+	114, // 520: JAddOnsWidget.ImageButton.id:type_name -> JAddOnsIdentifier
+	121, // 521: JAddOnsWidget.ImageButton.on_click:type_name -> JAddOnsOnClick
+	298, // 522: JAddOnsWidget.Button.text_button:type_name -> JAddOnsWidget.TextButton
+	299, // 523: JAddOnsWidget.Button.image_button:type_name -> JAddOnsWidget.ImageButton
+	114, // 524: JAddOnsWidget.KeyValue.SwitchWidget.id:type_name -> JAddOnsIdentifier
+	129, // 525: JAddOnsWidget.KeyValue.SwitchWidget.on_change:type_name -> JAddOnsFormAction
+	36,  // 526: JAddOnsWidget.KeyValue.SwitchWidget.control_type:type_name -> JAddOnsWidget.KeyValue.SwitchWidget.ControlType
+	114, // 527: JAddOnsWidget.SelectionControl.SelectionItem.id:type_name -> JAddOnsIdentifier
+	115, // 528: JAddOnsContextualAddOn.Toolbar.name:type_name -> JAddOnsFormattedText
+	117, // 529: JAddOnsContextualAddOn.Toolbar.theme_colors:type_name -> JAddOnsThemeColors
+	308, // 530: JAddOnsContextualAddOn.Card.header:type_name -> JAddOnsContextualAddOn.Card.CardHeader
+	309, // 531: JAddOnsContextualAddOn.Card.sections:type_name -> JAddOnsContextualAddOn.Card.Section
+	310, // 532: JAddOnsContextualAddOn.Card.card_actions:type_name -> JAddOnsContextualAddOn.Card.CardAction
+	311, // 533: JAddOnsContextualAddOn.Card.fixed_footer:type_name -> JAddOnsContextualAddOn.Card.FixedFooter
+	312, // 534: JAddOnsContextualAddOn.Card.refresh_action:type_name -> JAddOnsContextualAddOn.Card.RefreshAction
+	117, // 535: JAddOnsContextualAddOn.Card.background_theme_colors:type_name -> JAddOnsThemeColors
+	115, // 536: JAddOnsContextualAddOn.Card.CardHeader.title:type_name -> JAddOnsFormattedText
+	115, // 537: JAddOnsContextualAddOn.Card.CardHeader.subtitle:type_name -> JAddOnsFormattedText
+	28,  // 538: JAddOnsContextualAddOn.Card.CardHeader.image_style:type_name -> JAddOnsImageCropStyle.ImageCropType
+	114, // 539: JAddOnsContextualAddOn.Card.Section.id:type_name -> JAddOnsIdentifier
+	115, // 540: JAddOnsContextualAddOn.Card.Section.header:type_name -> JAddOnsFormattedText
+	128, // 541: JAddOnsContextualAddOn.Card.Section.widgets:type_name -> JAddOnsWidget
+	121, // 542: JAddOnsContextualAddOn.Card.CardAction.on_click:type_name -> JAddOnsOnClick
+	300, // 543: JAddOnsContextualAddOn.Card.FixedFooter.buttons:type_name -> JAddOnsWidget.Button
+	298, // 544: JAddOnsContextualAddOn.Card.FixedFooter.primary_button:type_name -> JAddOnsWidget.TextButton
+	298, // 545: JAddOnsContextualAddOn.Card.FixedFooter.secondary_button:type_name -> JAddOnsWidget.TextButton
+	129, // 546: JAddOnsContextualAddOn.Card.RefreshAction.method:type_name -> JAddOnsFormAction
+	202, // 547: Event.EventBody.group_viewed:type_name -> GroupViewedEvent
+	203, // 548: Event.EventBody.group_updated:type_name -> GroupUpdatedEvent
+	196, // 549: Event.EventBody.message_posted:type_name -> MessageEvent
+	213, // 550: Event.EventBody.topic_mute_changed:type_name -> TopicMuteChangedEvent
+	204, // 551: Event.EventBody.web_push_notification:type_name -> WebPushNotificationEvent
+	214, // 552: Event.EventBody.group_unread_subscribed_topic_count_updated_event:type_name -> GroupUnreadSubscribedTopicCountUpdatedEvent
+	200, // 553: Event.EventBody.membership_changed:type_name -> MembershipChangedEvent
+	198, // 554: Event.EventBody.message_deleted:type_name -> MessageDeletedEvent
+	215, // 555: Event.EventBody.topic_created:type_name -> TopicCreatedEvent
+	197, // 556: Event.EventBody.message_reaction:type_name -> MessageReactionEvent
+	97,  // 557: Event.EventBody.user_status_updated:type_name -> UserStatusUpdatedEvent
+	216, // 558: Event.EventBody.message_smart_replies_event:type_name -> MessageSmartRepliesEvent
+	199, // 559: Event.EventBody.typing_state_changed:type_name -> TypingStateChangedEvent
+	201, // 560: Event.EventBody.read_receipt_changed:type_name -> ReadReceiptChangedEvent
+	217, // 561: Event.EventBody.group_default_sort_order_updated_event:type_name -> GroupDefaultSortOrderUpdatedEvent
+	218, // 562: Event.EventBody.group_read_state_updated_event:type_name -> GroupReadStateUpdatedEvent
+	65,  // 563: Event.EventBody.event_type:type_name -> Event.EventType
+	225, // 564: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.new_group_details:type_name -> GroupDetails
+	225, // 565: RoomUpdatedMetadata.GroupDetailsUpdatedMetadata.prev_group_details:type_name -> GroupDetails
+	67,  // 566: MeetingSpace.RecordingInfo.recording_status:type_name -> MeetingSpace.RecordingInfo.RecordingStatus
+	331, // 567: MeetingSpace.RecordingInfo.latest_recording_event:type_name -> MeetingSpace.RecordingInfo.RecordingEvent
+	13,  // 568: MeetingSpace.RecordingInfo.recording_application_type:type_name -> RecordingApplicationType
+	69,  // 569: MeetingSpace.StreamingSessionInfo.status:type_name -> MeetingSpace.StreamingSessionInfo.Status
+	13,  // 570: MeetingSpace.StreamingSessionInfo.application_type:type_name -> RecordingApplicationType
+	332, // 571: MeetingSpace.StreamingSessionInfo.latest_session_event:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent
+	14,  // 572: MeetingSpace.StreamingSessionInfo.viewer_access_policy:type_name -> BroadcastAccessPolicy
+	333, // 573: MeetingSpace.StreamingSessionInfo.viewer_stats:type_name -> MeetingSpace.StreamingSessionInfo.StreamViewerStats
+	323, // 574: MeetingSpace.CallInfo.presenter:type_name -> MeetingSpace.Presenter
+	324, // 575: MeetingSpace.CallInfo.recording_info:type_name -> MeetingSpace.RecordingInfo
+	325, // 576: MeetingSpace.CallInfo.streaming_sessions:type_name -> MeetingSpace.StreamingSessionInfo
+	334, // 577: MeetingSpace.CallInfo.settings:type_name -> MeetingSpace.CallInfo.CallSettings
+	335, // 578: MeetingSpace.CallInfo.paygate_info:type_name -> MeetingSpace.CallInfo.PaygateInfo
+	336, // 579: MeetingSpace.CallInfo.cse_info:type_name -> MeetingSpace.CallInfo.CseInfo
+	68,  // 580: MeetingSpace.RecordingInfo.RecordingEvent.type:type_name -> MeetingSpace.RecordingInfo.RecordingEvent.EventType
+	70,  // 581: MeetingSpace.StreamingSessionInfo.SessionEvent.type:type_name -> MeetingSpace.StreamingSessionInfo.SessionEvent.EventType
+	233, // 582: MeetingSpace.CallInfo.PaygateInfo.call_ending_soon_warning_time:type_name -> ComGoogleProtobufTimestamp
+	233, // 583: MeetingSpace.CallInfo.PaygateInfo.call_ending_time:type_name -> ComGoogleProtobufTimestamp
+	105, // 584: MembershipChangedMetadata.AffectedMembership.affected_member:type_name -> MemberId
+	20,  // 585: MembershipChangedMetadata.AffectedMembership.prior_membership_state:type_name -> MembershipState
+	18,  // 586: MembershipChangedMetadata.AffectedMembership.prior_membership_role:type_name -> MembershipRole
+	18,  // 587: MembershipChangedMetadata.AffectedMembership.target_membership_role:type_name -> MembershipRole
+	90,  // 588: WorldItemLite.MembershipLite.user_id:type_name -> UserId
+	20,  // 589: WorldItemLite.MembershipLite.membership_state:type_name -> MembershipState
+	90,  // 590: WorldItemLite.DmMembers.members:type_name -> UserId
+	338, // 591: WorldItemLite.DmMembers.memberships:type_name -> WorldItemLite.MembershipLite
+	90,  // 592: WorldItemLite.GroupLite.creator_id:type_name -> UserId
+	159, // 593: WorldItemLite.GroupLite.retention_settings:type_name -> RetentionSettings
+	225, // 594: WorldItemLite.GroupLite.group_details:type_name -> GroupDetails
+	89,  // 595: GroupNotificationSettingsUpdate.Mute.state:type_name -> GroupNotificationSettingsUpdate.Mute.State
+	596, // [596:596] is the sub-list for method output_type
+	596, // [596:596] is the sub-list for method input_type
+	596, // [596:596] is the sub-list for extension type_name
+	596, // [596:596] is the sub-list for extension extendee
+	0,   // [0:596] is the sub-list for field type_name
 }
 
 func init() { file_googlechat_proto_init() }
@@ -27178,20 +27473,20 @@ func file_googlechat_proto_init() {
 		(*SetCustomStatusRequest_CustomStatusExpiryTimestampUsec)(nil),
 		(*SetCustomStatusRequest_CustomStatusRemainingDurationUsec)(nil),
 	}
-	file_googlechat_proto_msgTypes[183].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[186].OneofWrappers = []any{
 		(*JAddOnsFormattedText_FormattedTextElement_StyledText_)(nil),
 		(*JAddOnsFormattedText_FormattedTextElement_Hyperlink)(nil),
 	}
-	file_googlechat_proto_msgTypes[198].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[201].OneofWrappers = []any{
 		(*JAddOnsWidget_KeyValue_Button)(nil),
 		(*JAddOnsWidget_KeyValue_SwitchWidget_)(nil),
 		(*JAddOnsWidget_KeyValue_EndIcon)(nil),
 	}
-	file_googlechat_proto_msgTypes[207].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[210].OneofWrappers = []any{
 		(*JAddOnsWidget_Button_TextButton)(nil),
 		(*JAddOnsWidget_Button_ImageButton)(nil),
 	}
-	file_googlechat_proto_msgTypes[225].OneofWrappers = []any{
+	file_googlechat_proto_msgTypes[228].OneofWrappers = []any{
 		(*Event_EventBody_GroupViewed)(nil),
 		(*Event_EventBody_GroupUpdated)(nil),
 		(*Event_EventBody_MessagePosted)(nil),
@@ -27214,8 +27509,8 @@ func file_googlechat_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_googlechat_proto_rawDesc), len(file_googlechat_proto_rawDesc)),
-			NumEnums:      89,
-			NumMessages:   250,
+			NumEnums:      90,
+			NumMessages:   254,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

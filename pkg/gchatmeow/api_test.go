@@ -353,6 +353,11 @@ func TestAllRPCsSetEndpointAndRequestHeader(t *testing.T) {
 			_, err := c.RemoveMemberships(context.Background(), req)
 			return req, err
 		}},
+		{"UpdateGroupNotificationSettings", "update_group_notification_settings", func(c *Client) (hasRequestHeader, error) {
+			req := &pb.UpdateGroupNotificationSettingsRequest{}
+			_, err := c.UpdateGroupNotificationSettings(context.Background(), req)
+			return req, err
+		}},
 		{"HideGroup", "hide_group", func(c *Client) (hasRequestHeader, error) {
 			req := &pb.HideGroupRequest{}
 			_, err := c.HideGroup(context.Background(), req)
@@ -365,8 +370,8 @@ func TestAllRPCsSetEndpointAndRequestHeader(t *testing.T) {
 		}},
 	}
 
-	if len(tests) != 20 {
-		t.Fatalf("table has %d cases, want 20", len(tests))
+	if len(tests) != 21 {
+		t.Fatalf("table has %d cases, want 21", len(tests))
 	}
 
 	for _, tt := range tests {

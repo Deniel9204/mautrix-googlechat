@@ -226,6 +226,9 @@ func chatInfoFromWorldItem(item *pb.WorldItemLite, ownUserID networkid.UserID) *
 	// full rationale -- both ChatInfo-building entry points (this one feeds
 	// sync.go's chat-list-sync/ChatResync path) must set it the same way.
 	info := &bridgev2.ChatInfo{Type: &roomType, CanBackfill: true}
+	// Per-chat mute (handlemute.go). Applied by bridgev2 at room creation,
+	// and on every sync if the operator sets bridge.mute_only_on_create off.
+	info.UserLocal = mutedUntilFromReadState(item.GetReadState())
 
 	if isDM {
 		info.Members = dmMemberListFromWorldItem(item, ownUserID)
