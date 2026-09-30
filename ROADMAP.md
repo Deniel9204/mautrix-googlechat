@@ -107,5 +107,6 @@ Chat space manager gets.
 
 ◊ Sent with `update_group_notification_settings`, a request taken from
 captures of the Google Chat web client (no reference client uses it); read
-from each chat's notification settings in the chat list. Not yet exercised
-against a live account.
+from each chat's notification settings in the chat list (field 3, the same
+mute sub-message the request writes). Live-verified both ways (2026-09-30);
+muting on Matrix needs double puppeting.

@@ -484,6 +484,12 @@ deployment breaks existing data or the protocol.
   chat, field 2 the same 5/4 type value -- so neither says anything about
   mute. `SetDndDuration` looks similar but silences the whole account and
   must never be used for a single chat. Google Chat mutes have no end time.
+  On the Matrix side bridgev2 applies an inbound mute through the user's
+  double puppet (`ASIntent.MuteRoom`: a room push rule with no actions) and
+  silently skips it without one. `MuteRoom` only writes the rule's actions,
+  so a pre-existing *disabled* room rule stays disabled (seen live) -- a
+  mautrix-go gap (`SetPushRuleEnabled` exists but is not called); an unmute
+  (which deletes the rule) followed by a mute recreates it enabled.
 - **Google adds proto fields continuously.** The pblite decoder logging
   "skipping unknown field" is normal and expected, not an error.
 

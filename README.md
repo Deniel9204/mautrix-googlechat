@@ -156,7 +156,13 @@ mautrix-go bridgev2 config). Notable options:
   chat muted on Google Chat is then muted on Matrix only when its room is
   first created. Set it to `false` to follow Google Chat's mute state on
   every sync (a restart or reconnect) -- at the cost of overriding a mute you
-  set in your Matrix client, which the bridge cannot see.
+  set in your Matrix client, which the bridge cannot see. Muting on Matrix
+  needs **double puppeting** (`double_puppet.secrets`; see the mautrix
+  double-puppeting docs): without it the bridge cannot change your account's
+  notification rules and silently skips the mute. One known gap in the
+  framework: if a room already has a switched-off notification rule from an
+  earlier change in your Matrix client, the bridge's mute updates that rule
+  but leaves it switched off; unmuting on Google Chat once clears it.
 - `network.skip_leave_confirmation` — the `leave` command leaves the space on
   Google Chat with **every** one of your logins in it (for a DM, it hides the
   DM, since a DM can't be left) and then removes you from the room. By
