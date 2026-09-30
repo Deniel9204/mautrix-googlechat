@@ -194,7 +194,7 @@ func (c *GChatClient) clearPendingInvite(ctx context.Context, spaceID string) er
 //
 // Queued from a goroutine: this runs inside HandleMatrixMembership, i.e. on
 // the portal's own event loop, and with an unbuffered portal queue
-// (bridgev2.PortalEventBuffer == 0) queueing into it synchronously from here
+// (bridge.portal_event_buffer: 0) queueing into it synchronously from here
 // would deadlock.
 func (c *GChatClient) resyncAcceptedSpace(group gcid.GroupID) {
 	evt := &simplevent.ChatResync{

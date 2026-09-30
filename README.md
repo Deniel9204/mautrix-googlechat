@@ -39,7 +39,7 @@ The full mautrix-style feature matrix is in [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
 
-- Go 1.25 or newer
+- Go 1.26 or newer
 - A Matrix homeserver that supports the Application Service API
 - A PostgreSQL or SQLite (`sqlite3-fk-wal`) database
 - A Google account with access to Google Chat (cookie-based login only — see
