@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses calendar versioning (`YY.MM`), matching the other
 mautrix bridges.
 
-## [Unreleased]
+## [26.09.2] - 2026-09-30
 
 ### Added
 
@@ -24,6 +24,16 @@ mautrix bridges.
   `network.skip_leave_confirmation: true` to skip that. The built-in
   `delete-chat` command now does the same, without asking. If any login
   cannot leave, you stay in the room and the reply says which one failed.
+
+### Changed
+
+- Updated to mautrix-go v0.31.0 and refreshed the other Go dependencies.
+  Building from source now needs Go 1.26 or newer (the Docker image and the
+  release binaries are unaffected). With end-to-bridge encryption enabled,
+  the first start of this release refreshes the bridge's one-time encryption
+  keys once; nothing needs doing. Leaving a room on Matrix still only leaves
+  the Google Chat space if `bridge.bridge_matrix_leave` is on -- use the new
+  `leave` command instead; the README now explains why.
 
 ## [26.09.1] - 2026-09-29
 
