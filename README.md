@@ -8,10 +8,7 @@ Status: pre-alpha, under active development.
 This project is not affiliated with, endorsed by, or supported by Google.
 "Google Chat" is a trademark of Google LLC.
 
-## ⭐ Give us a star
-
-If this bridge is useful to you, please consider starring it on GitHub — it
-helps other people find the project and motivates continued development.
+If this bridge is useful to you, please consider starring it on GitHub.
 
 [![Star on GitHub](https://img.shields.io/github/stars/Deniel9204/mautrix-googlechat?style=social)](https://github.com/Deniel9204/mautrix-googlechat/stargazers)
 
@@ -19,178 +16,95 @@ helps other people find the project and motivates continued development.
 
 | Feature | Status |
 | --- | --- |
-| Text messages (send/receive) | Supported |
-| Rich text formatting (bold, italic, links, etc.) | Supported |
-| Threads | Supported |
-| Replies | Supported |
-| Message edits | Supported |
-| Message deletes | Supported |
-| Reactions | Supported |
-| Read receipts | Supported |
-| Typing notifications | Supported |
-| Per-chat mute | Supported — `mute` / `unmute` in a room mute it on Google Chat; a chat muted on Google Chat is muted on Matrix when its room is created, or on every sync with `bridge.mute_only_on_create: false` |
-| Inbound media (Google Chat → Matrix: images, files) | Supported |
-| Outbound media (Matrix → Google Chat) | Supported — verified against Google's live endpoint (2026-07-22), using the [purple-googlechat](https://github.com/EionRobb/purple-googlechat) request shape (which avoids the client bug behind [upstream issue #114](https://github.com/mautrix/googlechat/issues/114)). Can be disabled via `network.disable_outbound_media` |
-| Room renames / topic changes | Supported |
-| Membership changes (joins/invites/leaves/kicks) | Supported — to leave a space from Matrix, use the `leave` command; leaving the room alone only leaves the Google Chat space if `bridge.bridge_matrix_leave` is on (see [Configuration](#configuration)) |
-| History backfill | Supported (opt-in, see [Configuration](#configuration)) |
+| Text, rich formatting, mentions | Supported |
+| Threads and replies | Supported |
+| Edits, deletes, reactions | Supported |
+| Read receipts, typing notifications | Supported |
+| Media, both directions | Supported (outbound can be disabled with `network.disable_outbound_media`) |
+| Room renames and topic changes | Supported |
+| Membership (invites, joins, leaves, kicks) | Supported; leave a space with the `leave` command |
+| Per-chat mute | Supported; `mute` / `unmute` in a room |
+| History backfill | Supported, opt-in |
 
-The full mautrix-style feature matrix is in [ROADMAP.md](ROADMAP.md).
+The full feature list is in [ROADMAP.md](ROADMAP.md).
 
 ## Requirements
 
-- Go 1.26 or newer
-- A Matrix homeserver that supports the Application Service API
-- A PostgreSQL or SQLite (`sqlite3-fk-wal`) database
-- A Google account with access to Google Chat (cookie-based login only — see
-  [`docs/authentication.md`](docs/authentication.md))
+- A Matrix homeserver with Application Service support
+- PostgreSQL or SQLite (`sqlite3-fk-wal`)
+- A Google account with Google Chat (cookie login, see
+  [docs/authentication.md](docs/authentication.md))
+- Go 1.26+ only if you build from source
 
-The bridge is built with the pure-Go `goolm` crypto implementation
-(build tag `goolm`) instead of libolm; this is the only supported build
-configuration, and `./build.sh` always passes `-tags goolm`.
+## Setup
 
-## Quick start
+### Docker
 
-Build the bridge:
-
-```sh
-./build.sh
-```
-
-Generate an example config file (fails if the target path already exists):
+Images are published to `ghcr.io/deniel9204/mautrix-googlechat`
+(`:latest`, or a release such as `:v26.09.2`).
 
 ```sh
-./mautrix-googlechat -e -c config.yaml
-```
+# First run writes /data/config.yaml and exits; edit it.
+docker run --rm -v $(pwd)/data:/data ghcr.io/deniel9204/mautrix-googlechat
 
-Edit `config.yaml`: at minimum set `homeserver.address`/`homeserver.domain`,
-`appservice.address`, and `database.uri`. See [Configuration](#configuration)
-below for bridge-specific options.
-
-Generate the appservice registration (requires `homeserver.domain` to already
-be set in the config):
-
-```sh
-./mautrix-googlechat -g -c config.yaml -r registration.yaml
-```
-
-Add `registration.yaml` to your homeserver's application service registrations
-(e.g. Synapse's `app_service_config_files`) and restart the homeserver. See
-[the mautrix docs on registering appservices](https://docs.mau.fi/bridges/general/registering-appservices.html)
-for details.
-
-Run the bridge:
-
-```sh
-./mautrix-googlechat -c config.yaml
-```
-
-Then open a DM with the bridge bot on your homeserver and send `login` (inside
-that DM, no prefix needed — use `!gc login`, or your configured
-`command_prefix`, elsewhere) to start the cookie login flow. See
-[`docs/authentication.md`](docs/authentication.md) for how to extract the
-required cookies.
-
-## Docker
-
-A `Dockerfile` and `docker-run.sh` are provided; no pre-built image is
-published yet. Build it locally:
-
-```sh
-docker build -t mautrix-googlechat .
-```
-
-First run writes an example config to `/data/config.yaml` if none exists yet,
-then exits so you can edit it:
-
-```sh
-docker run --rm -v $(pwd)/data:/data mautrix-googlechat
-# edit ./data/config.yaml
-```
-
-Generate the registration by running the binary directly inside the
-container (docker-run.sh itself doesn't do this step):
-
-```sh
+# Generate the appservice registration.
 docker run --rm -v $(pwd)/data:/data --entrypoint /usr/bin/mautrix-googlechat \
-    mautrix-googlechat -c /data/config.yaml -g -r /data/registration.yaml
+    ghcr.io/deniel9204/mautrix-googlechat -c /data/config.yaml -g -r /data/registration.yaml
+
+# Run the bridge.
+docker run -v $(pwd)/data:/data ghcr.io/deniel9204/mautrix-googlechat
 ```
 
-Then start the bridge normally:
+### From source
 
 ```sh
-docker run -v $(pwd)/data:/data mautrix-googlechat
+./build.sh                                                  # always builds with -tags goolm
+./mautrix-googlechat -e -c config.yaml                      # write an example config
+./mautrix-googlechat -g -c config.yaml -r registration.yaml # generate the registration
+./mautrix-googlechat -c config.yaml                         # run
 ```
+
+Prebuilt binaries are attached to each
+[GitHub release](https://github.com/Deniel9204/mautrix-googlechat/releases).
+
+### Then
+
+1. In `config.yaml`, set at least `homeserver.address`, `homeserver.domain`,
+   `appservice.address`, `database.uri`, and give your account `user` access
+   in `bridge.permissions`.
+2. Register `registration.yaml` with your homeserver and restart it
+   ([how](https://docs.mau.fi/bridges/general/registering-appservices.html)).
+3. DM the bridge bot and send `login` (elsewhere use the command prefix,
+   e.g. `!gc login`). See [docs/authentication.md](docs/authentication.md).
 
 ## Configuration
 
-The full config is generated by `-e` above (network-specific options are
-nested under the top-level `network:` key; the rest is the standard
-mautrix-go bridgev2 config). Notable options:
+Bridge-specific options live under `network:`; the rest is the standard
+bridgev2 config. The ones worth knowing:
 
-- `network.displayname_template` — display name template for Google Chat
-  ghost users.
-- `network.initial_chat_sync` — how many most-recently-active chats to create
-  portals for after login.
-- `network.disable_outbound_media` — disable sending Matrix media to Google
-  Chat (see the outbound-media caveat in the feature table above).
-- `backfill.enabled` — must be `true` to enable history backfill at all
-  (a framework-level option shared across all mautrix-go bridges).
-- `backfill.max_initial_messages` / `backfill.threads.max_initial_messages` —
-  must be greater than zero for backfill to actually populate messages in new
-  rooms/threads; zero or negative disables backfill in new rooms even if
-  `backfill.enabled` is `true`.
-- `bridge.permissions` — must grant at least `user`-level access to your
-  Matrix account before the `login` command will work.
-- `bridge.bridge_matrix_leave` — **off by default** (a framework-level option
-  shared across all mautrix-go bridges). While it is off, leaving a bridged
-  room on Matrix does *not* leave the Google Chat space: you are still a
-  member there, so the bridge puts you back in the room on its next sync,
-  e.g. after a restart. To really leave, send `leave` in the room (see the
-  next option), leave or delete the space in Google Chat, or set this to
-  `true` so that leaving on Matrix leaves the space too. One caveat: if your
-  Matrix account has more than one Google Chat login in the same space, a
-  Matrix leave removes only one of them, and the room comes back through the
-  others. The `leave` command does not have that problem.
-- `bridge.mute_only_on_create` — **on by default** (framework-level). A
-  chat muted on Google Chat is then muted on Matrix only when its room is
-  first created. Set it to `false` to follow Google Chat's mute state on
-  every sync (a restart or reconnect) -- at the cost of overriding a mute you
-  set in your Matrix client, which the bridge cannot see. Muting on Matrix
-  needs **double puppeting** (`double_puppet.secrets`; see the mautrix
-  double-puppeting docs): without it the bridge cannot change your account's
-  notification rules and silently skips the mute. One known gap in the
-  framework: if a room already has a switched-off notification rule from an
-  earlier change in your Matrix client, the bridge's mute updates that rule
-  but leaves it switched off; unmuting on Google Chat once clears it.
-- `network.skip_leave_confirmation` — the `leave` command leaves the space on
-  Google Chat with **every** one of your logins in it (for a DM, it hides the
-  DM, since a DM can't be left) and then removes you from the room. By
-  default the first `leave` only says what it will do and waits for
-  `leave confirm`, because getting back into a private space needs a new
-  invite; set this to `true` to make `leave` act immediately. The built-in
-  `delete-chat` command does the same, without asking.
-
-## Authentication
-
-Google Chat has no interactive OAuth login for third-party clients; this
-bridge authenticates by cookie, extracted manually from a logged-in browser
-session. See [`docs/authentication.md`](docs/authentication.md) for the full,
-step-by-step cookie-extraction and login guide, including an important
-security warning about what these cookies grant access to.
+- `network.initial_chat_sync`: how many recent chats get rooms after login.
+- `network.disable_outbound_media`: refuse Matrix → Google Chat media.
+- `network.disable_inline_url_media`: don't download and inline the media a
+  link chip (GIF, preview) points at.
+- `network.skip_leave_confirmation`: make `leave` act without asking for
+  `leave confirm`.
+- `backfill.enabled` plus `backfill.max_initial_messages` /
+  `backfill.threads.max_initial_messages` above zero: enables history
+  backfill.
+- `bridge.bridge_matrix_leave` (default off): while off, leaving a room on
+  Matrix does not leave the Google Chat space, and the room comes back on the
+  next sync. Use the `leave` command instead; it leaves with all your logins.
+- `bridge.mute_only_on_create` (default on): Google Chat mutes reach Matrix
+  only when the room is created. Set to `false` to follow them on every sync.
+  Muting on Matrix needs double puppeting (`double_puppet.secrets`).
 
 ## Migrating from the Python bridge
 
-If you're moving from the original Python `mautrix/googlechat` bridge, this
-bridge can migrate its database directly — portals, ghosts, messages
-(including multi-part/attachments), reactions, users, saved logins, and
-double-puppeting — via `--migrate-from-python`. See
-[`docs/migration.md`](docs/migration.md) for prerequisites (read these
-first — in particular, stop the Python bridge and back up both databases
-before running anything), the exact command, and the full list of known,
-documented caveats.
+`--migrate-from-python` imports the old `mautrix/googlechat` database:
+portals, ghosts, messages, reactions, users, logins and double puppeting.
+Read [docs/migration.md](docs/migration.md) first: stop the Python bridge and
+back up both databases.
 
 ## License
 
-Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) — see
-[`LICENSE`](LICENSE).
+AGPL-3.0, see [LICENSE](LICENSE).

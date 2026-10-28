@@ -3,41 +3,15 @@
 displayname_template: '{{ or .Name .Email "Unknown user" }} (Google Chat)'
 # How many most-recently-active chats to create portals for after login.
 initial_chat_sync: 20
-# Disable sending Matrix media (images/files/video/audio) to Google Chat.
-# Outbound uploads are verified working against Google's live endpoint (the
-# upload 500s in https://github.com/mautrix/googlechat/issues/114 are a
-# client request-shape bug, not shared by this bridge). Enable this only
-# if uploads start failing against your account and you'd rather get an
-# immediate, clear rejection than a failed send attempt every time.
+# Refuse to send Matrix media to Google Chat. Only useful if uploads start
+# failing for your account and you prefer a clear error.
 disable_outbound_media: false
-# Disable downloading the media a link chip points at (a shared GIF, a link
-# preview image) and inlining it as an image on Matrix.
-#
-# Worth knowing before you leave this off. The bridge only ever fetches the
-# media address Google itself supplies, never the address the sender typed --
-# in the one case captured from live traffic, Google had already rehosted the
-# media on its own CDN. So this is normally a request to Google, not to a
-# stranger's server. It is not guaranteed to be: Google chooses that address,
-# and it could point elsewhere.
-#
-# The fetch is hardened either way -- https only, no proxy, no cookies,
-# internal and link-local addresses refused, redirects and size capped -- and
-# runs only for annotations that look like media. A link pasted into a sentence
-# is not fetched; a link CHIP attached to a message has the same shape as a
-# GIF, so its preview image is (again, from Google's copy). Set this to true if
-# you would rather the bridge made no such request at all.
-#
-# This never costs you a message either way: the URL is always put in the
-# message body, so with this enabled a GIF simply arrives as a link.
+# Don't download and inline the media a link chip points at (a GIF, a link
+# preview image); the link is still in the message. The bridge only fetches
+# the address Google supplies, over https, without cookies or proxy, and
+# never from internal addresses.
 disable_inline_url_media: false
-# The `leave` command leaves the current chat on Google Chat (a space, with
-# every one of your logins in it) or hides it (a DM). By default the first
-# `leave` only says what will happen and waits for `leave confirm`, because
-# leaving a private space cannot be undone without a new invite. Set this to
-# true to make `leave` act immediately.
+# Make the `leave` command act at once instead of waiting for `leave confirm`.
+# Leaving a private space can't be undone without a new invite.
 skip_leave_confirmation: false
-# History (message) backfill has no settings here: it is controlled entirely
-# by this bridge's standard top-level `backfill:` section (not part of this
-# network-specific config fragment) -- see that section's own comments, and
-# pkg/connector/backfill.go's defaultFetchMessagesCount doc comment for which
-# of its keys actually reaches this connector.
+# History backfill is configured in the top-level `backfill:` section.
