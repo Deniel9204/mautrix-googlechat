@@ -6,12 +6,12 @@
   "shouldUpdateDescription": false,
   "disabledLabels": ["no-greptile"],
   "ignorePatterns": "**/*.pb.go\ngo.sum",
-  "instructions": "This is a Matrix<->Google Chat puppeting bridge in Go, built on the mautrix-go bridgev2 framework. Two files govern correctness and are authoritative: CLAUDE.md (see its 'Hard rules (violations are always bugs)' section) and docs/ARCHITECTURE.md (protocol facts and key decisions). When a diff conflicts with either, flag it. The codebase deliberately favors: proto2 field presence, UTF-16 code-unit text offsets, log-and-skip on wire-decode errors (never kill the realtime channel), frozen pkg/gcid id formats (permanent DB contents), and a strict layering where pkg/gchatmeow owns all HTTP while pkg/connector and pkg/msgconv never touch the network. Prefer flagging real logic and security bugs and violations of these invariants over style nits.",
+  "instructions": "This is a Matrix<->Google Chat puppeting bridge in Go, built on the mautrix-go bridgev2 framework. Two files govern correctness and are authoritative: AGENTS.md (see its 'Hard rules (violations are always bugs)' section) and docs/ARCHITECTURE.md (protocol facts and key decisions). When a diff conflicts with either, flag it. The codebase deliberately favors: proto2 field presence, UTF-16 code-unit text offsets, log-and-skip on wire-decode errors (never kill the realtime channel), frozen pkg/gcid id formats (permanent DB contents), and a strict layering where pkg/gchatmeow owns all HTTP while pkg/connector and pkg/msgconv never touch the network. Prefer flagging real logic and security bugs and violations of these invariants over style nits.",
   "customContext": {
     "files": [
       {
         "scope": ["**"],
-        "path": "CLAUDE.md",
+        "path": "AGENTS.md",
         "description": "Project hard rules — violations are always bugs. Read before flagging anything in this repo."
       },
       {
