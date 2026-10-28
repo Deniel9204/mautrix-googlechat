@@ -1,30 +1,5 @@
 package gchatmeow
 
-// Client orchestration: connection lifecycle (connect/disconnect, inbound
-// array dispatch, event-body splitting, token refresh) plus the supervision
-// policy's reconnect ladder. The RPC layer and the Client struct definition
-// live in api.go; this file adds the connection lifecycle on top.
-//
-// # Goroutine model
-//
-// Connect(ctx) runs the supervision loop ON THE CALLER'S GOROUTINE and blocks
-// until ctx is cancelled or a terminal (fatal/bad-credentials) error occurs.
-// Within each iteration it calls channel.Listen SYNCHRONOUSLY, so Listen -- and
-// every callback it fires (OnReceiveArray -> OnStreamEvent, and
-// OnConnect/OnReconnect/OnDisconnect -> OnConnectionState) -- runs on that same
-// single goroutine, delivering events serially and in order. The ONLY other
-// goroutines Client spawns are:
-//   - the channel's internal long-poll reader, which never invokes
-//     callbacks; and
-//   - the XSRF refresh timer (xsrfRefreshLoop), which only refreshes the token
-//     and never invokes OnStreamEvent/OnConnectionState.
-//
-// External goroutines may call the /api/* RPC methods (which may trigger a
-// 401 token refresh) and Disconnect concurrently; the shared state they touch
-// (xsrfToken, lastTokenRefresh, channel, cancel) is guarded by mu, and the
-// token fetch itself is serialized by refreshMu. Callbacks (OnStreamEvent,
-// OnConnectionState) must be set before Connect and are then read-only.
-
 import (
 	"context"
 	"encoding/json"
@@ -39,71 +14,36 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// Supervision defaults.
 const (
-	// defaultConnectMaxRetries is Channel.Listen's max_retries (3).
+	// defaultConnectMaxRetries is Channel.Listen's max_retries.
 	defaultConnectMaxRetries = 3
-	// defaultConnectRetryBackoffBase is Channel.Listen's retry_backoff_base
-	// (2s). The Channel takes a Duration.
+	// defaultConnectRetryBackoffBase is Channel.Listen's retry backoff base.
 	defaultConnectRetryBackoffBase = 2 * time.Second
-	// defaultReconnectBackoffMin/Max bound the supervision loop's own transient
-	// backoff. This port uses a x2 schedule capped at 60s (nextBackoff), reset
-	// on any non-network terminal outcome, and does NOT model a separate
-	// UNKNOWN_ERROR state escalation once backoff grows large -- every
-	// transient disconnect reports ConnStateTransient. Documented divergence
-	// (timing/observability only; the connector's bridge-state layer can
-	// reintroduce the persistent-vs-blip signal if wanted).
+	// defaultReconnectBackoffMin/Max bound the transient backoff (x2, capped).
 	defaultReconnectBackoffMin = 4 * time.Second
 	defaultReconnectBackoffMax = 60 * time.Second
-	// defaultXSRFRefreshInterval is the 24h (86400s) token-staleness window.
+	// defaultXSRFRefreshInterval is the token-staleness window.
 	defaultXSRFRefreshInterval = 24 * time.Hour
-	// maxSIDInvalidResyncs is the ladder's resync cap: after this many
-	// consecutive SID-invalid resyncs without an intervening healthy cycle,
-	// the connection is declared fatal.
+	// maxSIDInvalidResyncs consecutive SID-invalid resyncs make the connection fatal.
 	maxSIDInvalidResyncs = 3
 
-	// defaultSIDFatalRetryFloor is how long Connect waits after declaring a
-	// SID-invalid storm fatal before starting a completely fresh attempt.
-	//
-	// Derived, not picked. It has to clear two things. First the ladder that
-	// produced the fatal: three resyncs paced by the transient backoff cost
-	// 28s from the floor, and up to reconnectBackoffMax*maxSIDInvalidResyncs
-	// = 180s if a preceding storm had already pinned the backoff at its
-	// ceiling -- a wait shorter than that is just more of the same ladder.
-	// Second, bridgev2's own escalation: unknownErrorReconnect refuses any
-	// unknown_error_auto_reconnect below 1 minute and jitters it +-20%, so 72s
-	// is the earliest an operator-enabled framework reconnect can fire. Waiting
-	// longer than that means the framework always wins the race and performs
-	// its STRONGER recovery (full client recreate), and its pending timer is
-	// not cancelled by a state of ours in the meantime -- the two compose
-	// instead of fighting. Five minutes clears the first bound by 1.7x and the
-	// second by 4.2x.
+	// defaultSIDFatalRetryFloor must exceed both the resync ladder (up to 180s) and bridgev2's 72s minimum auto-reconnect.
 	defaultSIDFatalRetryFloor = 5 * time.Minute
-	// defaultSIDFatalRetryCap bounds the doubling above. Every reconnect
-	// re-registers and is issued a BRAND NEW SID, so a fatal that keeps
-	// repeating means the server is rejecting SIDs it has just minted --
-	// something only a Google-side change or a fix here will clear. At the cap
-	// that costs one register plus one poll per hour, cheaper than a
-	// keep-alive, which is why there is no reason to ever stop entirely.
+	// defaultSIDFatalRetryCap bounds the post-fatal doubling; retrying never stops entirely.
 	defaultSIDFatalRetryCap = time.Hour
 )
 
-// ConnState is a connection-state transition reported via
-// Client.OnConnectionState.
+// ConnState is a connection-state transition reported via Client.OnConnectionState.
 type ConnState int
 
 const (
-	// ConnStateConnected: the channel connected or reconnected and events are
-	// flowing.
+	// ConnStateConnected: connected or reconnected; events are flowing.
 	ConnStateConnected ConnState = iota
-	// ConnStateTransient: a recoverable disconnect; the loop is backing off and
-	// will reconnect.
+	// ConnStateTransient: recoverable disconnect; the loop will reconnect.
 	ConnStateTransient
-	// ConnStateBadCredentials: the session is dead (401 / invalid_grant /
-	// not-logged-in); Connect returns.
+	// ConnStateBadCredentials: the session is dead; Connect returns.
 	ConnStateBadCredentials
-	// ConnStateFatal: an unrecoverable condition (SID-invalid storm); Connect
-	// returns.
+	// ConnStateFatal: SID-invalid storm; Connect waits and retries.
 	ConnStateFatal
 )
 
@@ -124,19 +64,13 @@ func (s ConnState) String() string {
 
 // ClientOpts configures NewClient.
 type ClientOpts struct {
-	// Cookies is the 5-cookie auth set (COMPASS/SSID/SID/OSID/HSID). Keys are
-	// upper-cased by NewSession.
+	// Cookies is the auth cookie set (COMPASS/SSID/SID/OSID/HSID).
 	Cookies map[string]string
-	// UserAgent is the browser UA to present; empty uses the default, and a
-	// non-empty one has its Chrome/Firefox version pinned (see NewSession).
+	// UserAgent is the browser UA; empty uses the default.
 	UserAgent string
 }
 
-// channelListener is the subset of *Channel that Client depends on. It exists
-// solely so the supervision loop can be tested against a scripted fake: the
-// concrete *Channel (channel.go) is not otherwise an interface. Both *Channel
-// and the test fake satisfy it. The Set* methods mirror *Channel's exported
-// callback fields (channel.go adds thin setters for them).
+// channelListener is the subset of *Channel that Client uses, so tests can inject a fake.
 type channelListener interface {
 	Listen(ctx context.Context, maxRetries int, retryBackoffBase time.Duration) error
 	SendStreamEvent(ctx context.Context, ev *pb.StreamEventsRequest) error
@@ -146,10 +80,7 @@ type channelListener interface {
 	SetOnDisconnect(func(ctx context.Context))
 }
 
-// NewClient builds a Client with an authenticated Session and the standard
-// supervision defaults. It does NOT fetch an XSRF token or connect -- Connect
-// does that lazily (see ensureToken); token refresh and connect are separate
-// steps.
+// NewClient builds a Client. It does not fetch an XSRF token or connect.
 func NewClient(opts ClientOpts) (*Client, error) {
 	sess, err := NewSession(opts.Cookies, opts.UserAgent)
 	if err != nil {
@@ -169,40 +100,23 @@ func NewClient(opts ClientOpts) (*Client, error) {
 	return c, nil
 }
 
-// Cookies returns the current (post-rotation) values of the required auth
-// cookies, for persistence (via Session's auth-cookie accessor).
+// Cookies returns the current (post-rotation) auth cookies, for persistence.
 func (c *Client) Cookies() map[string]string {
 	return c.session.Cookies()
 }
 
-// UserAgent returns the NORMALIZED User-Agent this Client's session actually
-// applies to every request (see normalizeUserAgent), for persistence -- so a
-// later reconnect replays the exact same browser fingerprint rather than
-// re-normalizing a possibly-different one. The user's real browser
-// user-agent is stored per-user and reused for all subsequent requests.
+// UserAgent returns the normalized User-Agent actually sent, for persistence.
 func (c *Client) UserAgent() string {
 	return c.session.UserAgent()
 }
 
-// FetchXSRFToken validates the Client's cookies and (re)fetches its XSRF
-// token via GET /mole/world, unconditionally -- unlike ensureToken/Connect's
-// internal 24h-staleness gate, this always performs the round trip. This is
-// the explicit token refresh done at login time: validate cookies, get the
-// xsrf token. Exported so the connector's login flow (a different package)
-// can validate submitted cookies and obtain a warm,
-// request-ready Client without reaching into the unexported session field --
-// returns gchatmeow.ErrNotLoggedIn unchanged when the cookies are rejected
-// (Session.FetchXSRFToken's AccountsSignInUi check), any other error
-// otherwise.
+// FetchXSRFToken validates the cookies and fetches an XSRF token unconditionally; returns ErrNotLoggedIn if rejected.
 func (c *Client) FetchXSRFToken(ctx context.Context) error {
 	return c.refreshXSRFToken(ctx)
 }
 
-// Connect runs the supervision loop: refresh the XSRF token if stale, register
-// and long-poll via a fresh Channel, and on each terminal Listen result consult
-// the ladder to reconnect, back off, or stop. It blocks until ctx is cancelled
-// (or Disconnect is called), returning nil for a clean stop, or the terminal
-// error for a fatal / bad-credentials outcome.
+// Connect runs the supervision loop on the caller's goroutine, which also runs every callback in order.
+// It blocks until ctx is cancelled or Disconnect is called, and returns the error for bad credentials.
 func (c *Client) Connect(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	c.mu.Lock()
@@ -216,8 +130,6 @@ func (c *Client) Connect(ctx context.Context) error {
 		c.mu.Unlock()
 	}()
 
-	// XSRF refresh timer (24h periodic). Runs concurrently with the
-	// loop and stops when ctx is cancelled.
 	if c.xsrfRefreshInterval > 0 {
 		go c.xsrfRefreshLoop(ctx)
 	}
@@ -231,9 +143,6 @@ func (c *Client) Connect(ctx context.Context) error {
 			return nil // clean stop (Disconnect or parent cancel)
 		}
 
-		// 24h staleness check before (re)connecting. A dead session surfaces
-		// here as an auth error -> BadCredentials; a transient failure backs
-		// off and retries.
 		if err := c.ensureToken(ctx); err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -256,7 +165,6 @@ func (c *Client) Connect(ctx context.Context) error {
 
 		err := ch.Listen(ctx, c.maxRetries, c.retryBackoffBase)
 
-		// ---- supervision ladder ----
 		if ctx.Err() != nil {
 			return nil // ctx cancelled mid-Listen -> clean return
 		}
@@ -265,52 +173,21 @@ func (c *Client) Connect(ctx context.Context) error {
 			// 1.5h recycle: silent reconnect, no state change.
 			resyncCount = 0
 			backoff = c.reconnectBackoffMin
-			// A channel that reached its full lifetime is this ladder's only
-			// unambiguous proof that the connection was healthy, so it is what
-			// un-escalates the post-fatal wait. Deliberately NOT ErrSIDExpiring
-			// (re-registers happen inside storms too) and not the transient
-			// branches (a flap is not health) -- and not "we saw Connected"
-			// either, since a SID-invalid round emits Connected before the 400.
+			// Only a full-lifetime channel proves health, so only it resets the post-fatal wait.
 			fatalBackoff = c.fatalRetryFloor()
 			continue
 		case errors.Is(err, ErrSIDExpiring):
-			// SID expiring surfaced to the supervisor: reconnect immediately
-			// (Channel normally re-registers internally; if it propagates,
-			// reconnect at once).
+			// Reconnect immediately.
 			resyncCount = 0
 			backoff = c.reconnectBackoffMin
 			continue
 		case errors.Is(err, ErrSIDInvalid):
-			// Unknown SID: resync by reconnecting, up to maxSIDInvalidResyncs
-			// consecutive times; beyond that the SID is persistently bad and the
-			// connection is fatal.
+			// Resync up to maxSIDInvalidResyncs consecutive times, then fatal.
 			resyncCount++
 			if resyncCount > maxSIDInvalidResyncs {
-				// Report the fatal -- the connector maps it to
-				// status.StateUnknownError, the only state bridgev2 will ever
-				// auto-reconnect from -- and then keep going.
-				//
-				// Returning here, which is what this used to do, ended the
-				// account. The connector starts this loop as
-				// `go conn.Connect(ctx)` and discards the error, and the
-				// framework's own recovery is off by default, so the bridge
-				// stayed dead until the process was restarted. Worse, it did
-				// so silently in one direction only: the /api RPCs do not use
-				// the webchannel, so sending kept working while nothing ever
-				// arrived.
-				//
-				// Both protocol references retry this forever, and treat
-				// authentication as the only terminal condition. What must not
-				// be forever is the RATE: a fresh register mints a brand new
-				// SID, so a repeating fatal is the server rejecting SIDs it
-				// just issued, and trying that again sooner cannot help. Hence
-				// a minutes-scale wait on its own tier rather than rejoining
-				// the seconds-scale ladder above.
+				// Report the fatal, then retry on a slow tier instead of returning, which would kill the account.
 				c.emitState(ConnStateFatal, err)
-				// Drop the dead channel for the duration of the wait.
-				// Otherwise SendStreamEvent (typing and active pings) keeps
-				// POSTing against a SID the server is rejecting, instead of
-				// failing fast the way it does today once Connect returns.
+				// Drop the dead channel so SendStreamEvent fails fast during the wait.
 				c.setChannel(nil)
 				if c.sleep(ctx, fatalBackoff) != nil {
 					return nil
@@ -320,22 +197,18 @@ func (c *Client) Connect(ctx context.Context) error {
 				backoff = c.reconnectBackoffMin
 				continue
 			}
-			// Pace each resync with a growing backoff (do NOT reset to min) so a
-			// brief transient "Unknown SID" storm on freshly-registered SIDs backs
-			// off before hitting the fatal cap instead of burning all retries in
-			// milliseconds. Only ErrSIDExpiring reconnects immediately, so pacing
-			// the resync here is strictly safer.
+			// Pace resyncs with a growing backoff (do not reset to min).
 			if c.sleep(ctx, backoff) != nil {
 				return nil
 			}
 			backoff = c.nextBackoff(backoff)
 			continue
 		case IsAuthError(err):
-			// 401 / invalid_grant / not-logged-in -> dead session.
+			// 401 / invalid_grant / not-logged-in.
 			c.emitState(ConnStateBadCredentials, err)
 			return err
 		case isNetworkError(err):
-			// Transient transport failure: back off and reconnect.
+			// Transient transport failure.
 			resyncCount = 0
 			c.emitState(ConnStateTransient, err)
 			if c.sleep(ctx, backoff) != nil {
@@ -344,8 +217,7 @@ func (c *Client) Connect(ctx context.Context) error {
 			backoff = c.nextBackoff(backoff)
 			continue
 		case err == nil:
-			// Listen returned without error and without cancellation: treat
-			// this "finished unexpectedly" as the backoff branch.
+			// Finished unexpectedly: back off.
 			resyncCount = 0
 			c.emitState(ConnStateTransient, nil)
 			if c.sleep(ctx, backoff) != nil {
@@ -354,8 +226,7 @@ func (c *Client) Connect(ctx context.Context) error {
 			backoff = c.nextBackoff(backoff)
 			continue
 		default:
-			// Any other error (e.g. a non-401 UnexpectedStatusError or a
-			// register failure): treat as transient and back off.
+			// Any other error: treat as transient.
 			resyncCount = 0
 			c.emitState(ConnStateTransient, err)
 			if c.sleep(ctx, backoff) != nil {
@@ -367,9 +238,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 }
 
-// Disconnect gracefully stops a running Connect by cancelling its derived
-// context; Connect then returns nil. Safe to call concurrently and when not
-// connected (no-op).
+// Disconnect stops a running Connect; Connect then returns nil. Safe when not connected.
 func (c *Client) Disconnect() {
 	c.mu.Lock()
 	cancel := c.cancel
@@ -379,8 +248,7 @@ func (c *Client) Disconnect() {
 	}
 }
 
-// SendStreamEvent forwards a StreamEventsRequest on the live channel's forward
-// channel (typing/active pings). Returns an error if there is no live channel.
+// SendStreamEvent sends a StreamEventsRequest (typing/active pings) on the live channel.
 func (c *Client) SendStreamEvent(ctx context.Context, req *pb.StreamEventsRequest) error {
 	ch := c.getChannel()
 	if ch == nil {
@@ -389,16 +257,8 @@ func (c *Client) SendStreamEvent(ctx context.Context, req *pb.StreamEventsReques
 	return ch.SendStreamEvent(ctx, req)
 }
 
-// wireChannel connects a channel's callbacks to the Client's state emitters.
-// OnConnect/OnReconnect both map to CONNECTED and OnDisconnect to TRANSIENT.
-// OnReceiveArray drives splitEventBodies dispatch.
-//
-// NOTE for the connector: a CONNECTED emitted after a prior
-// connection is a RECONNECT, and a SID-expiring re-register resets the channel
-// AID to 0, so events during the gap are not server-replayed -- the connector
-// should trigger a catch-up/gap-sync on reconnect. The client library itself
-// has no sync capability, so that decision belongs to the connector, driven off
-// these OnConnectionState transitions.
+// wireChannel maps channel callbacks to state emitters.
+// Events during a reconnect gap are not replayed; the connector must catch up.
 func (c *Client) wireChannel(ch channelListener) {
 	ch.SetOnReceiveArray(c.onReceiveArray)
 	ch.SetOnConnect(func(ctx context.Context) { c.emitState(ConnStateConnected, nil) })
@@ -406,31 +266,24 @@ func (c *Client) wireChannel(ch channelListener) {
 	ch.SetOnDisconnect(func(ctx context.Context) { c.emitState(ConnStateTransient, nil) })
 }
 
-// onReceiveArray decodes one webchannel data_array into a StreamEventsResponse,
-// flattens its event via splitEventBodies, and dispatches each result to
-// OnStreamEvent synchronously and in order.
-//
-// Returning an error here is TERMINAL (it tears down the poll), so decoding is
-// permissive: a malformed frame is logged and skipped rather than propagated.
-// The only hard structural requirement is that the data_array is JSON.
+// onReceiveArray decodes a data_array and dispatches each event body in order.
+// Returning an error is terminal, so malformed frames are logged and skipped.
 func (c *Client) onReceiveArray(ctx context.Context, arr []byte) error {
 	var dataArray []json.RawMessage
 	if err := json.Unmarshal(arr, &dataArray); err != nil {
-		// A non-array frame is a structural anomaly; log and skip rather than
-		// kill the channel.
+		// Log and skip; never kill the channel.
 		log.Debug().Err(err).Msg("gchatmeow: skipping non-array webchannel frame")
 		return nil
 	}
 	if len(dataArray) == 0 {
 		return nil
 	}
-	// "noop" keep-alive: data_array[0] == "noop".
+
 	var maybeNoop string
 	if err := json.Unmarshal(dataArray[0], &maybeNoop); err == nil && maybeNoop == "noop" {
 		return nil
 	}
 
-	// data_array[0] is the StreamEventsResponse pblite array.
 	resp := &pb.StreamEventsResponse{}
 	if err := pblite.Unmarshal(dataArray[0], resp); err != nil {
 		log.Debug().Err(err).Msg("gchatmeow: skipping undecodable stream event")
@@ -445,17 +298,7 @@ func (c *Client) onReceiveArray(ctx context.Context, arr []byte) error {
 	return nil
 }
 
-// splitEventBodies flattens an Event that carries a top-level body (field 4)
-// plus repeated embedded bodies (field 8) into one Event per body, copying the
-// parent's other fields onto each:
-//
-//   - if there are embedded bodies, they are removed from the parent;
-//   - if the parent has its own body, the parent is yielded first, as-is;
-//   - then one copy per embedded body, with that body swapped into the top-level
-//     body field and the copy's type set from body.event_type.
-//
-// This mutates evt (clearing its bodies). evt is a freshly-decoded message
-// owned by onReceiveArray, so that is safe.
+// splitEventBodies flattens an Event with a body (field 4) and embedded bodies (field 8) into one Event per body. Mutates evt.
 func splitEventBodies(evt *pb.Event) []*pb.Event {
 	if evt == nil {
 		return nil
@@ -478,23 +321,12 @@ func splitEventBodies(evt *pb.Event) []*pb.Event {
 	return out
 }
 
-// SplitEventBodies is splitEventBodies exported for callers outside this
-// package. onReceiveArray uses the unexported form for every LIVE
-// StreamEventsResponse event; CatchUpUser/CatchUpGroup (api.go) responses
-// carry raw multi-body Events with the exact same field-8 "bodies" shape
-// (googlechat.proto does not distinguish "live" from "catch-up" Event
-// framing), so the connector's reconnect gap-replay path (pkg/connector)
-// needs the identical flattening step before handing each result to the same
-// per-event handler a live stream event goes through -- mirrors megabridge's
-// own exported Client.SplitEventBodies, used the same way by its catch-up
-// replay (portal.go's backfillPortal).
+// SplitEventBodies is splitEventBodies exported for the connector's catch-up replay.
 func SplitEventBodies(evt *pb.Event) []*pb.Event {
 	return splitEventBodies(evt)
 }
 
-// ensureToken refreshes the XSRF token when it is missing or older than
-// xsrfRefreshInterval (the pre-connect staleness check). A fresh token is a
-// no-op.
+// ensureToken refreshes the XSRF token when missing or older than xsrfRefreshInterval.
 func (c *Client) ensureToken(ctx context.Context) error {
 	c.mu.RLock()
 	fresh := c.xsrfToken != "" && (c.xsrfRefreshInterval <= 0 || time.Since(c.lastTokenRefresh) < c.xsrfRefreshInterval)
@@ -505,18 +337,13 @@ func (c *Client) ensureToken(ctx context.Context) error {
 	return c.refreshXSRFToken(ctx)
 }
 
-// refreshXSRFToken fetches a new token via /mole/world and stores it, updating
-// the token and its last-refresh time; the fetch+scrape itself is
-// Session.FetchXSRFToken (auth.go). refreshMu serializes concurrent refreshes
-// (e.g. several RPCs hitting 401 at once) so only one /mole/world round-trip
-// happens; a refresh that already ran while we waited for the lock is reused.
+// refreshXSRFToken fetches a new token via /mole/world; concurrent callers share one fetch.
 func (c *Client) refreshXSRFToken(ctx context.Context) error {
 	before := c.XSRFToken()
 
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
 
-	// If another goroutine refreshed while we blocked on refreshMu, reuse it.
 	if cur := c.XSRFToken(); cur != "" && cur != before {
 		return nil
 	}
@@ -532,34 +359,10 @@ func (c *Client) refreshXSRFToken(ctx context.Context) error {
 	return nil
 }
 
-// xsrfRefreshAuthFailuresBeforeGivingUp is how many CONSECUTIVE authentication
-// failures the refresh loop tolerates before declaring the session dead.
-//
-// Two, not one, deliberately. The signal is Google serving the sign-in page,
-// which is definitive when it is real -- it is the same check login uses to
-// validate a fresh cookie set -- but a single spurious one would flip
-// IsLoggedIn to false on a healthy session and start rejecting the user's
-// outbound messages. Requiring two consecutive costs one more refresh interval
-// of delay and removes that class of false alarm.
+// xsrfRefreshAuthFailuresBeforeGivingUp is two so a single spurious sign-in page doesn't kill a healthy session.
 const xsrfRefreshAuthFailuresBeforeGivingUp = 2
 
-// xsrfRefreshLoop periodically refreshes the XSRF token every
-// xsrfRefreshInterval until ctx is cancelled.
-//
-// An ordinary refresh failure is logged and ignored: the connection's own
-// Listen/RPC paths surface a broken session through the supervision ladder, so
-// this best-effort timer must not tear anything down for a network blip.
-//
-// An AUTHENTICATION failure is different, and is the one thing this loop is
-// uniquely placed to notice. Google answering /mole/world with the sign-in
-// page means the cookies are dead, full stop -- it is exactly what login
-// checks to validate a cookie set. Without this the bridge finds out only when
-// the webchannel next happens to fail, which on an otherwise idle account can
-// be a long time, and the user meanwhile believes they are connected.
-//
-// On confirmation the loop reports bad credentials AND disconnects. Both
-// halves are required: reporting alone would leave a live channel behind a
-// dead state, and disconnecting alone would leave the user with no explanation.
+// xsrfRefreshLoop refreshes the token periodically. Network failures are ignored; confirmed auth failures report bad credentials and disconnect.
 func (c *Client) xsrfRefreshLoop(ctx context.Context) {
 	ticker := time.NewTicker(c.xsrfRefreshInterval)
 	defer ticker.Stop()
@@ -578,8 +381,7 @@ func (c *Client) xsrfRefreshLoop(ctx context.Context) {
 				return
 			}
 			if !IsAuthError(err) {
-				// A blip, not a verdict. Reset, so only CONSECUTIVE auth
-				// failures accumulate.
+				// Reset so only consecutive auth failures count.
 				authFails = 0
 				log.Warn().Err(err).Msg("gchatmeow: periodic XSRF refresh failed")
 				continue
@@ -599,10 +401,7 @@ func (c *Client) xsrfRefreshLoop(ctx context.Context) {
 	}
 }
 
-// nextBackoff doubles the current transient backoff up to reconnectBackoffMax.
-// sleep waits for d or until ctx is done, returning non-nil when ctx ended.
-// It routes through c.sleepFn when set (tests observe pacing deterministically),
-// falling back to the real sleepOrDone in production.
+// sleep waits for d or until ctx is done; tests override it via sleepFn.
 func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 	if c.sleepFn != nil {
 		return c.sleepFn(ctx, d)
@@ -610,10 +409,7 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 	return sleepOrDone(ctx, d)
 }
 
-// fatalRetryFloor is the post-fatal wait's floor, defaulting a zero field (a
-// hand-built Client that skipped NewClient) to defaultSIDFatalRetryFloor. The
-// clamp is load-bearing: a zero wait would turn the post-fatal retry into a
-// busy loop hammering register.
+// fatalRetryFloor defaults a zero field; a zero wait would busy-loop register.
 func (c *Client) fatalRetryFloor() time.Duration {
 	if c.sidFatalRetryFloor > 0 {
 		return c.sidFatalRetryFloor
@@ -621,10 +417,7 @@ func (c *Client) fatalRetryFloor() time.Duration {
 	return defaultSIDFatalRetryFloor
 }
 
-// growFatalBackoff doubles the post-fatal wait up to sidFatalRetryCap. Kept
-// separate from nextBackoff because the two tiers have different floors,
-// different ceilings and different reset rules; sharing one function would
-// only hide that.
+// growFatalBackoff doubles the post-fatal wait up to sidFatalRetryCap.
 func (c *Client) growFatalBackoff(cur time.Duration) time.Duration {
 	ceiling := c.sidFatalRetryCap
 	if ceiling <= 0 {
@@ -651,7 +444,6 @@ func (c *Client) nextBackoff(cur time.Duration) time.Duration {
 	return next
 }
 
-// emitState reports a connection-state transition, if a callback is set.
 func (c *Client) emitState(state ConnState, err error) {
 	if c.OnConnectionState != nil {
 		c.OnConnectionState(state, err)

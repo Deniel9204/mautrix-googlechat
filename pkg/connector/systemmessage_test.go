@@ -1,9 +1,5 @@
 package connector
 
-// systemmessage_test.go -- inbound SYSTEM_MESSAGE (membership changes, room
-// rename/topic changes) -> bridgev2.RemoteChatInfoChange. Mirrors
-// events_test.go's newEventTestClient/messagePostedEvent capture pattern.
-
 import (
 	"context"
 	"testing"
@@ -16,11 +12,7 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// systemMessageEvent builds a *pb.Event shaped like a real SYSTEM_MESSAGE
-// MESSAGE_POSTED event (message_type SYSTEM_MESSAGE, exactly one annotation)
-// -- the same MessagePosted body shape messagePostedEvent (events_test.go)
-// builds, just with MessageType/Annotations set and no TextBody (a real
-// SYSTEM_MESSAGE for a membership/room-update annotation carries none).
+// systemMessageEvent builds a SYSTEM_MESSAGE MessagePosted event with one annotation and no text.
 func systemMessageEvent(groupID *pb.GroupId, gcMessageID, creatorGaia string, createTimeMicros int64, annotation *pb.Annotation) *pb.Event {
 	return &pb.Event{
 		GroupId: groupID,
@@ -84,8 +76,6 @@ func groupDetailsAnnotation(description string) *pb.Annotation {
 	}
 }
 
-// --- MEMBERSHIP_CHANGED: someone joins a space -----------------------------
-
 func TestHandleGChatEventSystemMessageMembershipJoinedQueuesJoinDelta(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-1", "98765", 1700000000123456,
@@ -145,8 +135,6 @@ func TestHandleGChatEventSystemMessageMembershipJoinedQueuesJoinDelta(t *testing
 	}
 }
 
-// --- MEMBERSHIP_CHANGED: someone leaves a space -----------------------------
-
 func TestHandleGChatEventSystemMessageMembershipLeftQueuesLeaveDelta(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-2", "98765", 1,
@@ -174,16 +162,6 @@ func TestHandleGChatEventSystemMessageMembershipLeftQueuesLeaveDelta(t *testing.
 	}
 }
 
-// --- membershipChangeDelta: all 9 MembershipChangedMetadata_Type values ----
-
-// TestMembershipChangeDeltaMapsAllNineTypes pins the mapping from GC's 9
-// MembershipChangedMetadata_Type values onto (Membership, PrevMembership,
-// ok), grouped the way the
-// dispatch groups them: INVITED -> invite, {JOINED, ADDED, BOT_ADDED} ->
-// join (unconditional/idempotent, no PrevMembership gate), {LEFT, REMOVED,
-// BOT_REMOVED, KICKED_DUE_TO_OTR_CONFLICT} -> leave (gated on a prior join).
-// ROLE_UPDATED and the zero-value TYPE_UNSPECIFIED both fall outside that
-// grouping -- ok=false, no Matrix membership action for both.
 func TestMembershipChangeDeltaMapsAllNineTypes(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -219,17 +197,8 @@ func TestMembershipChangeDeltaMapsAllNineTypes(t *testing.T) {
 	}
 }
 
-// --- MEMBERSHIP_CHANGED: ROLE_UPDATED produces no member delta, but the
-// system message is still fully consumed (never bridged as ordinary text),
-// because the membership arm unconditionally consumes it -----------------
-
-// TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled pins
-// two things at once: ROLE_UPDATED produces no member delta (MemberChanges
-// stays nil), but the event is still queued (not dropped outright) so that
-// CreatePortal:true can still create the Matrix room if this happens to be
-// the first event this bridge ever sees for the portal -- because room
-// creation runs unconditionally before the SYSTEM_MESSAGE dispatch
-// (queueMembershipChanged's own doc comment).
+// TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled: no member
+// delta, but still queued so CreatePortal can create the room.
 func TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-3", "98765", 1,
@@ -260,8 +229,6 @@ func TestHandleGChatEventSystemMessageMembershipRoleUpdatedNoOpButHandled(t *tes
 	}
 }
 
-// --- MEMBERSHIP_CHANGED: multiple affected members in one annotation ------
-
 func TestHandleGChatEventSystemMessageMembershipMultipleAffectedMembers(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-4", "98765", 1,
@@ -285,8 +252,6 @@ func TestHandleGChatEventSystemMessageMembershipMultipleAffectedMembers(t *testi
 		}
 	}
 }
-
-// --- ROOM_UPDATED: rename -> ChatInfo.Name ----------------------------------
 
 func TestHandleGChatEventSystemMessageRenameQueuesChatInfoChangeName(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -320,8 +285,6 @@ func TestHandleGChatEventSystemMessageRenameQueuesChatInfoChangeName(t *testing.
 	}
 }
 
-// --- ROOM_UPDATED: group details -> ChatInfo.Topic --------------------------
-
 func TestHandleGChatEventSystemMessageGroupDetailsQueuesChatInfoChangeTopic(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-6", "98765", 1,
@@ -348,11 +311,8 @@ func TestHandleGChatEventSystemMessageGroupDetailsQueuesChatInfoChangeTopic(t *t
 	}
 }
 
-// TestHandleGChatEventSystemMessageGroupDetailsEmptyDescriptionStillApplies
-// pins chatinfo.go's own "Topic: unconditional" presence semantics
-// (proto2 HasField, i.e. `!= nil`, NOT `!= ""`): an explicit empty-string
-// description update must still produce a Topic pointer, not be treated as
-// "no change" the way an empty rename is.
+// TestHandleGChatEventSystemMessageGroupDetailsEmptyDescriptionStillApplies: an
+// empty description is still a Topic update, unlike an empty rename.
 func TestHandleGChatEventSystemMessageGroupDetailsEmptyDescriptionStillApplies(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-7", "98765", 1,
@@ -370,17 +330,11 @@ func TestHandleGChatEventSystemMessageGroupDetailsEmptyDescriptionStillApplies(t
 	}
 }
 
-// --- ROOM_UPDATED: an empty rename with no group details metadata falls
-// through to ordinary message bridging (tryRoomUpdated's `else` case)
-// -----------------------------------------------------------------------
-
 func TestHandleGChatEventSystemMessageRoomUpdatedEmptyRenameFallsThrough(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-8", "98765", 1,
 		roomRenameAnnotation(""))
-	// A real GC ROOM_UPDATED SYSTEM_MESSAGE carries no text_body, but this
-	// falls through to the ordinary message path, so give it one to prove
-	// exactly which path handled it.
+	// Text added only to prove the fallthrough path handled it.
 	evt.GetBody().GetMessagePosted().Message.TextBody = proto.String("(unused fallback text)")
 
 	gc.handleGChatEvent(context.Background(), evt)
@@ -392,10 +346,6 @@ func TestHandleGChatEventSystemMessageRoomUpdatedEmptyRenameFallsThrough(t *test
 		t.Errorf("queued event = %T, want bridgev2.RemoteMessage (fell through to queueMessagePosted)", (*queued)[0])
 	}
 }
-
-// --- SYSTEM_MESSAGE with an annotation type that is neither ROOM_UPDATED
-// nor MEMBERSHIP_CHANGED also falls through (the annotation type matches
-// neither dispatch arm) ----------------------------------------------------
 
 func TestHandleGChatEventSystemMessageUnrecognizedAnnotationTypeFallsThrough(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -412,9 +362,6 @@ func TestHandleGChatEventSystemMessageUnrecognizedAnnotationTypeFallsThrough(t *
 		t.Errorf("queued event = %T, want bridgev2.RemoteMessage (fell through to queueMessagePosted)", (*queued)[0])
 	}
 }
-
-// --- SYSTEM_MESSAGE with 2 annotations falls through, via the
-// `len(annotations) == 1` gate ---------------------------------------------
 
 func TestHandleGChatEventSystemMessageTwoAnnotationsFallsThrough(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -433,10 +380,6 @@ func TestHandleGChatEventSystemMessageTwoAnnotationsFallsThrough(t *testing.T) {
 		t.Errorf("queued event = %T, want bridgev2.RemoteMessage (fell through, len(annotations) != 1)", (*queued)[0])
 	}
 }
-
-// --- DM room -- membership is space-scoped in practice, but the routing
-// logic itself must still work identically for a DM group id (receiver-scoped
-// portal key) --------------------------------------------------------------
 
 func TestHandleGChatEventSystemMessageMembershipDMPortalKeyHasReceiver(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -458,8 +401,6 @@ func TestHandleGChatEventSystemMessageMembershipDMPortalKeyHasReceiver(t *testin
 	}
 }
 
-// --- malformed/unknown events are skipped, not queued or panicked ---------
-
 func TestHandleGChatEventSystemMessageNoGroupIDSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(nil, "sysmsg-12", "98765", 1,
@@ -475,10 +416,6 @@ func TestHandleGChatEventSystemMessageNoGroupIDSkipped(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventSystemMessageNoAffectedMembersSkipped: an
-// affected_members list with no usable member entries still queues (for the
-// same portal-creation-fidelity reason as the ROLE_UPDATED case above), just
-// with a nil MemberChanges.
 func TestHandleGChatEventSystemMessageNoAffectedMembersSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := systemMessageEvent(spaceGroupID("space-1"), "sysmsg-13", "98765", 1,

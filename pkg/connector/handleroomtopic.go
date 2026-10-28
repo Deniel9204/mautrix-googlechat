@@ -1,17 +1,7 @@
 package connector
 
-// handleroomtopic.go -- Matrix -> Google Chat space description
-// (HandleMatrixRoomTopic), the topic counterpart of handleroomname.go.
-//
-// A Google Chat space's "details" are a description AND guidelines, written
-// together through update_group's SPACE_DETAILS mask. Matrix only has the
-// topic, so the current details are read first (get_group) and the
-// guidelines sent back unchanged -- a mask that replaces the whole details
-// object would otherwise wipe them. If that read fails, the change is
-// refused rather than risk it.
-//
-// Spaces only, like rename: update_group addresses a space_id and has no DM
-// arm.
+// update_group's SPACE_DETAILS mask replaces description AND guidelines, so guidelines are read
+// back (get_group) and resent; if that read fails the change is refused. Spaces only.
 import (
 	"context"
 	"errors"

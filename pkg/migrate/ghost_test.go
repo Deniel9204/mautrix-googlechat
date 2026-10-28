@@ -1,15 +1,5 @@
 package migrate
 
-// White-box tests (package migrate) for migrateGhosts.
-//
-// TestMigrateGhosts_AliceAndBare reuses source_test.go's shared fixture (one
-// puppet with a live double-puppet configured and a full profile, one
-// all-NULL/never-registered puppet) -- exactly the NULL-coalescing cases we
-// need to cover. A dedicated second fixture (newBadAvatarHashSourceDB)
-// covers the invalid-avatar_hash warn-and-coalesce path, which the shared
-// fixture has no row for (its one populated hash is a valid 64-hex-char
-// string).
-
 import (
 	"context"
 	"database/sql"
@@ -80,7 +70,7 @@ func TestMigrateGhosts_AliceAndBare(t *testing.T) {
 		if row.AvatarID != "https://example.com/alice.jpg" {
 			t.Errorf("avatar_id = %q", row.AvatarID)
 		}
-		// THE critical assertion: photo_hash -> avatar_hash, hex copy.
+
 		wantHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 		if row.AvatarHash != wantHash {
 			t.Errorf("avatar_hash = %q, want %q", row.AvatarHash, wantHash)
@@ -126,10 +116,7 @@ func TestMigrateGhosts_AliceAndBare(t *testing.T) {
 	})
 }
 
-// newBadAvatarHashSourceDB builds a source DB whose only puppet row has a
-// photo_hash that is NOT 64 hex characters -- exercising the
-// warn-and-coalesce path (a photo_hash must be exactly 64 hex chars before
-// writing).
+// newBadAvatarHashSourceDB builds a source whose only puppet has a non-64-hex photo_hash.
 func newBadAvatarHashSourceDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "bad_avatar_hash_source.db")
@@ -181,7 +168,7 @@ func TestMigrateGhosts_InvalidAvatarHash_WarnsAndCoalesces(t *testing.T) {
 	if row.AvatarHash != "" {
 		t.Errorf("avatar_hash = %q, want \"\" (invalid length, coalesced away)", row.AvatarHash)
 	}
-	// The rest of the row must still be written -- only the bad field is dropped.
+	// Only the bad field is dropped.
 	if row.Name != "Bob" {
 		t.Errorf("name = %q, want \"Bob\" (rest of row still migrated)", row.Name)
 	}

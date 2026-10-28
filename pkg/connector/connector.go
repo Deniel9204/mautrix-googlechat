@@ -15,31 +15,13 @@ import (
 type GChatConnector struct {
 	Bridge *bridgev2.Bridge
 	Config Config
-	// MsgConv converts Google Chat proto messages into bridgev2's Matrix
-	// event shape (events.go's inbound MESSAGE_POSTED handling). Populated
-	// here rather than per-GChatClient: it holds no per-login state
-	// (msgconv.go: "conversion configuration only"), so one shared instance
-	// is enough for every UserLogin this connector serves, same as
-	// mautrix-meta's MetaConnector.MsgConv (_reference/meta/pkg/connector/connector.go).
+	// MsgConv is shared by all logins; it holds no per-login state.
 	MsgConv *msgconv.MessageConverter
 
-	// MaxFileSize caps how large an inbound attachment download may be
-	// (media.go's GChatClient.maxFileSize, threaded into
-	// gchatmeow.Client.DownloadAttachment) -- the running homeserver's own
-	// configured max upload size. bridgev2
-	// calls SetMaxFileSize below "asynchronously soon after startup"
-	// (bridgev2/networkinterface.go's MaxFileSizeingNetwork doc comment);
-	// until that first call lands, MaxFileSize stays at its zero value,
-	// which gchatmeow.DownloadAttachment's own maxSize<=0 contract already
-	// treats as "no cap" (download.go) -- an intentionally permissive
-	// default for the narrow startup race, not a design requiring a
-	// separate fallback constant (mirrors mautrix-meta's MetaConnector,
-	// _reference/meta/pkg/connector/connector.go, which does the same).
+	// MaxFileSize caps inbound attachment downloads; 0 (before SetMaxFileSize) means no cap.
 	MaxFileSize int64
 
-	// leavingLoginsFn / removeFromPortalFn replace the two leave.go steps that
-	// need a full bridgev2.Bridge (the user-portal table, the bot), so the
-	// leave command can be tested without one.
+	// leavingLoginsFn / removeFromPortalFn are test seams for the leave command.
 	leavingLoginsFn    func(ctx context.Context, portal *bridgev2.Portal, user *bridgev2.User) ([]*GChatClient, error)
 	removeFromPortalFn func(ctx context.Context, portal *bridgev2.Portal, user *bridgev2.User, logins []*GChatClient) error
 }
@@ -86,49 +68,8 @@ func (gc *GChatConnector) GetDBMetaTypes() database.MetaTypes {
 	}
 }
 
-// GetCapabilities deliberately leaves ImplicitReadReceipts at its zero value
-// (false) -- unlike mautrix-meta, which sets it true for Messenger/Instagram
-// (_reference/meta/pkg/connector/capabilities.go), because "should the
-// bridge call HandleMatrixReadReceipt with fake data when receiving a new
-// message" (networkinterface.go:365-368's own doc comment) only needs to be
-// true when the network requires each message to be marked read
-// independently and does NOT automatically do so when the same account
-// sends a message. Google Chat is not that network: sending a message
-// never requires a follow-up mark-read, so nothing marks a self-authored
-// message read except the one genuine-read-receipt path this connector
-// already wires (handlereceipt.go) -- if Google Chat's own
-// server needed an explicit nudge to treat a self-authored message as
-// already read, that path would have surfaced it, and none is required.
-// This matches
-// _reference/googlechat-megabridge/pkg/connector/connector.go's own
-// GetCapabilities, which returns the same empty struct.
-// gchatGeneralCaps is returned by GetCapabilities. The Provisioning half
-// tells the provisioning API what the start-chat UI may offer; createchat.go
-// implements the handlers behind it.
-//
-// LookupEmail is true because an email CAN be turned into a chat -- create_dm
-// accepts it as an invitee -- even though it cannot be resolved to a user
-// WITHOUT doing so, since the private API has no email-to-gaia lookup. That
-// distinction is ResolveIdentifier's to enforce (it refuses a resolve-only
-// call for an email rather than creating a conversation as a side effect);
-// advertising false here would hide the only way most people identify a
-// colleague. LookupPhone and LookupUsername stay false: Google Chat has
-// neither concept.
-//
-// The framework does distinguish "there is a lookup" from "you can contact one
-// without a lookup" -- that is what AnyPhone is for, and mautrix-gmessages
-// encodes exactly this situation as LookupPhone:false + AnyPhone:true. There
-// is no AnyEmail counterpart, so Google Chat's case is inexpressible and
-// LookupEmail:true is the least-wrong encoding: LookupEmail:false would
-// advertise "gaia ids only", which is materially untrue. Nothing inside
-// mautrix-go reads the field -- it is only serialised on the capabilities
-// endpoint -- so this decides what a provisioning client offers, nothing else.
-// A resolve-only email lookup now fails with an explicit 400 +
-// FI.MAU.GOOGLECHAT.EMAIL_REQUIRES_CREATE telling the client to retry with
-// create_chat, rather than a bare 500 (createchat.go).
-//
-// GroupCreation advertises one type, a space (createspace.go): a name is
-// required, and participants are invited after the space exists.
+// gchatGeneralCaps is returned by GetCapabilities. LookupEmail is true because create_dm
+// accepts an email, though a resolve-only email lookup fails (no email-to-gaia lookup).
 var gchatGeneralCaps = &bridgev2.NetworkGeneralCapabilities{
 	Provisioning: bridgev2.ProvisioningCapabilities{
 		ResolveIdentifier: bridgev2.ResolveIdentifierCapabilities{
@@ -157,20 +98,8 @@ func (gc *GChatConnector) GetConfig() (string, any, configupgrade.Upgrader) {
 	return ExampleConfig, &gc.Config, configupgrade.SimpleUpgrader(upgradeConfig)
 }
 
-// LoadUserLogin fills login.Client with a fresh *GChatClient shell -- no
-// network I/O here (LoadUserLogin runs under the global cache lock, so the
-// client is constructed from login.Metadata only, with network I/O deferred
-// to Connect); GChatClient.Connect builds the actual gchatmeow.Client from
-// login.Metadata lazily, whether this is the very first load after a restart
-// or the login command resubmitting cookies for an existing row.
-//
-// bridgev2 calls LoadUserLogin again on an ALREADY-RUNNING login in two
-// cases: User.NewLogin reusing an existing UserLogin row (a resubmitted
-// login.go SubmitCookies) and Bridge.ResetNetworkConnections's
-// recreateClient. Either way, login.Client may already hold a *GChatClient
-// whose gchatmeow.Client is mid-connection; disconnecting it before
-// overwriting login.Client is required, or its Connect goroutine (and live
-// webchannel session) leaks forever.
+// LoadUserLogin does no network I/O; Connect builds the gchatmeow.Client.
+// An already-running client must be disconnected first or its connection leaks.
 func (gc *GChatConnector) LoadUserLogin(_ context.Context, login *bridgev2.UserLogin) error {
 	if old, ok := login.Client.(*GChatClient); ok && old != nil {
 		old.Disconnect()

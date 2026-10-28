@@ -1,14 +1,5 @@
 package migrate
 
-// White-box tests (package migrate) for migratePortals.
-//
-// TestMigratePortals_DMAndSpace reuses source_test.go's shared fixture (one
-// DM portal, mostly-NULL optional fields; one space portal, fully
-// populated) since it already exercises exactly the cases under test:
-// room_type-never-space and description->topic. A dedicated
-// second fixture (newInvalidPortalSourceDB) covers the invalid-id
-// warn-and-skip path, which the shared fixture has no row for.
-
 import (
 	"context"
 	"database/sql"
@@ -23,8 +14,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/connector"
 )
 
-// migratedPortalRow is what the test reads back from the target `portal`
-// table after migratePortals runs -- one field per column this task writes.
 type migratedPortalRow struct {
 	MXID       sql.NullString
 	Name       string
@@ -81,7 +70,7 @@ func TestMigratePortals_DMAndSpace(t *testing.T) {
 		if !row.MXID.Valid || row.MXID.String != "!dmroom:example.com" {
 			t.Errorf("mxid = %+v, want valid \"!dmroom:example.com\"", row.MXID)
 		}
-		// NULL Python name/description/avatar_mxc must coalesce to "".
+		// NULL Python fields coalesce to "".
 		if row.Name != "" {
 			t.Errorf("name = %q, want \"\" (coalesced from NULL)", row.Name)
 		}
@@ -91,7 +80,7 @@ func TestMigratePortals_DMAndSpace(t *testing.T) {
 		if row.AvatarMXC != "" {
 			t.Errorf("avatar_mxc = %q, want \"\" (coalesced from NULL)", row.AvatarMXC)
 		}
-		// No Python source for these -- must default, not error.
+
 		if row.AvatarID != "" {
 			t.Errorf("avatar_id = %q, want \"\" (no Python source)", row.AvatarID)
 		}
@@ -104,7 +93,7 @@ func TestMigratePortals_DMAndSpace(t *testing.T) {
 		if row.InSpace {
 			t.Errorf("in_space = true, want false (no Python source)")
 		}
-		// THE critical assertion: a dm: portal must be RoomTypeDM, never RoomTypeSpace.
+
 		if row.RoomType != string(database.RoomTypeDM) {
 			t.Errorf("room_type = %q, want %q (RoomTypeDM)", row.RoomType, database.RoomTypeDM)
 		}
@@ -127,7 +116,7 @@ func TestMigratePortals_DMAndSpace(t *testing.T) {
 		if row.Name != "Team Chat" {
 			t.Errorf("name = %q, want \"Team Chat\"", row.Name)
 		}
-		// THE critical assertion: description -> topic.
+
 		if row.Topic != "A space for team chat" {
 			t.Errorf("topic = %q, want \"A space for team chat\" (from Python description)", row.Topic)
 		}
@@ -137,7 +126,7 @@ func TestMigratePortals_DMAndSpace(t *testing.T) {
 		if !row.NameSet || !row.AvatarSet || !row.TopicSet {
 			t.Errorf("expected name_set/avatar_set/topic_set all true, got %+v", row)
 		}
-		// THE critical assertion: a space: portal must be RoomTypeDefault, NEVER RoomTypeSpace.
+
 		if row.RoomType != string(database.RoomTypeDefault) {
 			t.Errorf("room_type = %q, want %q (RoomTypeDefault, i.e. empty string) -- NEVER %q", row.RoomType, database.RoomTypeDefault, database.RoomTypeSpace)
 		}
@@ -161,10 +150,7 @@ func TestMigratePortals_DMAndSpace(t *testing.T) {
 	})
 }
 
-// newInvalidPortalSourceDB builds a source DB whose only portal row has a
-// gcid with neither the dm: nor space: prefix (a corrupt/foreign row) --
-// exercising the warn-and-skip path gcid.ParsePortalID's error return
-// triggers.
+// newInvalidPortalSourceDB builds a source whose only portal gcid has neither dm: nor space: prefix.
 func newInvalidPortalSourceDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "invalid_portal_source.db")

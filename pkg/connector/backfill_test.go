@@ -1,11 +1,5 @@
 package connector
 
-// backfill_test.go -- reconnect gap-recovery via catch_up_user (M2 Task 7).
-// Mirrors sync_test.go/events_test.go's seam-capture test pattern: a bare
-// *GChatClient (no full bridgev2.Bridge+DB harness, see newTestUserLogin in
-// client_test.go) with catchUpUserFn/queueRemoteEventFn overridden instead
-// of a live gchatmeow.Client connection or UserLogin.Bridge.
-
 import (
 	"context"
 	"errors"
@@ -24,8 +18,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
-
-// --- catchUp: request shape carries the stored watermark -------------------
 
 func TestCatchUpCallsCatchUpUserWithStoredRevision(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{Revision: 555})
@@ -52,16 +44,10 @@ func TestCatchUpNoConnNoConnFnIsNoop(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	gc := &GChatClient{UserLogin: login}
 
-	// Must not panic despite UserLogin.Bridge being nil and no live conn --
-	// catchUp should return before ever calling QueueRemoteEvent.
 	gc.catchUp(context.Background())
 }
 
-// TestCatchUpSkippedWhileFirstSyncInProgress pins the gchat-port-auditor P1
-// fix: shouldSyncOnConnect's latch is consumed synchronously, before
-// syncChats' spawned goroutine has even started, so a reconnect landing in
-// that window must not race an unfinished first sync with a meaningless
-// (still probably zero) watermark.
+// TestCatchUpSkippedWhileFirstSyncInProgress: a reconnect during the first sync must not catch up from a zero watermark.
 func TestCatchUpSkippedWhileFirstSyncInProgress(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var catchUpCalls int
@@ -81,17 +67,7 @@ func TestCatchUpSkippedWhileFirstSyncInProgress(t *testing.T) {
 	}
 }
 
-// TestCatchUpDrainsAllPagesInOneInvocation pins the reviewer's Important:
-// catchUp must LOOP on PAGINATED until COMPLETED, draining the FULL backlog
-// in a single invocation rather than one page per reconnect. If it stopped
-// after page 1, a concurrent live event (whose revision is higher than the
-// whole gap) would advance the watermark past the un-drained pages, which
-// would then never be re-requested -> silent message loss. Scripts three
-// pages (PAGINATED, PAGINATED, COMPLETED) and asserts every page's event is
-// dispatched in ONE catchUp call and the watermark ends at the final page's
-// revision. Also asserts each subsequent page's request carries the
-// advanced cursor (the de-facto continuation token), so the drain actually
-// makes forward progress.
+// TestCatchUpDrainsAllPagesInOneInvocation: catchUp must drain every PAGINATED page in one call, advancing the cursor.
 func TestCatchUpDrainsAllPagesInOneInvocation(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
@@ -134,8 +110,7 @@ func TestCatchUpDrainsAllPagesInOneInvocation(t *testing.T) {
 	if len(queued) != 3 {
 		t.Fatalf("len(queued) = %d, want 3 (every page's event dispatched, not just the first page)", len(queued))
 	}
-	// Each page's request must carry the previous page's max revision as its
-	// from-cursor: 100 (stored watermark) -> 200 -> 300.
+	// Each page's from-cursor is the previous page's max revision.
 	wantFrom := []int64{100, 200, 300}
 	for i, want := range wantFrom {
 		if fromRevisions[i] != want {
@@ -147,20 +122,12 @@ func TestCatchUpDrainsAllPagesInOneInvocation(t *testing.T) {
 	}
 }
 
-// TestCatchUpDrainStopsIfCursorDoesNotAdvance pins the anti-infinite-loop
-// guard for the case where a server keeps saying PAGINATED but returns a
-// page whose events do not move the revision cursor forward: re-requesting
-// from the identical from-revision would just return the same page forever,
-// so catchUp stops instead. (The catchUpMaxPages ceiling is the harder
-// backstop for a server that DOES advance the cursor but never says
-// COMPLETED; this covers the stuck-cursor case in a bounded, fast test.)
+// TestCatchUpDrainStopsIfCursorDoesNotAdvance: PAGINATED pages that don't advance the cursor must stop the drain.
 func TestCatchUpDrainStopsIfCursorDoesNotAdvance(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
 	login.ID = gcid.MakeUserLoginID("112233")
-	// Every call returns PAGINATED with an event whose revision (150) is
-	// fixed -- so after the first page advances the cursor 100 -> 150, the
-	// second page (still 150) does not advance it, and the drain must stop.
+	// Revision fixed at 150: the second page does not advance the cursor.
 	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-stuck", "98765", "hi", 1)
 	evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(150)}}
 	var calls int
@@ -185,9 +152,6 @@ func TestCatchUpDrainStopsIfCursorDoesNotAdvance(t *testing.T) {
 		t.Errorf("Metadata.Revision = %d, want 150 (advanced to the one revision actually seen before the drain stalled)", meta.Revision)
 	}
 }
-
-// --- catchUp: returned events replay through the normal handleGChatEvent --
-// path (b) ------------------------------------------------------------------
 
 func TestCatchUpDispatchesEventsThroughHandleGChatEvent(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{Revision: 100})
@@ -223,10 +187,7 @@ func TestCatchUpDispatchesEventsThroughHandleGChatEvent(t *testing.T) {
 	}
 }
 
-// TestCatchUpSplitsMultiBodyEventsBeforeDispatch pins that a raw
-// catch_up_user event can itself carry more than one body (field 8,
-// "bodies") exactly like a live StreamEventsResponse event does, and each
-// body must become its own dispatched event.
+// TestCatchUpSplitsMultiBodyEventsBeforeDispatch: each body (field 8) of a caught-up event is dispatched separately.
 func TestCatchUpSplitsMultiBodyEventsBeforeDispatch(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.ID = gcid.MakeUserLoginID("112233")
@@ -255,21 +216,7 @@ func TestCatchUpSplitsMultiBodyEventsBeforeDispatch(t *testing.T) {
 	}
 }
 
-// TestCatchUpDrainReplaysMutationEventsThroughHandleGChatEvent pins the M4
-// whole-branch-review payoff (Minor #3): this file's own top-of-file doc
-// comment claims catchUp dispatches every returned event through
-// handleGChatEvent -- the SAME dispatch switch a live stream event takes
-// (events.go) -- so M4's edit/reaction/delete handlers apply to
-// gap-replayed events automatically, with no separate backfill-specific
-// event handling to keep in sync. That held structurally (each mutation
-// type's own Success path is pinned per-type in events_test.go), but until
-// now no test actually drove catchUp itself over a page containing a
-// mutation and checked BOTH that the mutation handler ran (not just "some
-// event was queued") AND that the watermark advanced past it. Scripts one
-// COMPLETED page carrying a MESSAGE_UPDATED (edit), MESSAGE_DELETED, and a
-// MESSAGE_REACTED (add) event together, and asserts all three are
-// dispatched as their correct concrete RemoteEvent types in order and the
-// persisted watermark ends at the highest (last) event's user_revision.
+// TestCatchUpDrainReplaysMutationEventsThroughHandleGChatEvent: edit/delete/reaction replay through the live dispatch.
 func TestCatchUpDrainReplaysMutationEventsThroughHandleGChatEvent(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
@@ -317,8 +264,6 @@ func TestCatchUpDrainReplaysMutationEventsThroughHandleGChatEvent(t *testing.T) 
 	}
 }
 
-// --- catchUp: watermark advances only on success (c) ------------------------
-
 func TestCatchUpAdvancesWatermarkOnSuccess(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
@@ -347,9 +292,7 @@ func TestCatchUpAdvancesWatermarkOnSuccess(t *testing.T) {
 	}
 }
 
-// TestCatchUpNoNewRevisionSkipsSave covers the "nothing new" case: a
-// COMPLETED response with zero events (already caught up) must not persist
-// anything at all, not even a no-op write of the same value.
+// TestCatchUpNoNewRevisionSkipsSave: an empty COMPLETED response must not write metadata at all.
 func TestCatchUpNoNewRevisionSkipsSave(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
@@ -371,8 +314,6 @@ func TestCatchUpNoNewRevisionSkipsSave(t *testing.T) {
 		t.Errorf("save called %d times, want 0 (nothing new to persist)", saveCount)
 	}
 }
-
-// --- catchUp: failure leaves the watermark unchanged (d) --------------------
 
 func TestCatchUpRPCFailureLeavesWatermarkUnchanged(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
@@ -396,10 +337,6 @@ func TestCatchUpRPCFailureLeavesWatermarkUnchanged(t *testing.T) {
 	}
 }
 
-// TestCatchUpAbortedStatusLeavesWatermarkUnchanged covers the response-level
-// failure mode (as opposed to a transport-level RPC error above): an
-// ABORTED_* status means the server refused to honor the requested range at
-// all, so nothing it returned is safe to replay or advance the watermark to.
 func TestCatchUpAbortedStatusLeavesWatermarkUnchanged(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
@@ -432,15 +369,6 @@ func TestCatchUpAbortedStatusLeavesWatermarkUnchanged(t *testing.T) {
 	}
 }
 
-// --- handleConnState wiring: first Connected syncs, reconnect catches up ---
-// (a) + (e) -------------------------------------------------------------
-
-// TestHandleConnStateFirstConnectSyncsThenReconnectCatchesUp drives
-// handleConnState (client.go) end to end through two Connected transitions
-// on the same *GChatClient, exactly like a real fresh-connect followed by a
-// webchannel/SID-expiring reconnect. Uses a channel (not a sleep) to
-// observe which RPC each spawned goroutine calls, so this is safe under
-// `-race` and never flaky on load.
 func TestHandleConnStateFirstConnectSyncsThenReconnectCatchesUp(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{Revision: 42})
 	calls := make(chan string, 1)
@@ -471,13 +399,7 @@ func TestHandleConnStateFirstConnectSyncsThenReconnectCatchesUp(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for the first Connected's sync")
 	}
-	// The channel receive above only proves paginatedWorldFn was CALLED, not
-	// that syncChats (and its deferred setSyncInProgress(false), sync.go)
-	// has fully RETURNED yet -- catchUp's syncInProgress guard (backfill.go,
-	// the gchat-port-auditor P1 fix) would otherwise make the second
-	// Connected below race an unfinished first sync. Poll the mutex-guarded
-	// flag directly (not a blind sleep) so this stays deterministic under
-	// `-race`.
+	// Wait for syncChats to fully return, not just be called.
 	waitUntilSyncNotInProgress(t, gc, 2*time.Second)
 
 	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil) // 2nd Connected: reconnect -> catch-up
@@ -496,18 +418,8 @@ func TestHandleConnStateFirstConnectSyncsThenReconnectCatchesUp(t *testing.T) {
 	}
 }
 
-// --- race: catchUp's watermark write vs. a concurrent metadata writer ------
-
-// TestCatchUpRaceWithConcurrentCookiePersist is the regression test for
-// concurrent metadata writers on the same *UserLoginMetadata: catchUp's
-// watermark advance (updateMetadata, backfill.go) and persistCookies (a
-// live Connected callback re-persisting rotated cookies, client.go) both go
-// through metaMu. Run under `-race`, this both proves no data race is
-// reported and pins the required outcome: both writes land (Revision
-// advanced AND Cookies persisted) no matter which goroutine's critical
-// section runs first -- mirrors client_test.go's
-// TestMetadataRaceLogoutVsPersist for the same metaMu-guarded pattern.
-// Looped so a single lucky ordering can't hide a real bug.
+// TestCatchUpRaceWithConcurrentCookiePersist: the watermark write and persistCookies both go through metaMu
+// and both must land; run under -race.
 func TestCatchUpRaceWithConcurrentCookiePersist(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
@@ -551,11 +463,7 @@ func TestCatchUpRaceWithConcurrentCookiePersist(t *testing.T) {
 	}
 }
 
-// waitUntilSyncNotInProgress polls gc.isSyncInProgress() (a metaMu-guarded
-// read, not a raw field access) until it goes false or timeout elapses.
-// Used instead of a blind sleep so tests that need to wait for a spawned
-// syncChats goroutine to fully finish (not just to have been called) stay
-// deterministic under `-race`.
+// waitUntilSyncNotInProgress polls gc.isSyncInProgress() until false or timeout.
 func waitUntilSyncNotInProgress(t *testing.T, gc *GChatClient, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -568,14 +476,6 @@ func waitUntilSyncNotInProgress(t *testing.T, gc *GChatClient, timeout time.Dura
 	t.Fatal("timed out waiting for syncInProgress to clear")
 }
 
-// --- syncChats: clears syncInProgress when it finishes -------------------
-
-// TestSyncChatsClearsSyncInProgressWhenDone pins syncChats' half of the
-// gchat-port-auditor P1 fix contract: the CALLER (handleConnState) sets the
-// flag true synchronously before spawning syncChats; syncChats must clear it
-// (via defer) once it returns, so catchUp's guard stops deferring after the
-// first sync is really done. (The synchronous-SET-before-goroutine half is
-// pinned separately by TestHandleConnStateSetsSyncInProgressSynchronously.)
 func TestSyncChatsClearsSyncInProgressWhenDone(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var sawInProgress bool
@@ -601,13 +501,7 @@ func TestSyncChatsClearsSyncInProgressWhenDone(t *testing.T) {
 	}
 }
 
-// TestHandleConnStateSetsSyncInProgressSynchronously proves the flag is set
-// BEFORE the sync goroutine is spawned (not inside it): with the
-// paginated_world RPC blocked, the spawned syncChats goroutine cannot
-// possibly have run its deferred clear, so if isSyncInProgress() is true the
-// instant handleConnState returns, the set must have happened synchronously
-// on handleConnState's own call. Deterministic (no sleep): the block is
-// released only after the assertion.
+// TestHandleConnStateSetsSyncInProgressSynchronously: the flag is set before the sync goroutine is spawned.
 func TestHandleConnStateSetsSyncInProgressSynchronously(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	release := make(chan struct{})
@@ -630,16 +524,6 @@ func TestHandleConnStateSetsSyncInProgressSynchronously(t *testing.T) {
 	close(release)
 	waitUntilSyncNotInProgress(t, gc, 2*time.Second)
 }
-
-// --- watermark advancement on the live handleGChatEvent path -------------
-// Every successfully handled event (not just catch-up replay) moves the
-// watermark (gchat-port-auditor P0 fix: without this, the watermark could
-// only ever move forward from inside catchUp's own replay, so it would go
-// stale during ordinary live traffic and eventually make catch_up_user
-// permanently fail). The USER
-// watermark advances ONLY from user_revision; group_revision goes to the
-// per-portal watermark instead (M2-review Important #2); and the advance
-// happens only AFTER a successful queue (M2-review Important #3).
 
 func TestHandleGChatEventAdvancesRevisionWatermark(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 10}
@@ -671,15 +555,7 @@ func TestHandleGChatEventAdvancesRevisionWatermark(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventGroupRevisionDoesNotAdvanceUserWatermark RED-verifies
-// the M2-whole-branch Important #2 fix: user_revision and group_revision are
-// SEPARATE revision spaces. An event carrying only group_revision must NOT
-// advance the persisted user watermark (UserLoginMetadata.Revision, the
-// catch_up_user cursor) -- folding it in could over-advance past
-// not-yet-delivered user-stream events -> permanent loss. It must instead be
-// parked on the per-portal watermark for M6's catch_up_group. Against the old
-// eventRevision = max(user,group) fold, this test fails (the user watermark
-// would jump to 999).
+// TestHandleGChatEventGroupRevisionDoesNotAdvanceUserWatermark: group_revision goes to the portal watermark, never the user one.
 func TestHandleGChatEventGroupRevisionDoesNotAdvanceUserWatermark(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 10}
 	login := newTestUserLogin(meta)
@@ -718,11 +594,7 @@ func TestHandleGChatEventGroupRevisionDoesNotAdvanceUserWatermark(t *testing.T) 
 	}
 }
 
-// TestHandleGChatEventFailedQueueLeavesUserWatermarkUnchanged pins the
-// M2-whole-branch Important #3 fix: the watermark advances only AFTER a
-// successful queue. A QueueRemoteEvent that returns a non-Success result
-// (the message was dropped) must leave UserLoginMetadata.Revision untouched
-// so the next reconnect's catch_up_user re-fetches it.
+// TestHandleGChatEventFailedQueueLeavesUserWatermarkUnchanged: the watermark advances only after a successful queue.
 func TestHandleGChatEventFailedQueueLeavesUserWatermarkUnchanged(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 10}
 	login := newTestUserLogin(meta)
@@ -748,10 +620,7 @@ func TestHandleGChatEventFailedQueueLeavesUserWatermarkUnchanged(t *testing.T) {
 	}
 }
 
-// TestCatchUpStopsDrainOnQueueFailure proves the catchUp drain stops the
-// moment a caught-up event fails to handle, rather than fetching further
-// pages and letting a later success advance the persisted watermark past the
-// dropped event (M2-review Important #3, replay side).
+// TestCatchUpStopsDrainOnQueueFailure: a failed event stops the drain so later pages can't advance past it.
 func TestCatchUpStopsDrainOnQueueFailure(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 100}
 	login := newTestUserLogin(meta)
@@ -830,20 +699,7 @@ func TestHandleGChatEventRevisionNeverRegresses(t *testing.T) {
 	}
 }
 
-// --- M6 Task 1: FetchMessages (flat-room initial/history backfill) --------
-//
-// See backfill.go's "M6 Task 1" region doc comment for the full rationale
-// behind using list_topics (not list_messages) and the single-shot (not
-// paged) design these tests pin down.
-
-// flatBackfillPortal builds a *bridgev2.Portal for a flat (non-ThreadsOnly)
-// portal with a real, parseable PortalKey.ID (gcid.ParsePortalID must
-// succeed -- fetchFlatMessages' first step) and a Bridge whose Matrix
-// connector resolves ghost mentions deterministically, so a formatted
-// message's mention pill renders the same way it would for a live message
-// (TestFetchMessagesFlatConvertMessageReusesLiveConversionPath below).
-// Bridge is otherwise unused: GetIntentFor is never called for real in these
-// tests (see newBackfillTestClient's getIntentForFn override).
+// flatBackfillPortal builds a flat portal whose Bridge resolves ghost mentions deterministically.
 func flatBackfillPortal(group gcid.GroupID) *bridgev2.Portal {
 	matrix := &fakeMatrixConnector{
 		ghostIntent: func(gaiaID networkid.UserID) id.UserID {
@@ -859,11 +715,7 @@ func flatBackfillPortal(group gcid.GroupID) *bridgev2.Portal {
 	}
 }
 
-// newBackfillTestClient builds a *GChatClient with listTopicsFn wired to
-// list and getIntentForFn stubbed to always succeed with a nil intent
-// (fine: none of these tests' messages carry attachments, so intent is
-// never dereferenced -- msgconv_adapter.go's own doc comment on the "media"
-// parameter makes the same "nil is safe when nothing needs it" point).
+// newBackfillTestClient wires listTopicsFn and stubs getIntentForFn with a nil intent.
 func newBackfillTestClient(ownGaia string, list func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error)) *GChatClient {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.ID = gcid.MakeUserLoginID(ownGaia)
@@ -876,8 +728,7 @@ func newBackfillTestClient(ownGaia string, list func(context.Context, *pb.ListTo
 	}
 }
 
-// flatTopic builds a *pb.Topic shaped like a non-threaded topic: exactly one
-// reply (the flat message itself, read as topic.replies[0]).
+// flatTopic builds a non-threaded topic with a single reply.
 func flatTopic(topicID, msgID, creatorGaia, text string, sortTime int64) *pb.Topic {
 	return &pb.Topic{
 		Id:       &pb.TopicId{TopicId: proto.String(topicID)},
@@ -891,14 +742,7 @@ func flatTopic(topicID, msgID, creatorGaia, text string, sortTime int64) *pb.Top
 	}
 }
 
-// --- single-shot request shape -------------------------------------------
-
-// TestFetchMessagesFlatCallsListTopicsOnceWithGroupAndCount pins the
-// single-shot rework (m6-task-1-review.md's Important finding): fetchFlatMessages
-// must issue exactly ONE ListTopics call, with PageSizeForTopics = params.Count
-// (the entire requested backfill depth, not a growing cumulative request), and
-// the response must report HasMore=false with an empty Cursor -- there is no
-// next page to ask for, ever (one ListTopicsRequest, no loop).
+// TestFetchMessagesFlatCallsListTopicsOnceWithGroupAndCount: one ListTopics call, PageSizeForTopics = Count, HasMore=false.
 func TestFetchMessagesFlatCallsListTopicsOnceWithGroupAndCount(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var gotReq *pb.ListTopicsRequest
@@ -940,9 +784,6 @@ func TestFetchMessagesFlatCallsListTopicsOnceWithGroupAndCount(t *testing.T) {
 	}
 }
 
-// TestFetchMessagesFlatZeroCountFallsBackToDefault pins the defensive
-// non-positive-Count guard: a zero params.Count must not turn into
-// PageSizeForTopics=0 (which would ask the server for nothing).
 func TestFetchMessagesFlatZeroCountFallsBackToDefault(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var gotReq *pb.ListTopicsRequest
@@ -963,17 +804,10 @@ func TestFetchMessagesFlatZeroCountFallsBackToDefault(t *testing.T) {
 	}
 }
 
-// --- chronological ordering + field mapping ----------------------------
-
-// TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields pins the
-// brief's core ask: the server returns topics NEWEST-FIRST (so they must be
-// reversed); the response must come back oldest-to-newest, and each
-// BackfillMessage's ID/Sender/Timestamp/StreamOrder must be derived from its
-// topic's head reply.
+// TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields: newest-first server order is returned oldest-first.
 func TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
-	// Server order: newest (m3) first, oldest (m1) last -- exactly what a
-	// real "most recent N" list_topics response looks like.
+	// Server order: newest first.
 	serverOrder := []*pb.Topic{
 		flatTopic("t3", "m3", "u3", "three", 3_000_000),
 		flatTopic("t2", "m2", "u2", "two", 2_000_000),
@@ -1020,9 +854,6 @@ func TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields(t *testing.T) {
 	}
 }
 
-// TestFetchMessagesFlatSenderIsFromMe pins EventSender.IsFromMe being
-// derived the same way the live MESSAGE_POSTED path derives it
-// (c.IsThisUser), not left false unconditionally.
 func TestFetchMessagesFlatSenderIsFromMe(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	gc := newBackfillTestClient("owner-gaia", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
@@ -1047,22 +878,8 @@ func TestFetchMessagesFlatSenderIsFromMe(t *testing.T) {
 	}
 }
 
-// --- M6 Task 3: reaction backfill is an intentional, tested omission ------
-
-// TestFetchMessagesFlatOmitsReactionsEvenWhenGCMessageHasThem pins the M6
-// Task 3 finding that reaction backfill is factually impossible, not just
-// unimplemented: GC's Reaction proto (pkg/gchatmeow/proto/googlechat.pb.go's
-// `type Reaction struct`, attached to Message.Reactions field 21) carries
-// ONLY Emoji/Count/CurrentUserParticipated/CreateTimestamp -- no reactor user
-// id -- so there is no identity to build a bridgev2.BackfillReaction.Sender
-// from. Reactions are bridged exclusively from live MessageReactionEvents,
-// which do carry a real reactor id. This test builds a GC Message whose
-// Reactions field IS
-// populated (Count>0, CurrentUserParticipated=true -- the only case a naive
-// future change might be tempted to attribute to the current user) and
-// asserts the resulting BackfillMessage.Reactions is nil/empty regardless.
-// See fetchTopicHeadMessages' inline doc comment (backfill.go) for the full
-// rationale this test enforces.
+// TestFetchMessagesFlatOmitsReactionsEvenWhenGCMessageHasThem: GC's Reaction proto has no reactor id,
+// so backfilled reactions must stay nil even with Count>0 and CurrentUserParticipated.
 func TestFetchMessagesFlatOmitsReactionsEvenWhenGCMessageHasThem(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	topic := flatTopic("t1", "m1", "u1", "hello", 1_000_000)
@@ -1093,27 +910,10 @@ func TestFetchMessagesFlatOmitsReactionsEvenWhenGCMessageHasThem(t *testing.T) {
 	}
 }
 
-// --- SortTime ties: deterministic topic-id tiebreaker --------------------
-
-// TestFetchMessagesFlatSortTimeTieBreaksByTopicID pins the m6-task-1-review.md
-// Minor fix (comparator) and, more importantly, the tie-hole this whole
-// rework exists to close: two distinct topics sharing an identical
-// microsecond SortTime must sort in a DETERMINISTIC order (by topic id),
-// never in whatever order the server happened to return them in. The server
-// lists topic-1 BEFORE topic-2 (newest-first); reversing that (this
-// function's first step, oldest-first) puts topic-2 before topic-1, and
-// without a tiebreaker slices.SortStableFunc leaves that post-reversal order
-// alone since the tie compares equal -- the OPPOSITE of topic-id-ascending
-// order. So this test fails under the old
-// `int(a.GetSortTime()-b.GetSortTime())` comparator (which returns 0 for the
-// tie, so nothing reorders it) and passes once the comparator also breaks
-// ties on topic id.
+// TestFetchMessagesFlatSortTimeTieBreaksByTopicID: SortTime ties sort by topic id, not server order.
 func TestFetchMessagesFlatSortTimeTieBreaksByTopicID(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
-	// Server order (newest-first, as always): topic-1 before topic-2, both at
-	// the identical SortTime 100. Message ids are chosen to NOT correlate
-	// alphabetically with topic ids, so a passing test proves the tiebreaker
-	// keys on TOPIC id specifically, not message id or server/reversal order.
+	// Message ids don't correlate with topic ids, so the tiebreaker must key on topic id.
 	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
 		return &pb.ListTopicsResponse{
 			Topics: []*pb.Topic{
@@ -1134,8 +934,7 @@ func TestFetchMessagesFlatSortTimeTieBreaksByTopicID(t *testing.T) {
 	if len(resp.Messages) != 2 {
 		t.Fatalf("len(Messages) = %d, want 2", len(resp.Messages))
 	}
-	// topic-1 < topic-2 lexicographically, so topic-1's reply (msg-zzz) must
-	// sort first regardless of the server's tie order.
+	// topic-1 < topic-2, so msg-zzz sorts first.
 	want := []networkid.MessageID{gcid.MakeMessageID("msg-zzz"), gcid.MakeMessageID("msg-aaa")}
 	for i, w := range want {
 		if resp.Messages[i].ID != w {
@@ -1144,12 +943,6 @@ func TestFetchMessagesFlatSortTimeTieBreaksByTopicID(t *testing.T) {
 	}
 }
 
-// --- HasMore is always false for single-shot ------------------------------
-
-// TestFetchMessagesFlatServerReturnsFewerThanRequestedSetsHasMoreFalse pins
-// that HasMore is unconditionally false in the single-shot design,
-// regardless of how many topics the server actually returned relative to
-// what was requested -- there is no next page to ask for, ever.
 func TestFetchMessagesFlatServerReturnsFewerThanRequestedSetsHasMoreFalse(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	// Only 2 topics exist; asked for 5.
@@ -1177,15 +970,7 @@ func TestFetchMessagesFlatServerReturnsFewerThanRequestedSetsHasMoreFalse(t *tes
 	}
 }
 
-// --- ConvertMessage reuses the live conversion path ---------------------
-
-// TestFetchMessagesFlatConvertMessageReusesLiveConversionPath pins the
-// no-parallel-conversion-path requirement: a formatted backfilled message
-// (a BOLD annotation, same mechanism msgconv_adapter_test.go's own
-// formatting tests use) must produce EXACTLY the same *bridgev2.ConvertedMessage
-// convertMessageToMatrix would produce for the identical *pb.Message live --
-// proven by calling convertMessageToMatrix directly on the same message/
-// portal and comparing the rendered HTML body.
+// TestFetchMessagesFlatConvertMessageReusesLiveConversionPath: backfill renders the same HTML as convertMessageToMatrix.
 func TestFetchMessagesFlatConvertMessageReusesLiveConversionPath(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	msg := &pb.Message{
@@ -1233,12 +1018,6 @@ func TestFetchMessagesFlatConvertMessageReusesLiveConversionPath(t *testing.T) {
 	}
 }
 
-// --- anchor filtering: don't re-deliver already-bridged messages --------
-
-// TestFetchMessagesFlatAnchorExcludesAlreadyBridgedMessages mirrors meta's
-// own wrapBackfillEvents anchor filter (_reference/meta/pkg/connector/backfill.go):
-// a portal that already has SOME bridged history (AnchorMessage != nil) must
-// not re-deliver anything at or after the anchor's timestamp.
 func TestFetchMessagesFlatAnchorExcludesAlreadyBridgedMessages(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
@@ -1273,13 +1052,7 @@ func TestFetchMessagesFlatAnchorExcludesAlreadyBridgedMessages(t *testing.T) {
 	}
 }
 
-// TestFetchMessagesFlatAnchorKeepsDistinctSiblingAtSameMicrosecond pins
-// m6-task-1-review.md's anchor-filter fix: a distinct message sharing the
-// anchor's exact microsecond CreateTime must NOT be excluded, only the
-// anchor message itself (by id) and anything strictly newer. Under the old
-// `msg.GetCreateTime() >= anchorMicros` cutoff this test fails (m-sibling is
-// wrongly dropped alongside m-anchor, since both are AT the anchor's
-// microsecond); the id-or-strictly-newer check keeps m-sibling.
+// TestFetchMessagesFlatAnchorKeepsDistinctSiblingAtSameMicrosecond: only the anchor itself and newer messages are dropped.
 func TestFetchMessagesFlatAnchorKeepsDistinctSiblingAtSameMicrosecond(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
@@ -1322,17 +1095,7 @@ func TestFetchMessagesFlatAnchorKeepsDistinctSiblingAtSameMicrosecond(t *testing
 	}
 }
 
-// --- M6 Task 2: flat-with-real-thread gap closure -------------------------
-//
-// Task 1's region doc comment documented a gap: a topic with a real Google
-// Chat thread even inside an otherwise-flat room
-// (topic_read_state.thread_created_usec > 0) was bridged as ONLY its head
-// reply, never setting ShouldBackfillThread, so the framework would never
-// drive a ThreadRoot-scoped fetch for its other replies -- the rule being
-// threads_only OR topic_read_state.thread_created_usec > 0. These two tests
-// pin the closed gap: a flat topic that DOES carry a real thread now gets
-// ShouldBackfillThread=true; a plain flat topic (no real thread) still does
-// not.
+// A flat topic with thread_created_usec > 0 gets ShouldBackfillThread; a plain flat topic does not.
 
 func TestFetchMessagesFlatTopicWithRealThreadSetsShouldBackfillThread(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
@@ -1387,33 +1150,8 @@ func TestFetchMessagesFlatTopicWithoutRealThreadShouldBackfillThreadFalse(t *tes
 	}
 }
 
-// --- Task 3.5: Forward split on AnchorMessage (new-room seed vs catch-up) --
-//
-// bridgev2 uses Forward==true for TWO different callers that this dispatcher
-// must tell apart (task-3_5-brief.md's diagnosis, re-confirmed against
-// portalbackfill.go for this task):
-//   - doForwardBackfill(ctx, source, nil, bundle) on room creation
-//     (portal.go:5404, gated on info.CanBackfill/Backfill.Enabled/not a space/
-//     not background) -- AnchorMessage is nil (lastMessage==nil in
-//     portalbackfill.go:27-51) and this is the ONLY initial-backfill trigger
-//     that runs on a non-batch-send homeserver like continuwuity, since
-//     doBackwardsBackfill's queue (RunBackfillQueue, backfillqueue.go:73-77)
-//     hard-returns unless Matrix.GetCapabilities().BatchSending is true.
-//   - the same doForwardBackfill called again later with a real lastMessage
-//     (portal.go:3882, forward CATCH-UP "new messages since the last known
-//     one") -- AnchorMessage is non-nil.
-// Only the first shape must reach fetchTopicHeadMessages; the second stays an
-// empty stub (GC's list_topics has no "strictly newer than X" query, and M2's
-// catch_up_user already owns reconnect-gap recovery for existing rooms).
+// Forward with a nil anchor is the new-room seed; with an anchor it is catch-up and stays empty.
 
-// TestFetchMessagesForwardNilAnchorSeedsInitialBackfill pins Task 3.5's fix.
-// Before it, the dispatcher stubbed EVERY Forward=true call to empty
-// regardless of AnchorMessage, so the new-room bootstrap seed
-// (doForwardBackfill(ctx, source, nil, bundle) on room creation) -- the only
-// initial-backfill path that runs on continuwuity -- fetched nothing, making
-// the whole M6 milestone inert outside Beeper. This test FAILS under the old
-// `if params.Forward { return empty }` (listTopicsFn never called, resp
-// empty) and PASSES once the dispatcher also requires AnchorMessage != nil.
 func TestFetchMessagesForwardNilAnchorSeedsInitialBackfill(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var calls int
@@ -1428,8 +1166,7 @@ func TestFetchMessagesForwardNilAnchorSeedsInitialBackfill(t *testing.T) {
 	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
 		Portal:  flatBackfillPortal(group),
 		Forward: true,
-		// AnchorMessage deliberately left nil: the new-room bootstrap seed
-		// shape (doForwardBackfill's lastMessage==nil case).
+		// Nil AnchorMessage: the new-room bootstrap seed.
 		Count: 3,
 	})
 	if err != nil {
@@ -1449,10 +1186,6 @@ func TestFetchMessagesForwardNilAnchorSeedsInitialBackfill(t *testing.T) {
 	}
 }
 
-// TestFetchMessagesForwardWithAnchorReturnsEmptyResponse pins the OTHER half
-// of the Forward split: Forward=true WITH a non-nil AnchorMessage is forward
-// CATCH-UP on an existing room. listTopicsFn must NOT be called and the
-// response must stay empty -- unchanged by Task 3.5's fix.
 func TestFetchMessagesForwardWithAnchorReturnsEmptyResponse(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var called bool
@@ -1481,10 +1214,6 @@ func TestFetchMessagesForwardWithAnchorReturnsEmptyResponse(t *testing.T) {
 	}
 }
 
-// TestFetchMessagesBackwardUnchanged pins that Task 3.5's dispatcher change
-// (only touching the Forward==true branch) leaves the backward direction
-// (Forward==false, the doBackwardsBackfill queue path) exactly as Task 1 left
-// it: topic heads returned via fetchTopicHeadMessages.
 func TestFetchMessagesBackwardUnchanged(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
@@ -1507,16 +1236,7 @@ func TestFetchMessagesBackwardUnchanged(t *testing.T) {
 	}
 }
 
-// --- M6 Task 2: ThreadsOnly top-level (list_topics, every head threaded) --
-
-// TestFetchMessagesThreadsOnlyTopLevelHeadsHaveShouldBackfillThread pins the
-// brief's core ThreadsOnly ask: a ThreadsOnly portal's top-level
-// (ThreadRoot=="") FetchMessages call uses the exact same list_topics +
-// chronological-head strategy as a flat portal (TestFetchMessagesFlat...
-// above), but EVERY topic's head gets ShouldBackfillThread=true
-// unconditionally (not gated on ThreadCreatedUsec, since every topic in a
-// threaded space is itself a thread), with LastThreadMessage defaulting to
-// the head's own id (single-reply topic).
+// TestFetchMessagesThreadsOnlyTopLevelHeadsHaveShouldBackfillThread: every ThreadsOnly topic head gets ShouldBackfillThread.
 func TestFetchMessagesThreadsOnlyTopLevelHeadsHaveShouldBackfillThread(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	serverOrder := []*pb.Topic{
@@ -1556,14 +1276,6 @@ func TestFetchMessagesThreadsOnlyTopLevelHeadsHaveShouldBackfillThread(t *testin
 	}
 }
 
-// TestFetchMessagesThreadsOnlyForwardNilAnchorSeedsWithShouldBackfillThread
-// pins that Task 3.5's forward-seed fix also works for a ThreadsOnly portal:
-// the threaded new-room bootstrap on a non-batch-send homeserver must still
-// get ShouldBackfillThread=true on every topic head, so the framework's
-// non-batch-send sendBackfill path (portalbackfill.go:349-358, which drives
-// doThreadBackfill per ShouldBackfillThread message even outside the
-// batch-send branch -- re-confirmed against source for this task) can follow
-// up with the per-thread ListMessages fetch on continuwuity too.
 func TestFetchMessagesThreadsOnlyForwardNilAnchorSeedsWithShouldBackfillThread(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
@@ -1579,7 +1291,7 @@ func TestFetchMessagesThreadsOnlyForwardNilAnchorSeedsWithShouldBackfillThread(t
 		Portal:  portal,
 		Forward: true,
 		Count:   3,
-		// AnchorMessage deliberately left nil: the new-room bootstrap seed.
+		// Nil AnchorMessage: the new-room bootstrap seed.
 	})
 	if err != nil {
 		t.Fatalf("FetchMessages returned error: %v", err)
@@ -1595,13 +1307,7 @@ func TestFetchMessagesThreadsOnlyForwardNilAnchorSeedsWithShouldBackfillThread(t
 	}
 }
 
-// --- M6 Task 2: ThreadRoot-scoped (list_messages for one topic) ----------
-//
-// threadRootAnchor builds the *database.Message a ThreadRoot-scoped
-// FetchMessages call receives as params.AnchorMessage: its Metadata carries
-// the *MessageMetadata whose TopicID field fetchThreadMessages reads to
-// resolve which topic to list_messages against (see backfill.go's "M6 Task
-// 2" region doc comment's "MESSAGE -> TOPIC MAPPING" note).
+// threadRootAnchor builds a ThreadRoot anchor whose MessageMetadata.TopicID fetchThreadMessages reads.
 func threadRootAnchor(msgID, topicID string, createMicros int64) *database.Message {
 	return &database.Message{
 		ID:        gcid.MakeMessageID(msgID),
@@ -1610,9 +1316,6 @@ func threadRootAnchor(msgID, topicID string, createMicros int64) *database.Messa
 	}
 }
 
-// threadReply builds a *pb.Message shaped like a plain thread reply (no
-// parent_id needed here -- fetchThreadMessages never reads it, only the
-// anchor's stored metadata), mirroring flatTopic's inner message literal.
 func threadReply(msgID, creatorGaia, text string, createTime int64) *pb.Message {
 	return &pb.Message{
 		Id:         &pb.MessageId{MessageId: proto.String(msgID)},
@@ -1622,8 +1325,7 @@ func threadReply(msgID, creatorGaia, text string, createTime int64) *pb.Message 
 	}
 }
 
-// newThreadBackfillTestClient mirrors newBackfillTestClient, but wires
-// listMessagesFn (the Task 2 seam) instead of listTopicsFn.
+// newThreadBackfillTestClient is newBackfillTestClient wired to listMessagesFn.
 func newThreadBackfillTestClient(ownGaia string, list func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error)) *GChatClient {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.ID = gcid.MakeUserLoginID(ownGaia)
@@ -1636,17 +1338,8 @@ func newThreadBackfillTestClient(ownGaia string, list func(context.Context, *pb.
 	}
 }
 
-// TestFetchMessagesThreadRootCallsListMessagesWithTopicFromAnchorMetadata
-// pins the request-shape half of the brief: the topic id in the
-// list_messages request comes from AnchorMessage.Metadata.TopicID, NOT from
-// params.ThreadRoot (which is just a message id with no topic encoded in
-// it -- task-2-augment.md's key design point). Also pins that
-// params.Forward is TRUE on a real ThreadRoot-scoped call (verified against
-// portalbackfill.go's fetchThreadBackfill/doThreadBackfill, which always set
-// Forward:true even for this still-conceptually-backward/initial fetch) --
-// under the naive "check Forward before ThreadRoot" dispatch order this
-// would misroute into the Forward-unsupported stub and listMessagesFn would
-// never be called at all.
+// TestFetchMessagesThreadRootCallsListMessagesWithTopicFromAnchorMetadata: the topic comes from anchor metadata,
+// and Forward=true must not misroute a ThreadRoot call.
 func TestFetchMessagesThreadRootCallsListMessagesWithTopicFromAnchorMetadata(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var gotReq *pb.ListMessagesRequest
@@ -1690,20 +1383,14 @@ func TestFetchMessagesThreadRootCallsListMessagesWithTopicFromAnchorMetadata(t *
 	}
 }
 
-// TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically pins the
-// brief's "head message not duplicated" ask plus chronological ordering:
-// list_messages may re-include the topic's head reply -- this must filter it
-// out via the same anchor criterion fetchTopicHeadMessages uses (mirrored
-// for the forward direction), and the two genuine replies must come back
-// oldest first regardless of the server's delivery order.
+// TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically: a re-sent head is filtered, replies come oldest first.
 func TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	head := threadReply("head-1", "u1", "head text", 1_000_000)
 	reply2 := threadReply("reply-2", "u2", "second", 3_000_000)
 	reply1 := threadReply("reply-1", "u3", "first", 2_000_000)
 	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
-		// Deliberately out of order and including the head, exactly the
-		// defensive scenario this test exists to cover.
+		// Out of order and including the head.
 		return &pb.ListMessagesResponse{Messages: []*pb.Message{reply2, head, reply1}}, nil
 	})
 	anchor := threadRootAnchor("head-1", "topic-1", 1_000_000)
@@ -1734,17 +1421,7 @@ func TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically(t *testing.
 	}
 }
 
-// TestFetchMessagesThreadRootKeepsDistinctSiblingAtSameMicrosecond pins the
-// ThreadRoot-scoped analog of
-// TestFetchMessagesFlatAnchorKeepsDistinctSiblingAtSameMicrosecond: the
-// anchor filter's `msg.GetCreateTime() < anchorMicros` cutoff must exclude
-// the head only by id match, and anything strictly OLDER than the anchor by
-// time, while KEEPING a distinct reply that happens to share the anchor's
-// exact microsecond CreateTime. The existing
-// TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically test above
-// has no same-microsecond non-head message, so a regression from `<` to
-// `<=` would silently drop a genuine same-microsecond reply and still pass
-// every other test in this file.
+// TestFetchMessagesThreadRootKeepsDistinctSiblingAtSameMicrosecond: guards against `<` regressing to `<=`.
 func TestFetchMessagesThreadRootKeepsDistinctSiblingAtSameMicrosecond(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	head := threadReply("head-1", "u1", "head text", 3_000_000)
@@ -1752,7 +1429,7 @@ func TestFetchMessagesThreadRootKeepsDistinctSiblingAtSameMicrosecond(t *testing
 	older := threadReply("reply-older", "u3", "older text", 1_000_000)       // strictly older: excluded
 	newer := threadReply("reply-newer", "u4", "newer text", 5_000_000)       // strictly newer: kept
 	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
-		// Deliberately out of order, mirroring the sibling test above.
+		// Deliberately out of order.
 		return &pb.ListMessagesResponse{Messages: []*pb.Message{newer, head, sibling, older}}, nil
 	})
 	anchor := threadRootAnchor("head-1", "topic-1", 3_000_000)
@@ -1794,11 +1471,6 @@ func TestFetchMessagesThreadRootKeepsDistinctSiblingAtSameMicrosecond(t *testing
 	}
 }
 
-// TestFetchMessagesThreadRootNilAnchorReturnsEmptyResponse covers the
-// defensive case the augment file calls out explicitly: with no anchor
-// message there is no topic id to resolve, so this must return an empty
-// response without ever calling listMessagesFn or panicking (rather than
-// guessing at a topic).
 func TestFetchMessagesThreadRootNilAnchorReturnsEmptyResponse(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var calls int
@@ -1812,7 +1484,6 @@ func TestFetchMessagesThreadRootNilAnchorReturnsEmptyResponse(t *testing.T) {
 		ThreadRoot: gcid.MakeMessageID("head-1"),
 		Forward:    true,
 		Count:      3,
-		// AnchorMessage deliberately left nil.
 	})
 	if err != nil {
 		t.Fatalf("FetchMessages returned error: %v", err)
@@ -1825,9 +1496,6 @@ func TestFetchMessagesThreadRootNilAnchorReturnsEmptyResponse(t *testing.T) {
 	}
 }
 
-// TestFetchMessagesThreadRootAnchorMissingTopicIDReturnsEmptyResponse covers
-// an anchor message that exists but carries no usable topic id (nil
-// Metadata, e.g. a migrated/legacy row) -- must not guess, must not panic.
 func TestFetchMessagesThreadRootAnchorMissingTopicIDReturnsEmptyResponse(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	var calls int
@@ -1855,11 +1523,6 @@ func TestFetchMessagesThreadRootAnchorMissingTopicIDReturnsEmptyResponse(t *test
 	}
 }
 
-// TestFetchMessagesThreadRootConvertReusesLiveConversionPath mirrors
-// TestFetchMessagesFlatConvertMessageReusesLiveConversionPath for the
-// ThreadRoot-scoped path: a formatted thread reply must produce identical
-// rendered HTML through fetchThreadMessages as calling convertMessageToMatrix
-// directly -- no parallel conversion path for the threaded case either.
 func TestFetchMessagesThreadRootConvertReusesLiveConversionPath(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
 	reply := &pb.Message{

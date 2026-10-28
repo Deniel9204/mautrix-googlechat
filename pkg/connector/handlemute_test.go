@@ -1,8 +1,5 @@
 package connector
 
-// handlemute_test.go -- HandleMute -> update_group_notification_settings, and
-// the chat list's notification state -> bridgev2's mute value (#31).
-
 import (
 	"context"
 	"encoding/hex"
@@ -46,9 +43,7 @@ func sentMuteRequest(t *testing.T, portal *bridgev2.Portal, mutedUntil int64) *p
 	return got
 }
 
-// The sent request must be exactly what the web client sent in the captures
-// (request header aside): decoding the captured pblite into our schema and
-// comparing proves both the field numbers and the values.
+// The sent request must match the web client's captured pblite exactly (request header aside).
 func TestHandleMuteMatchesWebClientCaptures(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -114,8 +109,6 @@ func TestHandleMuteRPCFailurePropagates(t *testing.T) {
 	}
 }
 
-// The settings bytes of two chats, straight from a live chat-list sync
-// (2026-09-30): a muted space, and a DM that had been muted and unmuted.
 func liveNotificationSettings(t *testing.T, hexBytes string) *pb.GroupReadState {
 	t.Helper()
 	raw, err := hex.DecodeString(hexBytes)

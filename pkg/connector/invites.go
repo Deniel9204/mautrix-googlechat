@@ -1,26 +1,6 @@
 package connector
 
-// invites.go -- spaces this account is INVITED to but has not joined.
-//
-// Inbound: the invite reaches the invitee as a standalone
-// MembershipChangedEvent on the realtime channel -- new_membership for the
-// user's own id, state MEMBER_INVITED (verified live 2026-09-29). It is NOT in
-// paginated_world: the chat list only carries spaces the user has joined, and
-// no world filter or section returns pending invites (also verified live), so
-// an invite sent while the bridge is down only surfaces if catch_up replays
-// the event. On the event the bridge records the invite as pending and
-// creates a portal with the user marked *invited*, not joined
-// (invitedSpaceMembers): bridgev2 then sends a plain Matrix invite and, unlike
-// for a joined member, never auto-accepts it -- nothing is accepted on Google
-// Chat without a user action.
-//
-// Outbound: the user's Matrix accept/decline arrives as AcceptInvite /
-// RejectInvite (handlemembership.go). Those types ALSO arrive for the bridge's
-// own auto-accept of every portal it creates, so the RPC is only sent when the
-// space is in UserLoginMetadata.PendingInvites. Anything else stays a no-op.
-//
-// Spam-category invites are ignored, matching the Google Chat web client,
-// which files them away. Invited DMs (message requests) are out of scope.
+// Pending space invites arrive only as a realtime MembershipChangedEvent, never in paginated_world.
 import (
 	"context"
 	"slices"
@@ -38,11 +18,7 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// handleOwnMembershipChanged reads the user's own membership off a standalone
-// MembershipChangedEvent: an invite to a space records it as pending and
-// creates its portal; any other own state answers a pending invite (accepted
-// or declined from another Google Chat client). Other users' changes are
-// ignored here -- they arrive as SYSTEM_MESSAGEs (systemmessage.go).
+// handleOwnMembershipChanged records or answers a pending space invite from the user's own membership change.
 func (c *GChatClient) handleOwnMembershipChanged(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	change := evt.GetBody().GetMembershipChanged()
@@ -89,13 +65,8 @@ func (c *GChatClient) handleOwnMembershipChanged(ctx context.Context, evt *pb.Ev
 	})
 }
 
-// invitedSpaceChatInfo is an invited space's portal info: its name, topic and
-// threading from get_group when the server gives them to an invitee (best
-// effort -- a failure just leaves the room unnamed), and ALWAYS the
-// invited-member list below. get_group's own member list is deliberately
-// ignored: chatInfoFromGetGroupResponse marks every member joined, self
-// included, and a joined self is exactly what makes the bridge accept on the
-// user's behalf.
+// invitedSpaceChatInfo is an invited space's portal info; get_group's member list is ignored
+// because it marks self as joined, which would make the bridge accept on the user's behalf.
 func (c *GChatClient) invitedSpaceChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
 	group, err := gcid.ParsePortalID(portal.ID)
 	if err != nil {
@@ -108,18 +79,13 @@ func (c *GChatClient) invitedSpaceChatInfo(ctx context.Context, portal *bridgev2
 	} else {
 		info = chatInfoFromGetGroupResponse(group, resp, c.ownUserID())
 	}
-	// Not a member yet: history is unreadable until the invite is accepted,
-	// and the only members known for sure are the user (invited).
+	// Not a member yet: history is unreadable until the invite is accepted.
 	info.CanBackfill = false
 	info.Members = invitedSpaceMembers(c.ownUserID())
 	return info, nil
 }
 
-// invitedSpaceMembers is the member list for an invited space: just the user,
-// as invited. Deliberately not IsFull -- an invitee cannot see the real member
-// list, and IsFull would kick everyone else out of a portal another login
-// already shares. PrevMembership=leave makes the invite one-shot: a user
-// already joined (or still invited) on Matrix is never re-invited.
+// invitedSpaceMembers lists just the user as invited; not IsFull, since an invitee can't see the real members.
 func invitedSpaceMembers(ownUserID networkid.UserID) *bridgev2.ChatMemberList {
 	return &bridgev2.ChatMemberList{MemberMap: bridgev2.ChatMemberMap{
 		ownUserID: {
@@ -141,10 +107,7 @@ func (c *GChatClient) addPendingInvite(ctx context.Context, spaceID string) erro
 	})
 }
 
-// dropJoinedPendingInvites forgets pending invites to spaces the chat list now
-// shows the user as a member of -- accepted from another client while no event
-// reached the bridge. The chat list never lists pending invites, so it can
-// only ever remove entries, never add them.
+// dropJoinedPendingInvites forgets pending invites to spaces the chat list now shows as joined.
 func (c *GChatClient) dropJoinedPendingInvites(ctx context.Context, items []*pb.WorldItemLite) error {
 	joined := make(map[string]bool, len(items))
 	for _, item := range items {
@@ -165,8 +128,7 @@ func (c *GChatClient) dropJoinedPendingInvites(ctx context.Context, items []*pb.
 	})
 }
 
-// hasPendingInvite reports whether Google Chat reported this account as
-// invited to the space and the invite has not been answered since.
+// hasPendingInvite reports whether the space has an unanswered invite.
 func (c *GChatClient) hasPendingInvite(spaceID string) bool {
 	c.metaMu.Lock()
 	defer c.metaMu.Unlock()
@@ -174,8 +136,7 @@ func (c *GChatClient) hasPendingInvite(spaceID string) bool {
 	return ok && meta != nil && slices.Contains(meta.PendingInvites, spaceID)
 }
 
-// clearPendingInvite drops one space from the pending set once the invite has
-// been answered, on either side.
+// clearPendingInvite drops an answered invite from the pending set.
 func (c *GChatClient) clearPendingInvite(ctx context.Context, spaceID string) error {
 	return c.updateMetadata(ctx, func(meta *UserLoginMetadata) bool {
 		i := slices.Index(meta.PendingInvites, spaceID)
@@ -187,15 +148,8 @@ func (c *GChatClient) clearPendingInvite(ctx context.Context, spaceID string) er
 	})
 }
 
-// resyncAcceptedSpace queues a full resync of a space the user just joined:
-// get_group for the real member list (an invited portal only knew the user)
-// plus a forward backfill of its history, which was unreadable while the user
-// was only invited.
-//
-// Queued from a goroutine: this runs inside HandleMatrixMembership, i.e. on
-// the portal's own event loop, and with an unbuffered portal queue
-// (bridge.portal_event_buffer: 0) queueing into it synchronously from here
-// would deadlock.
+// resyncAcceptedSpace queues a resync and backfill of a newly joined space. Runs in a goroutine:
+// queueing synchronously from the portal's event loop would deadlock with an unbuffered queue.
 func (c *GChatClient) resyncAcceptedSpace(group gcid.GroupID) {
 	evt := &simplevent.ChatResync{
 		EventMeta: simplevent.EventMeta{

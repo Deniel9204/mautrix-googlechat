@@ -1,22 +1,5 @@
 package migrate
 
-// White-box tests (package migrate) for migrateUsers. Under test: cookie
-// key casing and the double-puppet token -> user.access_token copy.
-//
-// TestMigrateUsers_CookiesAndNoCookies reuses source_test.go's shared
-// fixture (@user1:example.com has a gcid+cookies+user_agent+revision;
-// @user2:example.com has none) -- exactly the "logged in" vs "never logged
-// in" split. That fixture's one puppet
-// (custom_mxid=@alice:example.com) does NOT match either migrated user, so
-// running migrateUsers against it also exercises the "double-puppet token
-// matches no migrated user" warn-and-skip path for free.
-//
-// newUserEdgeCasesSourceDB is a dedicated second fixture (like ghost_test.go's
-// newBadAvatarHashSourceDB) covering cases the shared fixture has no rows
-// for: gcid-present-but-cookies-NULL (the v08 cookie-wipe shape), an
-// incomplete cookie map that still gets migrated with a warning, and a
-// double-puppet token that DOES match a migrated user.
-
 import (
 	"context"
 	"database/sql"
@@ -95,13 +78,11 @@ func TestMigrateUsers_CookiesAndNoCookies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrateUsers: %v", err)
 	}
-	// 2 user rows (@user1, @user2); user_login rows are migrateUserLogins's
-	// own count now (M7 Task 8's Summary split).
+
 	if count != 2 {
 		t.Fatalf("expected count=2 (2 user rows), got %d", count)
 	}
-	// The fixture's one puppet (custom_mxid=@alice:example.com) matches no
-	// migrated user -- exactly 1 warning, about that mismatch.
+	// The fixture's puppet matches no migrated user.
 	if len(warnings) != 1 {
 		t.Fatalf("expected exactly 1 warning (unmatched double-puppet), got %d: %v", len(warnings), warnings)
 	}
@@ -113,7 +94,7 @@ func TestMigrateUsers_CookiesAndNoCookies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrateUserLogins: %v", err)
 	}
-	// 1 user_login row (@user1 only -- @user2 has no gcid/cookies).
+
 	if loginCount != 1 {
 		t.Fatalf("expected loginCount=1, got %d", loginCount)
 	}
@@ -144,8 +125,7 @@ func TestMigrateUsers_CookiesAndNoCookies(t *testing.T) {
 			t.Fatalf("unmarshaling metadata %q: %v", login.Metadata, err)
 		}
 
-		// THE critical assertion: cookie keys must be UPPERCASE, not the
-		// lowercase form the Python JSON blob stores (preflight item 1).
+		// Cookie keys must be uppercase.
 		want := map[string]string{"COMPASS": "c1", "SSID": "s1", "SID": "si1", "OSID": "o1", "HSID": "h1"}
 		if len(meta.Cookies) != len(want) {
 			t.Fatalf("Cookies = %v, want %v", meta.Cookies, want)
@@ -189,17 +169,8 @@ func TestMigrateUsers_CookiesAndNoCookies(t *testing.T) {
 	})
 }
 
-// newUserEdgeCasesSourceDB builds a dedicated fixture covering cases the
-// shared fixture doesn't:
-//   - @real:example.com: gcid present, cookies NULL (the v08 cookie-wipe
-//     shape) -- user row only, no login, even though gcid is valid.
-//   - @incomplete:example.com: gcid present, cookies present but only
-//     "compass" -- migrated anyway (with a warning), since the brief says
-//     "still write it but append a warning".
-//   - puppet 1: custom_mxid=@real:example.com, access_token="matched-token"
-//     -- DOES match a migrated user (double-puppet applied).
-//   - puppet 2: custom_mxid=@nomatch:example.com, access_token="orphan-token"
-//     -- matches no migrated user (warn, no crash).
+// newUserEdgeCasesSourceDB covers gcid-without-cookies, an incomplete cookie map,
+// and one matching plus one unmatched double-puppet token.
 func newUserEdgeCasesSourceDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "user_edge_cases_source.db")
@@ -260,13 +231,11 @@ func TestMigrateUsers_EdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrateUsers: %v", err)
 	}
-	// 2 user rows (@real, @incomplete).
+
 	if count != 2 {
 		t.Fatalf("expected count=2 (2 user rows), got %d", count)
 	}
-	// Exactly 1 warning from migrateUsers: the unmatched-double-puppet
-	// warning for @nomatch:example.com (the incomplete-cookie-map warning is
-	// migrateUserLogins's now).
+	// Only the unmatched double-puppet warning.
 	if len(warnings) != 1 {
 		t.Fatalf("expected exactly 1 warning, got %d: %v", len(warnings), warnings)
 	}
@@ -275,7 +244,7 @@ func TestMigrateUsers_EdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrateUserLogins: %v", err)
 	}
-	// 1 user_login row (@incomplete only -- @real has no cookies at all).
+
 	if loginCount != 1 {
 		t.Fatalf("expected loginCount=1, got %d", loginCount)
 	}

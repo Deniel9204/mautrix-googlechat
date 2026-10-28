@@ -1,46 +1,5 @@
-// Package pblite implements the pblite (a.k.a. protojson-array) codec used
-// for Google Chat's realtime webchannel stream. A pblite message is a JSON
-// array where array index i (0-based) holds field number i+1; missing
-// fields are null-padded. High field numbers may instead appear in a
-// trailing JSON *object* keyed by field number ("{fieldNumber: value}",
-// e.g. Message.reply_to = field 37) -- a sparse extension the server
-// actually uses.
-//
-// Decoding is permissive by design: unknown field numbers, null values,
-// and values that don't match the field's expected shape are debug-logged
-// and skipped. Only a structural failure --
-// the top-level payload not being a JSON array -- is a hard error. Google
-// adds/changes wire fields often; one bad or new field must never take down
-// decoding of the rest of the message.
-//
-// # Provenance
-//
-// The protoreflect field-walk structure is adapted from
-// go.mau.fi/util/pblite (the package gmessages and googlechat-megabridge
-// both import verbatim as
-// `go.mau.fi/util/pblite`; that decode logic was upstreamed there and
-// gmessages itself only keeps a debug CLI around it). That upstream core --
-// walk msg.ProtoReflect().Descriptor().Fields(), map field number to array
-// index, recurse for MessageKind, string-or-number for 64-bit kinds,
-// base64 for BytesKind -- is the closest prior art and is reused here.
-//
-// It is NOT imported directly, because of two defects in how megabridge
-// relies on it that this package must not replicate:
-//   - non-permissive decode: go.mau.fi/util/pblite.Unmarshal aborts the
-//     entire message on the first type-mismatched field (deserialize.go
-//     propagates every per-field error up through Unmarshal), so on the
-//     live stream any single unexpected value drops the whole
-//     StreamEventsResponse.
-//   - no trailing sparse-dict support: deserializeFromSlice only reads
-//     data[fieldNumber-1] positionally, so Message.reply_to (field 37) and
-//     any other field the server sends via the sparse-dict form either
-//     lands out of range (silently dropped) or hits a message field by
-//     accident and errors out.
-//
-// This package fixes both: per-field decode failures are logged and
-// skipped rather than propagated (see decodeValue/decodeListField), and a
-// trailing JSON object is split out and merged in as extra (field number,
-// value) pairs (see splitTrailingDict/buildFieldEntries).
+// Package pblite implements Google Chat's pblite codec: a JSON array where index i holds field i+1,
+// optionally ending in a sparse {fieldNumber: value} object. Decoding is permissive: bad fields are logged and skipped.
 package pblite
 
 import (
@@ -56,19 +15,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// Unmarshal decodes a pblite JSON array into msg. It is permissive: unknown
-// fields, nulls, and undecodable single values are debug-logged and
-// skipped, never returned as errors. Only a structural failure -- data
-// isn't a JSON array -- returns an error.
+// Unmarshal decodes a pblite JSON array into msg; only a non-array payload is an error.
 func Unmarshal(data []byte, msg proto.Message) error {
-	// UseNumber() keeps every JSON number as the exact decimal text
-	// (json.Number, a string underneath) instead of decoding it through
-	// float64, which can only represent integers exactly up to 2^53.
-	// create_time and friends are microsecond int64 timestamps well past
-	// that, so a bare-number (non-stringified) int64/uint64 -- which the
-	// mandatory decode behaviors require accepting -- must not round-trip
-	// through float64 or it silently corrupts the value instead of
-	// decoding it exactly.
+	// UseNumber keeps int64 timestamps exact instead of rounding through float64.
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var raw any
@@ -86,9 +35,7 @@ func Unmarshal(data []byte, msg proto.Message) error {
 	return nil
 }
 
-// Marshal encodes msg as a dense pblite JSON array (nulls for unset
-// fields). int64/uint64 fields are emitted as JSON strings, matching the
-// JS client (JS Number can't hold 64-bit integers precisely).
+// Marshal encodes msg as a dense pblite array, with 64-bit ints as JSON strings.
 func Marshal(msg proto.Message) ([]byte, error) {
 	values, err := encodeMessage(msg.ProtoReflect())
 	if err != nil {
@@ -97,17 +44,11 @@ func Marshal(msg proto.Message) ([]byte, error) {
 	return json.Marshal(values)
 }
 
-// --- decode ---
-
-// fieldEntry is one (field number, raw JSON value) pair pulled out of a
-// pblite array, in the order it should be applied.
 type fieldEntry struct {
 	number int
 	value  any
 }
 
-// splitTrailingDict separates the sparse trailing-object extension (if
-// present) from the positional part of a pblite array.
 func splitTrailingDict(arr []any) (positional []any, dict map[string]any) {
 	if len(arr) == 0 {
 		return arr, nil
@@ -118,14 +59,8 @@ func splitTrailingDict(arr []any) (positional []any, dict map[string]any) {
 	return arr, nil
 }
 
-// buildFieldEntries flattens a pblite array (plus optional trailing sparse
-// dict) into an ordered list of (field number, value) pairs: positional
-// entries first in ascending index order, then any sparse-dict entries in
-// ascending field-number order. This ordering is what makes oneof
-// last-set-wins deterministic -- pblite has no special oneof encoding, so
-// "last" means "processed last" here, mirroring the array's natural
-// low-to-high field order (the format relies on plain in-order field
-// assignment).
+// buildFieldEntries returns positional entries then sparse-dict entries, both ascending,
+// which makes oneof last-set-wins deterministic.
 func buildFieldEntries(arr []any) []fieldEntry {
 	positional, dict := splitTrailingDict(arr)
 	entries := make([]fieldEntry, 0, len(positional)+len(dict))
@@ -135,13 +70,7 @@ func buildFieldEntries(arr []any) []fieldEntry {
 	if len(dict) > 0 {
 		extra := make([]fieldEntry, 0, len(dict))
 		for k, v := range dict {
-			// ParseInt with bitSize 32, not Atoi (platform int, effectively
-			// 64-bit): entry.number is later narrowed to
-			// protoreflect.FieldNumber (int32) when looked up, and an
-			// unchecked truncation there could wrap a huge/garbage key
-			// around into a small, real field number and silently
-			// overwrite an unrelated field instead of being skipped as
-			// unknown.
+			// Parse as 32-bit so a huge key cannot wrap into a real field number.
 			n, err := strconv.ParseInt(k, 10, 32)
 			if err != nil {
 				log.Debug().Str("key", k).Msg("pblite: skipping out-of-range/non-numeric sparse-dict key")
@@ -155,26 +84,14 @@ func buildFieldEntries(arr []any) []fieldEntry {
 	return entries
 }
 
-// MaxDepth caps how deep decoding will recurse into nested messages.
-//
-// googlechat.proto contains self-referential messages -- Message.last_reply
-// is itself a Message -- so a crafted payload can nest arbitrarily deep, and
-// each level costs a protoreflect descriptor lookup plus a message
-// allocation. Without a cap of its own this package was bounded only
-// incidentally, by encoding/json's internal nesting ceiling, which is not a
-// limit this package controls. 64 is far beyond any real reply chain.
+// MaxDepth caps nested-message recursion; Message.last_reply is self-referential.
 const MaxDepth = 64
 
-// decodeMessage decodes a pblite array into an already-allocated protoreflect
-// message. It never returns an error: every problem it finds (unknown field
-// number, wrong-shaped value, bad base64, ...) is debug-logged and skipped.
+// decodeMessage decodes arr into m, logging and skipping every problem.
 func decodeMessage(arr []any, m protoreflect.Message) {
 	decodeMessageAt(arr, m, 0)
 }
 
-// decodeMessageAt is decodeMessage with the current nesting depth threaded
-// through. Exceeding MaxDepth skips just that subtree, consistent with this
-// codec's log-and-skip contract for everything else it cannot handle.
 func decodeMessageAt(arr []any, m protoreflect.Message, depth int) {
 	if depth >= MaxDepth {
 		logDepthExceeded(m.Descriptor(), depth)
@@ -191,10 +108,7 @@ func decodeMessageAt(arr []any, m protoreflect.Message, depth int) {
 			continue
 		}
 		if fd.IsMap() {
-			// No map<> fields exist in googlechat.proto today; guard against
-			// a future one instead of mishandling it as MessageKind below
-			// (Message()/List() on a map value panics -- and a panic from
-			// server-controlled bytes is worse than the ordinary skip path).
+			// No map fields exist today; skip rather than panic on one.
 			logSkippedField(fd, entry.value)
 			continue
 		}
@@ -215,11 +129,7 @@ func decodeSingularField(m protoreflect.Message, fd protoreflect.FieldDescriptor
 	m.Set(fd, v)
 }
 
-// decodeListField decodes a repeated field. If a single element fails to
-// decode, this codec skips only the bad element and keeps the rest, per
-// the stricter "undecodable single values are skipped" contract mandated
-// for this port: one malformed element in an otherwise-good repeated field
-// must not throw away the whole field.
+// decodeListField skips only the bad elements of a repeated field.
 func decodeListField(m protoreflect.Message, fd protoreflect.FieldDescriptor, value any, depth int) {
 	items, ok := value.([]any)
 	if !ok {
@@ -241,11 +151,6 @@ func decodeListField(m protoreflect.Message, fd protoreflect.FieldDescriptor, va
 	m.Set(fd, protoreflect.ValueOfList(list))
 }
 
-// decodeValue decodes a single JSON value for fd's kind. When fd is a list
-// field, insideList is the list being built and a fresh element is
-// allocated from it for MessageKind; otherwise a fresh field value is
-// allocated from ref. Returns ok=false (never an error) for anything that
-// doesn't match the expected shape -- the caller logs and skips.
 func decodeValue(value any, ref protoreflect.Message, insideList protoreflect.List, fd protoreflect.FieldDescriptor, depth int) (protoreflect.Value, bool) {
 	switch fd.Kind() {
 	case protoreflect.MessageKind:
@@ -337,13 +242,7 @@ func decodeValue(value any, ref protoreflect.Message, insideList protoreflect.Li
 	}
 }
 
-// toInt64 accepts a JSON number (decoded as json.Number, i.e. its exact
-// decimal text -- see the UseNumber comment in Unmarshal) or a decimal
-// string -- the pblite wire form for int64/int32 fields (the JS client
-// stringifies 64-bit values it can't represent exactly as JS numbers;
-// 32-bit fields are seen both ways in practice, so both are accepted for
-// all integer kinds). Falls back to a float parse for the rare non-integer
-// literal (e.g. "3.0").
+// toInt64 accepts a json.Number or decimal string, falling back to a float parse.
 func toInt64(value any) (int64, bool) {
 	switch v := value.(type) {
 	case string:
@@ -409,7 +308,6 @@ func toFloat64(value any) (float64, bool) {
 	}
 }
 
-// logDepthExceeded records a subtree skipped for exceeding MaxDepth.
 func logDepthExceeded(desc protoreflect.MessageDescriptor, depth int) {
 	log.Debug().
 		Str("message", string(desc.FullName())).
@@ -425,9 +323,7 @@ func logSkippedField(fd protoreflect.FieldDescriptor, value any) {
 		Msg("pblite: skipping undecodable field value")
 }
 
-// logUnknownField gates the debug log: only log when the value is
-// non-trivial, so routine null-padding-equivalent noise ("", 0, [], nil)
-// from fields we don't know about doesn't spam logs.
+// logUnknownField skips logging trivial values ("", 0, false, [], nil).
 func logUnknownField(desc protoreflect.MessageDescriptor, fieldNumber int, value any) {
 	if isTrivialValue(value) {
 		return
@@ -449,7 +345,6 @@ func isTrivialValue(v any) bool {
 		f, err := t.Float64()
 		return err == nil && f == 0
 	case bool:
-		// false counts as trivial, the same as the numeric zero.
 		return !t
 	case []any:
 		return len(t) == 0
@@ -458,11 +353,7 @@ func isTrivialValue(v any) bool {
 	}
 }
 
-// --- encode ---
-
-// encodeMessage encodes every populated field of m into a dense,
-// null-padded slice sized to the highest populated field number (padding
-// only up to the fields actually present, not the full schema).
+// encodeMessage encodes m as a slice null-padded up to the highest populated field.
 func encodeMessage(m protoreflect.Message) ([]any, error) {
 	maxFieldNumber := 0
 	m.Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
@@ -514,7 +405,6 @@ func encodeValue(fd protoreflect.FieldDescriptor, v protoreflect.Value) (any, er
 	case protoreflect.BytesKind:
 		return base64.StdEncoding.EncodeToString(v.Bytes()), nil
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
-		// JS compat: 64-bit ints as strings.
 		return strconv.FormatInt(v.Int(), 10), nil
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		return strconv.FormatUint(v.Uint(), 10), nil

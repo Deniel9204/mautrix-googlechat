@@ -1,14 +1,5 @@
 package migrate
 
-// White-box tests (package migrate) for migrateMessages, exercising the
-// index->part_id rule (Message is the hardest mapping).
-//
-// newMessageFixtureSourceDB/seedMessageFixtureRows build a dedicated fixture
-// (rather than reusing source_test.go's shared 2-row fixture) because these
-// tests need multi-row message groups the shared fixture doesn't have.
-// reaction_test.go reuses seedMessageFixtureRows so both files agree on
-// exactly the same message groups.
-
 import (
 	"context"
 	"database/sql"
@@ -30,18 +21,7 @@ const (
 	msgFixtureInsertMessageSQ = `INSERT INTO message (mxid, mx_room, gcid, gc_chat, gc_receiver, gc_parent_id, gc_sender, "index", timestamp, msgtype) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 )
 
-// seedMessageFixtureRows inserts one portal + one puppet (the sender) + the
-// message rows exercising schema map §2's full index->part_id rule:
-//   - msgTextPlusAtt: text + 2 attachments -> "", att_0, att_1
-//   - msgAttOnly: attachment-only multi-row (lowest msgtype non-text) -> att_0, att_1
-//   - msgSingle: single row (attachment msgtype) -> "" regardless (the plan's
-//     resolved single-row decision, map Risk #1 option a)
-//   - msgReply: single row with a thread parent -> thread_root_id/TopicID = parent
-//   - msgNoSender: single row with a NULL gc_sender -> warn-and-skip
-//
-// The portal/puppet rows exist so migratePortals/migrateGhosts can seed the
-// target rows migrateMessages's FK constraints (message_room_fkey,
-// message_sender_fkey) require.
+// seedMessageFixtureRows inserts a portal, the sender's puppet, and message groups covering every part_id case.
 func seedMessageFixtureRows(t *testing.T, db *sql.DB) {
 	t.Helper()
 	stmts := []struct {
@@ -60,14 +40,14 @@ func seedMessageFixtureRows(t *testing.T, db *sql.DB) {
 		{msgFixtureInsertMessageSQ, []any{"$e1:example.com", "!room:example.com", "msgTextPlusAtt", msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 0, int64(1700000000000000), "m.text"}},
 		{msgFixtureInsertMessageSQ, []any{"$e2:example.com", "!room:example.com", "msgTextPlusAtt", msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 1, int64(1700000000100000), "m.image"}},
 		{msgFixtureInsertMessageSQ, []any{"$e3:example.com", "!room:example.com", "msgTextPlusAtt", msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 2, int64(1700000000200000), "m.video"}},
-		// group: attachment-only multi-row (lowest-index row's msgtype is NOT text) -> att_0, att_1
+		// group: attachment-only multi-row -> att_0, att_1
 		{msgFixtureInsertMessageSQ, []any{"$e4:example.com", "!room:example.com", "msgAttOnly", msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 0, int64(1700000001000000), "m.image"}},
 		{msgFixtureInsertMessageSQ, []any{"$e5:example.com", "!room:example.com", "msgAttOnly", msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 1, int64(1700000001100000), "m.file"}},
 		// group: single row (attachment msgtype) -> "" regardless of msgtype
 		{msgFixtureInsertMessageSQ, []any{"$e6:example.com", "!room:example.com", "msgSingle", msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 0, int64(1700000002000000), "m.image"}},
 		// single row with a thread parent -> thread_root_id/TopicID = parent
 		{msgFixtureInsertMessageSQ, []any{"$e7:example.com", "!room:example.com", "msgReply", msgFixturePortalGCID, msgFixturePortalReceiver, "msgRootExternal", msgFixtureSenderGaiaID, 0, int64(1700000003000000), "m.text"}},
-		// NULL gc_sender -> warn and skip (no ghost to attribute sender to)
+		// NULL gc_sender -> warn and skip
 		{msgFixtureInsertMessageSQ, []any{"$e8:example.com", "!room:example.com", "msgNoSender", msgFixturePortalGCID, msgFixturePortalReceiver, nil, nil, 0, int64(1700000004000000), "m.text"}},
 	}
 	for _, s := range stmts {
@@ -126,9 +106,7 @@ func readMigratedMessage(t *testing.T, target *dbutil.Database, id, partID strin
 	return row
 }
 
-// countMessageRows counts how many Go message rows exist for a given
-// Python gcid, across all part_ids -- used to assert a skipped row wrote
-// nothing at all.
+// countMessageRows counts Go message rows for a gcid across all part_ids.
 func countMessageRows(t *testing.T, target *dbutil.Database, id string) int {
 	t.Helper()
 	var count int
@@ -146,9 +124,6 @@ func TestMigrateMessages_IndexToPartIDRule(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	// Seed the target's portal/ghost rows the message FK constraints
-	// require -- mirrors Run's real step order (portals, ghosts, then
-	// messages).
 	if _, _, err := migratePortals(ctx, deps, Options{}); err != nil {
 		t.Fatalf("migratePortals: %v", err)
 	}
@@ -160,8 +135,7 @@ func TestMigrateMessages_IndexToPartIDRule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrateMessages: %v", err)
 	}
-	// 3 (msgTextPlusAtt) + 2 (msgAttOnly) + 1 (msgSingle) + 1 (msgReply) = 7;
-	// msgNoSender's single row is skipped.
+	// msgNoSender is skipped.
 	if count != 7 {
 		t.Fatalf("expected 7 messages migrated, got %d", count)
 	}
@@ -190,7 +164,6 @@ func TestMigrateMessages_IndexToPartIDRule(t *testing.T) {
 			t.Errorf("att_1 mxid = %q, want $e3:example.com (index 2, second attachment)", att1.MXID)
 		}
 
-		// Root message (no gc_parent_id): thread_root_id NULL, TopicID self-references its own gcid.
 		if text.ThreadRootID.Valid {
 			t.Errorf("text part thread_root_id = %+v, want NULL (no parent)", text.ThreadRootID)
 		}
@@ -204,8 +177,7 @@ func TestMigrateMessages_IndexToPartIDRule(t *testing.T) {
 		if meta.TimestampMicro != 1700000000000000 {
 			t.Errorf("text part TimestampMicro = %d, want 1700000000000000", meta.TimestampMicro)
 		}
-		// Go message.timestamp is UnixNano (bridgev2/database/message.go's
-		// sqlVariables/Scan round trip) -- µs*1000.
+		// message.timestamp is UnixNano.
 		if text.Timestamp != 1700000000000000*1000 {
 			t.Errorf("text part raw timestamp column = %d, want %d (µs*1000, UnixNano)", text.Timestamp, 1700000000000000*1000)
 		}
@@ -263,12 +235,7 @@ func TestMigrateMessages_IndexToPartIDRule(t *testing.T) {
 	})
 }
 
-// newUnmigratedPortalMessageSourceDB builds a fixture whose only message row
-// references a gc_chat/gc_receiver with NO corresponding portal row in the
-// source DB at all -- so migratePortals never creates that portal in the
-// target. Exercises the message_room_fkey guard (portalExistsInTarget):
-// without it, migrateMessages would fail the FK and abort the ENTIRE
-// migration instead of warning and skipping just this row.
+// newUnmigratedPortalMessageSourceDB builds a source whose only message references a chat with no portal row.
 func newUnmigratedPortalMessageSourceDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "unmigrated_portal_message_source.db")
@@ -279,7 +246,7 @@ func newUnmigratedPortalMessageSourceDB(t *testing.T) *dbutil.Database {
 	if _, err := setup.Exec(fixtureSchemaSQL); err != nil {
 		t.Fatalf("creating fixture schema: %v", err)
 	}
-	// Deliberately NO portal row for "space:NoPortalHere".
+
 	_, err = setup.Exec(
 		`INSERT INTO puppet (gcid, name, photo_id, photo_mxc, photo_hash, name_set, avatar_set, contact_info_set, is_registered, custom_mxid, access_token, next_batch, base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		msgFixtureSenderGaiaID, "Sender", nil, nil, nil, true, false, false, false, nil, nil, nil, nil,
@@ -338,9 +305,6 @@ func TestMigrateMessages_UnmigratedPortal_WarnsAndSkips(t *testing.T) {
 	}
 }
 
-// TestMigrateMessages_MNoticeClassifiedAsText exercises the OTHER
-// text-classifying msgtype schema map §2 lists alongside m.text -- the
-// existing text+2-attachments fixture only covers m.text.
 func TestMigrateMessages_MNoticeClassifiedAsText(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mnotice_source.db")
 	setup, err := sql.Open("sqlite3", path)

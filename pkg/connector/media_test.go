@@ -1,10 +1,5 @@
 package connector
 
-// media_test.go -- TDD coverage for inbound Google Chat UPLOAD_METADATA
-// attachments -> Matrix media parts, media.go. Every network call
-// (attachmentURL, downloadAttachment, UploadMediaStream) is injected via a
-// fake: no real gchatmeow.Client, no real Matrix homeserver.
-
 import (
 	"bytes"
 	"context"
@@ -30,10 +25,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
 
-// --- fakes ------------------------------------------------------------
-
-// fakeMediaFetcher implements mediaFetcher with fully injectable behavior,
-// so tests never touch gchatmeow or the network.
 type fakeMediaFetcher struct {
 	attachmentURLFn      func(meta *pb.UploadMetadata) (string, bool, error)
 	downloadAttachmentFn func(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error)
@@ -41,10 +32,7 @@ type fakeMediaFetcher struct {
 	maxFileSizeVal       int64
 	disableInlineURL     bool
 
-	// Which fetcher each path actually used. The url_metadata path MUST use
-	// downloadExternal: downloadAttachment's client keeps an env proxy and
-	// permits plain http, concessions that are only safe for Google's own
-	// endpoint (gchatmeow/external.go).
+	// The url_metadata path must use downloadExternal, never downloadAttachment.
 	usedDownloadAttachment bool
 	usedDownloadExternal   bool
 }
@@ -78,9 +66,7 @@ func (f *fakeMediaFetcher) inlineURLMediaEnabled() bool { return !f.disableInlin
 
 var _ mediaFetcher = (*fakeMediaFetcher)(nil)
 
-// fakeUploadIntent implements bridgev2.MatrixAPI, overriding only
-// UploadMediaStream -- same "embed nil interface, override one method"
-// pattern as mentions_test.go's fakeMatrixAPI.
+// fakeUploadIntent implements bridgev2.MatrixAPI, overriding only UploadMediaStream.
 type fakeUploadIntent struct {
 	bridgev2.MatrixAPI
 	uploadFn func(ctx context.Context, roomID id.RoomID, size int64, requireFile bool, cb bridgev2.FileStreamCallback) (id.ContentURIString, *event.EncryptedFileInfo, error)
@@ -98,9 +84,7 @@ func (f fakeUploadIntent) UploadMediaStream(ctx context.Context, roomID id.RoomI
 	return id.ContentURIString("mxc://example.com/" + res.FileName), nil, nil
 }
 
-// uploadIntentRecordingBody is a convenience fakeUploadIntent that records
-// the bytes the FileStreamCallback wrote, so tests can assert the
-// downloaded bytes actually reached UploadMediaStream unmodified.
+// uploadIntentRecordingBody records the bytes written to UploadMediaStream.
 func uploadIntentRecordingBody(dst *[]byte) fakeUploadIntent {
 	return fakeUploadIntent{
 		uploadFn: func(ctx context.Context, roomID id.RoomID, size int64, requireFile bool, cb bridgev2.FileStreamCallback) (id.ContentURIString, *event.EncryptedFileInfo, error) {
@@ -122,8 +106,6 @@ func testPortal() *bridgev2.Portal {
 	}
 }
 
-// makeUploadAnnotation builds an UPLOAD_METADATA *pb.Annotation, mirroring
-// gchatfmt/utils.go's MakeFormatAnnotation/MakeMentionAnnotation helpers.
 func makeUploadAnnotation(token, contentType, contentName string) *pb.Annotation {
 	return &pb.Annotation{
 		Type: pb.AnnotationType_UPLOAD_METADATA.Enum(),
@@ -137,8 +119,7 @@ func makeUploadAnnotation(token, contentType, contentName string) *pb.Annotation
 	}
 }
 
-// onePixelPNG encodes a tiny 3x2 PNG so image.DecodeConfig has real
-// dimensions to report.
+// onePixelPNG encodes a tiny 3x2 PNG so image.DecodeConfig has real dimensions.
 func onePixelPNG(t *testing.T) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 3, 2))
@@ -149,8 +130,6 @@ func onePixelPNG(t *testing.T) []byte {
 	}
 	return buf.Bytes()
 }
-
-// --- convertOneAttachment / convertAttachmentsToMatrix -----------------
 
 func TestConvertAttachmentsToMatrix_Image(t *testing.T) {
 	pngBytes := onePixelPNG(t)
@@ -243,18 +222,7 @@ func TestConvertAttachmentsToMatrix_VideoAndAudioMsgTypes(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType is a
-// regression test for the case when the
-// UPLOAD_METADATA annotation's own declared content_type disagrees with the
-// mime type the actual download reports (a stale/wrong annotation, or a
-// server that recompresses/transcodes), the resulting Matrix event's
-// MsgType and Info.MimeType must come from the DOWNLOADED mime -- never the
-// annotation's -- matching convertOneAttachment's own documented contract
-// (media.go: "msgType below is derived afresh from the DOWNLOADED
-// response's actual Content-Type instead ... NOT the annotation's declared
-// content_type"). The annotation here declares "image/png" (which would
-// pick m.image if wrongly consulted); the download reports
-// "application/pdf" (m.file) -- proving the downloaded type wins.
+// TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType: MsgType and MimeType come from the download, not the annotation.
 func TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType(t *testing.T) {
 	msg := &pb.Message{
 		Annotations: []*pb.Annotation{makeUploadAnnotation("TOK1", "image/png", "mystery")},
@@ -262,8 +230,7 @@ func TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType(t *testing.T)
 	pdfBytes := []byte("%PDF-1.4 fake, but really downloaded as a pdf")
 	media := &fakeMediaFetcher{
 		downloadAttachmentFn: func(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
-			// The download's own Content-Type ("application/pdf") disagrees
-			// with the annotation's declared content_type ("image/png").
+			// The download disagrees with the annotation's declared image/png.
 			return pdfBytes, "application/pdf", "mystery.pdf", nil
 		},
 	}
@@ -279,9 +246,7 @@ func TestConvertAttachmentsToMatrix_MimeMismatchUsesDownloadedType(t *testing.T)
 	if part.Content.Info == nil || part.Content.Info.MimeType != "application/pdf" {
 		t.Errorf("Info.MimeType = %v, want application/pdf (the downloaded mime)", part.Content.Info)
 	}
-	// The image-decode branch (Width/Height) must not fire either -- it's
-	// gated on the same (correct) downloaded MsgType, not the annotation's
-	// declared image/png.
+	// Nor may the image-decode branch fire.
 	if part.Content.Info.Width != 0 || part.Content.Info.Height != 0 {
 		t.Errorf("Info = {Width:%d Height:%d}, want {0 0} -- must not treat a mismatched-mime PDF as an image", part.Content.Info.Width, part.Content.Info.Height)
 	}
@@ -316,9 +281,6 @@ func TestConvertAttachmentsToMatrix_TwoAttachments(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_OversizeSkippedCleanly pins the size-cap
-// requirement: a download that reports ErrFileTooLarge (gchatmeow's own
-// sentinel) must be skipped -- no part, no error returned, no panic.
 func TestConvertAttachmentsToMatrix_OversizeSkippedCleanly(t *testing.T) {
 	msg := &pb.Message{Annotations: []*pb.Annotation{makeUploadAnnotation("TOK1", "image/png", "huge.png")}}
 	media := &fakeMediaFetcher{
@@ -337,12 +299,7 @@ func TestConvertAttachmentsToMatrix_OversizeSkippedCleanly(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_TwoAttachmentsFirstOversizeIndexing pins
-// the chosen indexing rule: att_<n> counts UPLOAD_METADATA annotations in
-// ENCOUNTER order, whether or not each one was actually bridged -- so if the
-// FIRST of two attachments is skipped (oversize) and the second succeeds,
-// the lone surviving part keeps its original position, att_1, rather than
-// being renumbered to att_0.
+// att_<n> counts annotations in encounter order, so a skipped first attachment leaves the second at att_1.
 func TestConvertAttachmentsToMatrix_TwoAttachmentsFirstOversizeIndexing(t *testing.T) {
 	msg := &pb.Message{
 		Annotations: []*pb.Annotation{
@@ -424,10 +381,6 @@ func TestConvertAttachmentsToMatrix_UploadFailureSkipped(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_FilenameFallback pins the filename-fallback
-// logic: when the download gives no usable filename ("" or the request
-// path's own "get_attachment_url"), fall back to content_name, then to
-// "<msgtype><ext>".
 func TestConvertAttachmentsToMatrix_FilenameFallback(t *testing.T) {
 	t.Run("uses content_name", func(t *testing.T) {
 		msg := &pb.Message{Annotations: []*pb.Annotation{makeUploadAnnotation("TOK1", "image/png", "fallback-name.png")}}
@@ -491,12 +444,7 @@ func TestConvertAttachmentsToMatrix_NonUploadAnnotationsIgnored(t *testing.T) {
 	}
 }
 
-// --- convertMessageToMatrix composition (text + attachments) ----
-
-// TestConvertMessageToMatrix_TextAndAttachmentBothPresent is the headline
-// composition test: a message with BOTH text_body and an UPLOAD_METADATA
-// annotation gets TWO parts -- "" (text) first, then att_0 -- the text
-// message before the attachments.
+// Text part comes first, then att_0.
 func TestConvertMessageToMatrix_TextAndAttachmentBothPresent(t *testing.T) {
 	msg := &pb.Message{
 		TextBody:    proto.String("check this out"),
@@ -530,7 +478,6 @@ func TestConvertMessageToMatrix_TextAndAttachmentBothPresent(t *testing.T) {
 		t.Errorf("cm.Parts[1].Content.MsgType = %q, want m.image", cm.Parts[1].Content.MsgType)
 	}
 
-	// Both parts share the same MessageMetadata (TimestampMicro/TopicID).
 	for i, part := range cm.Parts {
 		meta, ok := part.DBMetadata.(*MessageMetadata)
 		if !ok || meta.TimestampMicro != 999 {
@@ -539,9 +486,6 @@ func TestConvertMessageToMatrix_TextAndAttachmentBothPresent(t *testing.T) {
 	}
 }
 
-// TestConvertMessageToMatrix_AttachmentOnlyMessage: attachment-only (no
-// text_body) yields exactly one part, att_0 -- no empty-body text part
-// (mirrors ToMatrix's own text_body-presence gate, from-gchat.go).
 func TestConvertMessageToMatrix_AttachmentOnlyMessage(t *testing.T) {
 	msg := &pb.Message{
 		CreateTime:  proto.Int64(1),
@@ -566,10 +510,7 @@ func TestConvertMessageToMatrix_AttachmentOnlyMessage(t *testing.T) {
 	}
 }
 
-// TestConvertMessageToMatrix_AttachmentPartsDoNotGetTextMentions is the
-// double-ping regression: a message with a mention in its text AND an
-// attachment must only carry content.Mentions on the TEXT part, not the
-// attachment part(s).
+// Double-ping regression: only the text part carries content.Mentions.
 func TestConvertMessageToMatrix_AttachmentPartsDoNotGetTextMentions(t *testing.T) {
 	portal := &bridgev2.Portal{
 		Portal: &database.Portal{MXID: id.RoomID("!room:example.com")},
@@ -607,11 +548,7 @@ func TestConvertMessageToMatrix_AttachmentPartsDoNotGetTextMentions(t *testing.T
 	}
 }
 
-// --- url_metadata (inline external media) ----------------------------------
-
-// makeURLAnnotation builds a url_metadata annotation. length is load-bearing:
-// > 0 means it decorates text already in the body, == 0 means a chip attached
-// to the message itself.
+// makeURLAnnotation builds a url_metadata annotation; length 0 means a chip attached to the message.
 func makeURLAnnotation(pageURL, imageURL, mimeType string, length int32, shouldNotRender bool) *pb.Annotation {
 	return &pb.Annotation{
 		Length: proto.Int32(length),
@@ -626,11 +563,7 @@ func makeURLAnnotation(pageURL, imageURL, mimeType string, length int32, shouldN
 	}
 }
 
-// TestInlineableURLMedia is the anti-scope-creep control. Every reference
-// client fetches EVERY url_metadata URL, which makes the bridge a link
-// prefetcher that hands the operator's IP to any host a remote party names.
-// This gate must stay narrow, and in particular must not fire on an ordinary
-// pasted link.
+// TestInlineableURLMedia: the gate must stay narrow and never fire on an ordinary pasted link.
 func TestInlineableURLMedia(t *testing.T) {
 	tests := []struct {
 		name string
@@ -638,8 +571,7 @@ func TestInlineableURLMedia(t *testing.T) {
 		want bool
 	}{
 		{
-			// The shape an ordinary in-sentence link arrives in: it covers
-			// text, and declares no media.
+			// An ordinary in-sentence link: covers text, declares no media.
 			name: "ordinary pasted link is not fetched",
 			ann:  makeURLAnnotation("https://example.com/page", "", "", 24, false),
 			want: false,
@@ -693,9 +625,6 @@ func TestInlineableURLMedia(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_URLMediaBecomesImagePart: an inlineable
-// url_metadata annotation is downloaded and reuploaded exactly like an
-// upload_metadata attachment.
 func TestConvertAttachmentsToMatrix_URLMediaBecomesImagePart(t *testing.T) {
 	pngBytes := onePixelPNG(t)
 	msg := &pb.Message{
@@ -718,12 +647,11 @@ func TestConvertAttachmentsToMatrix_URLMediaBecomesImagePart(t *testing.T) {
 	if len(parts) != 1 {
 		t.Fatalf("len(parts) = %d, want 1", len(parts))
 	}
-	// image_url is preferred over the page url: it is the media itself.
+	// image_url is preferred over the page url.
 	if gotURL != "https://media.example.com/a.gif" {
 		t.Errorf("fetched %q, want the image_url", gotURL)
 	}
-	// The homeserver's cap must reach the fetch. Passing 0 would mean an
-	// unbounded read of a remote-party-served body.
+	// The homeserver's cap must reach the fetch; 0 would be an unbounded read.
 	if gotMaxSize != 1024 {
 		t.Errorf("downloadExternal got maxSize %d, want the homeserver cap 1024", gotMaxSize)
 	}
@@ -738,11 +666,7 @@ func TestConvertAttachmentsToMatrix_URLMediaBecomesImagePart(t *testing.T) {
 	}
 }
 
-// TestConvertOneURLMedia_UsesExternalFetcherNotAttachmentFetcher is the
-// security control. downloadAttachment's client keeps an env proxy (which
-// reduces the guarded dialer to a no-op) and permits plain http -- both only
-// safe for Google's own fixed endpoint. A remote-party URL must never go
-// through it.
+// A remote-party URL must never go through downloadAttachment (env proxy, plain http).
 func TestConvertOneURLMedia_UsesExternalFetcherNotAttachmentFetcher(t *testing.T) {
 	msg := &pb.Message{
 		Annotations: []*pb.Annotation{
@@ -768,9 +692,6 @@ func TestConvertOneURLMedia_UsesExternalFetcherNotAttachmentFetcher(t *testing.T
 	}
 }
 
-// TestConvertOneURLMedia_NonMediaContentTypeSkipped: the URL was chosen by a
-// remote party, so only what we asked for is accepted -- tighter than the
-// attachment path's text/html-only rejection.
 func TestConvertOneURLMedia_NonMediaContentTypeSkipped(t *testing.T) {
 	for _, mimeType := range []string{"text/html", "application/pdf", "application/octet-stream", ""} {
 		t.Run(mimeType, func(t *testing.T) {
@@ -793,10 +714,7 @@ func TestConvertOneURLMedia_NonMediaContentTypeSkipped(t *testing.T) {
 	}
 }
 
-// TestConvertOneURLMedia_FetchFailureProducesNoPart: a third-party host being
-// down must cost the media part and nothing else. The link itself survives in
-// the body via AppendLinkAnnotations, which is what stops the message
-// vanishing (see the gchatfmt tests).
+// The link itself survives in the body via AppendLinkAnnotations.
 func TestConvertOneURLMedia_FetchFailureProducesNoPart(t *testing.T) {
 	msg := &pb.Message{
 		Annotations: []*pb.Annotation{
@@ -815,9 +733,7 @@ func TestConvertOneURLMedia_FetchFailureProducesNoPart(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_MixedUploadAndURLPartIDsAreSequential:
-// gcid.MakeAttachmentPartID is FROZEN, so att_<n> must stay ONE namespace
-// across both annotation kinds. A second counter would emit duplicate IDs.
+// att_<n> is one frozen namespace across both annotation kinds.
 func TestConvertAttachmentsToMatrix_MixedUploadAndURLPartIDsAreSequential(t *testing.T) {
 	pngBytes := onePixelPNG(t)
 	msg := &pb.Message{
@@ -853,10 +769,7 @@ func TestConvertAttachmentsToMatrix_MixedUploadAndURLPartIDsAreSequential(t *tes
 	}
 }
 
-// TestConvertOneURLMedia_DeclaredDimensionsRescueAnUndecodableFormat: Tenor
-// commonly serves webp and mp4, for which no decoder is registered, so
-// image.DecodeConfig fails and the dimensions would otherwise be 0 -- leaving
-// clients to render an unsized placeholder.
+// No decoder is registered for webp/mp4, so the declared dimensions must be used.
 func TestConvertOneURLMedia_DeclaredDimensionsRescueAnUndecodableFormat(t *testing.T) {
 	ann := makeURLAnnotation("https://example.com/g", "https://media.example.com/a.webp", "image/webp", 0, false)
 	ann.GetUrlMetadata().IntImageWidth = proto.Int32(480)
@@ -878,9 +791,7 @@ func TestConvertOneURLMedia_DeclaredDimensionsRescueAnUndecodableFormat(t *testi
 	}
 }
 
-// TestConvertAttachmentsToMatrix_InlineURLMediaCanBeDisabled: the operator
-// switch must stop the outbound request to the third-party host entirely --
-// not merely discard its result.
+// The operator switch must stop the request itself, not just discard the result.
 func TestConvertAttachmentsToMatrix_InlineURLMediaCanBeDisabled(t *testing.T) {
 	msg := &pb.Message{
 		Annotations: []*pb.Annotation{
@@ -904,8 +815,6 @@ func TestConvertAttachmentsToMatrix_InlineURLMediaCanBeDisabled(t *testing.T) {
 	}
 }
 
-// TestInlineURLMediaEnabledDefaultsOn pins the default: a bare client (and so
-// a bridge whose config predates the option) inlines media.
 func TestInlineURLMediaEnabledDefaultsOn(t *testing.T) {
 	if !(&GChatClient{}).inlineURLMediaEnabled() {
 		t.Error("inlineURLMediaEnabled() = false for a nil Main, want true")
@@ -916,14 +825,8 @@ func TestInlineURLMediaEnabledDefaultsOn(t *testing.T) {
 	}
 }
 
-// TestGChatClientDownloadExternalUsesTheHardenedFetcher pins the WIRING, not
-// just the interface. Every other test here goes through the fake, which
-// cannot see which fetcher the production method delegates to -- so rewiring
-// downloadExternal to the attachment client (env proxy, plain http permitted)
-// would pass the entire suite.
-//
-// No network I/O: a bare client has no conn, so the attachment path would
-// answer "not connected", while the hardened path rejects the scheme first.
+// TestGChatClientDownloadExternalUsesTheHardenedFetcher pins the production wiring, which the fake cannot see.
+// No network I/O: the hardened path rejects the http scheme before any dial.
 func TestGChatClientDownloadExternalUsesTheHardenedFetcher(t *testing.T) {
 	c := &GChatClient{}
 	_, _, _, err := c.downloadExternal(context.Background(), "http://media.example.com/a.gif", 1024)
@@ -939,8 +842,6 @@ func TestGChatClientDownloadExternalUsesTheHardenedFetcher(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_DisablingInlineURLMediaKeepsAttachments: the
-// operator switch must not take ordinary Google-hosted attachments with it.
 func TestConvertAttachmentsToMatrix_DisablingInlineURLMediaKeepsAttachments(t *testing.T) {
 	pngBytes := onePixelPNG(t)
 	msg := &pb.Message{
@@ -972,10 +873,6 @@ func TestConvertAttachmentsToMatrix_DisablingInlineURLMediaKeepsAttachments(t *t
 	}
 }
 
-// TestConvertAttachmentsToMatrix_ExternalFetchesAreBoundedPerMessage: the
-// annotation count is sender-controlled and each fetch blocks the portal's
-// event goroutine, so one message must not be able to issue an unbounded
-// number of them.
 func TestConvertAttachmentsToMatrix_ExternalFetchesAreBoundedPerMessage(t *testing.T) {
 	pngBytes := onePixelPNG(t)
 	var anns []*pb.Annotation
@@ -1003,8 +900,6 @@ func TestConvertAttachmentsToMatrix_ExternalFetchesAreBoundedPerMessage(t *testi
 	}
 }
 
-// TestConvertAttachmentsToMatrix_RepeatedExternalURLFetchedOnce: the same chip
-// repeated across a message costs one request, not N.
 func TestConvertAttachmentsToMatrix_RepeatedExternalURLFetchedOnce(t *testing.T) {
 	pngBytes := onePixelPNG(t)
 	ann := makeURLAnnotation("https://example.com/g", "https://media.example.com/same.gif", "image/gif", 0, false)
@@ -1026,15 +921,12 @@ func TestConvertAttachmentsToMatrix_RepeatedExternalURLFetchedOnce(t *testing.T)
 	if len(parts) != 1 {
 		t.Errorf("len(parts) = %d, want 1", len(parts))
 	}
-	// Numbering must still reflect position in the message, not fetch outcome.
+	// Numbering reflects position in the message, not fetch outcome.
 	if parts[0].ID != gcid.MakeAttachmentPartID(0) {
 		t.Errorf("part.ID = %q, want att_0", parts[0].ID)
 	}
 }
 
-// TestConvertAttachmentsToMatrix_ExternalFetchesShareOneDeadline: each fetch is
-// individually bounded, but the sum is what a portal's event loop and a
-// backfill batch care about.
 func TestConvertAttachmentsToMatrix_ExternalFetchesShareOneDeadline(t *testing.T) {
 	msg := &pb.Message{Annotations: []*pb.Annotation{
 		makeURLAnnotation("https://example.com/a", "https://media.example.com/a.gif", "image/gif", 0, false),
@@ -1053,9 +945,7 @@ func TestConvertAttachmentsToMatrix_ExternalFetchesShareOneDeadline(t *testing.T
 	}
 }
 
-// TestConvertOneURLMedia_DeclaredDimensionsReachVideoParts: a GIF host
-// commonly serves mp4, which maps to m.video. Gating the declared-dimension
-// fallback on m.image would drop them for exactly the case they were added for.
+// A GIF host often serves mp4 (m.video), which still needs the declared dimensions.
 func TestConvertOneURLMedia_DeclaredDimensionsReachVideoParts(t *testing.T) {
 	ann := makeURLAnnotation("https://example.com/g", "https://media.example.com/a.mp4", "video/mp4", 0, false)
 	ann.GetUrlMetadata().IntImageWidth = proto.Int32(498)
@@ -1080,18 +970,7 @@ func TestConvertOneURLMedia_DeclaredDimensionsReachVideoParts(t *testing.T) {
 	}
 }
 
-// --- the sender must never choose the host ---------------------------------
-
-// TestInlineableURLMedia_NeverFetchesASenderChosenHost is the privacy control.
-//
-// url_metadata carries two addresses: image_url, which GOOGLE supplies (and,
-// in the shape captured live, had already rehosted the media onto its own
-// CDN), and url.url, which is whatever the SENDER typed. Fetching the latter
-// would let anyone turn a message into an IP-address and delivery-time oracle
-// by pasting a link to an image on a host they control.
-//
-// purple-googlechat -- otherwise far wider than this gate, since it fetches
-// every link chip -- has the same restriction: it only ever fetches image_url.
+// TestInlineableURLMedia_NeverFetchesASenderChosenHost: only Google-supplied image_url is fetched, never url.url.
 func TestInlineableURLMedia_NeverFetchesASenderChosenHost(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1099,8 +978,6 @@ func TestInlineableURLMedia_NeverFetchesASenderChosenHost(t *testing.T) {
 	}{
 		{
 			// The direct attack: a link to an image on the sender's host.
-			// Under the reading that mime_type describes the linked resource,
-			// Google would set image/png here.
 			name: "a pasted link to an image on the sender's host",
 			ann:  makeURLAnnotation("https://sender-controlled.example/tracker.png", "", "image/png", 24, false),
 		},
@@ -1129,8 +1006,6 @@ func TestInlineableURLMedia_NeverFetchesASenderChosenHost(t *testing.T) {
 	}
 }
 
-// TestConvertAttachmentsToMatrix_NoImageURLMakesNoRequest is the end-to-end
-// half: no annotation lacking image_url may reach the network at all.
 func TestConvertAttachmentsToMatrix_NoImageURLMakesNoRequest(t *testing.T) {
 	msg := &pb.Message{Annotations: []*pb.Annotation{
 		makeURLAnnotation("https://sender-controlled.example/tracker.png", "", "image/png", 0, false),
@@ -1151,16 +1026,8 @@ func TestConvertAttachmentsToMatrix_NoImageURLMakesNoRequest(t *testing.T) {
 	}
 }
 
-// capturedGIFAnnotation reproduces the shape a real shared GIF was observed to
-// arrive in, field for field, from a live probe against Google Chat:
-//
-//	type=URL length=0 mime_type="image/gif" should_not_render=false (present)
-//	url_host=media.tenor.com image_url_host=lh3.googleusercontent.com
-//	dims=498x280, and the message's text_body was empty
-//
-// Note type=URL, not IMAGE: the annotation-type arm of the gate does NOT fire
-// for a real GIF. Hosts are kept because they are generic CDN names and the
-// distinction between them is the whole point; the paths are invented.
+// capturedGIFAnnotation reproduces a live-captured shared GIF: type=URL (not IMAGE), length=0,
+// mime_type image/gif, image_url on lh3.googleusercontent.com. Paths are invented.
 func capturedGIFAnnotation() *pb.Annotation {
 	return &pb.Annotation{
 		Type:   pb.AnnotationType_URL.Enum(),
@@ -1176,28 +1043,22 @@ func capturedGIFAnnotation() *pb.Annotation {
 	}
 }
 
-// TestInlineableURLMedia_AcceptsTheCapturedGIFShape pins the real thing, so a
-// future simplification of the gate fails here rather than in production.
 func TestInlineableURLMedia_AcceptsTheCapturedGIFShape(t *testing.T) {
 	ann := capturedGIFAnnotation()
 	if !inlineableURLMedia(ann) {
 		t.Fatal("the live-captured GIF shape is no longer accepted")
 	}
-	// Which arm fires matters: the annotation type is URL, so anyone reducing
-	// this gate to the AnnotationType_IMAGE check breaks every real GIF.
+	// The type is URL, so a gate reduced to the AnnotationType_IMAGE check breaks real GIFs.
 	if ann.GetType() == pb.AnnotationType_IMAGE {
 		t.Fatal("fixture drifted: the captured annotation type was URL, not IMAGE")
 	}
-	// And Google's own address is what gets fetched, not the sender's.
+	// Google's own address is what gets fetched.
 	if got := externalMediaSrc(ann.GetUrlMetadata()); got != "https://lh3.googleusercontent.com/example-rehosted" {
 		t.Errorf("externalMediaSrc = %q, want Google's rehosted address", got)
 	}
 }
 
-// TestConvertAttachmentsToMatrix_CapturedGIFBecomesAnImagePart is the
-// end-to-end outcome for the captured shape: the media part exists. The
-// companion half -- that the message still carries the link, so it can never
-// vanish -- is pinned in pkg/msgconv (TestToMatrix_ZeroLengthURLAnnotationOnlyMessageIsNotDropped).
+// The link part is pinned in pkg/msgconv (TestToMatrix_ZeroLengthURLAnnotationOnlyMessageIsNotDropped).
 func TestConvertAttachmentsToMatrix_CapturedGIFBecomesAnImagePart(t *testing.T) {
 	media := &fakeMediaFetcher{
 		maxFileSizeVal: 1 << 20,

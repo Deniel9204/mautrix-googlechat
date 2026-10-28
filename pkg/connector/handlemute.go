@@ -1,18 +1,7 @@
 package connector
 
-// handlemute.go -- Matrix -> Google Chat per-chat mute (HandleMute): the
-// built-in mute/unmute commands, and a client's mute action. Issue #31.
-//
-// Sent with update_group_notification_settings, copied from captures of the
-// web client (2026-09-29): the conversation, a type value (5 for a space, 4
-// for a DM -- its meaning is unknown, the values are what the web client
-// sends) and the mute state (2 muted, 1 unmuted). It is per conversation;
-// SetDndDuration, the obvious-looking alternative, silences the whole
-// account and must not be used for this.
-//
-// A Google Chat mute has no end time, so a timed mute is refused rather than
-// silently made permanent. A mute set in a Matrix client's own UI (a push
-// rule) never reaches the bridge; that is a Matrix limitation.
+// Per-chat mute uses update_group_notification_settings; must not use SetDndDuration, which
+// silences the whole account. Google Chat mutes have no end time, so timed mutes are refused.
 import (
 	"context"
 	"errors"
@@ -28,7 +17,7 @@ import (
 
 var _ bridgev2.MuteHandlingNetworkAPI = (*GChatClient)(nil)
 
-// Captured type values of GroupNotificationSettingsUpdate.setting_type.
+// Captured setting_type values (meaning unknown): 5 for a space, 4 for a DM.
 const (
 	notificationSettingTypeSpace = 5
 	notificationSettingTypeDM    = 4
@@ -71,11 +60,7 @@ func (c *GChatClient) HandleMute(ctx context.Context, msg *bridgev2.MatrixMute) 
 	return nil
 }
 
-// mutedUntilFromReadState maps a chat's notification settings from the
-// chat list to bridgev2's mute value. The mute is settings field 3, the same
-// Mute message the update writes (live-verified): present and MUTED on a
-// muted chat, absent once unmuted. A chat whose settings Google Chat never
-// sent is left alone (nil) rather than unmuted.
+// mutedUntilFromReadState maps notification settings field 3 (Mute) to bridgev2's mute; nil if absent.
 func mutedUntilFromReadState(rs *pb.GroupReadState) *bridgev2.UserLocalPortalInfo {
 	settings := rs.GetNotificationSettings()
 	if settings == nil {

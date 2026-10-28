@@ -1,19 +1,5 @@
 package connector
 
-// handletyping_test.go -- typing notifications, both directions.
-//
-// Outbound: HandleMatrixTyping -> set_typing_state RPC. Mirrors
-// handlereceipt_test.go's request-construction / error-path test shape.
-//
-// Inbound: handleGChatEvent's TypingStateChanged body arm (events.go).
-// Mirrors events_test.go's queueRemoteEventFn capture pattern
-// (newEventTestClient).
-// TestHandleGChatEventTypingStateChangedRoutesViaBodyContextNotOuterGroupID
-// is the regression guard for the routing trap documented on
-// queueTypingStateChanged (events.go): TYPING_STATE_CHANGED is the ONLY
-// event type where group_id must be taken from the body instead of the
-// outer Event.group_id every other handler in this package uses.
-
 import (
 	"context"
 	"errors"
@@ -28,8 +14,6 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
-
-// --- typingContext (outbound oneof helper) ---------------------------------
 
 func TestTypingContextGroupOnlyBuildsGroupIdArm(t *testing.T) {
 	tc := typingContext(gcid.GroupID{ID: "space1", IsDM: false}, "")
@@ -48,11 +32,6 @@ func TestTypingContextDMGroupOnlyBuildsDmIdArm(t *testing.T) {
 	}
 }
 
-// TestTypingContextTopicScopedBuildsTopicIdArm covers the topic (threaded)
-// oneof arm directly -- see handletyping.go's top-of-file doc comment on why
-// HandleMatrixTyping itself never reaches this branch in practice (typing is
-// never signalled with a truthy thread_id), but the proto shape still gets
-// full coverage here.
 func TestTypingContextTopicScopedBuildsTopicIdArm(t *testing.T) {
 	tc := typingContext(gcid.GroupID{ID: "space1", IsDM: false}, "topic-99")
 	if tc.GetGroupId() != nil {
@@ -69,8 +48,6 @@ func TestTypingContextTopicScopedBuildsTopicIdArm(t *testing.T) {
 		t.Errorf("GetTopicId().GetGroupId().GetSpaceId().GetSpaceId() = %q, want %q", got, "space1")
 	}
 }
-
-// --- HandleMatrixTyping: outbound -------------------------------------------
 
 func matrixTyping(portal *bridgev2.Portal, isTyping bool) *bridgev2.MatrixTyping {
 	return &bridgev2.MatrixTyping{Portal: portal, IsTyping: isTyping}
@@ -134,12 +111,6 @@ func TestHandleMatrixTypingDMPortalStopSendsGroupContextStopped(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixTypingBothStartAndStopAreSent pins that BOTH IsTyping
-// values reach the RPC -- unlike a naive "only send on start" reading,
-// bridgev2's own framework calls HandleMatrixTyping once per user that
-// started typing AND once per user that stopped (mautrix-go
-// bridgev2/portal.go:1006-1071's sendTypings, called for both
-// stoppedTyping and startedTyping).
 func TestHandleMatrixTypingBothStartAndStopAreSent(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var states []pb.TypingState
@@ -214,14 +185,7 @@ func TestHandleMatrixTypingPropagatesRPCError(t *testing.T) {
 	}
 }
 
-// --- Inbound: TYPING_STATE_CHANGED ------------------------------------------
-
-// typingStateChangedEvent builds a *pb.Event shaped like a real
-// TYPING_STATE_CHANGED event reaching handleGChatEvent. outerGroupID is the
-// FLATTENED event's own top-level group_id (as gchatmeow's splitEventBodies
-// would set it -- empty/nil for a genuine typing event, see this file's
-// top-of-file doc comment); bodyContext is the body's own TypingContext, the
-// one that must actually drive routing.
+// typingStateChangedEvent builds a typing event; bodyContext, not outerGroupID, must drive routing.
 func typingStateChangedEvent(outerGroupID *pb.GroupId, bodyContext *pb.TypingContext, state pb.TypingState, userGaia string, startTimestampUsec int64) *pb.Event {
 	return &pb.Event{
 		GroupId: outerGroupID,
@@ -240,13 +204,7 @@ func typingStateChangedEvent(outerGroupID *pb.GroupId, bodyContext *pb.TypingCon
 	}
 }
 
-// TestHandleGChatEventTypingStateChangedRoutesViaBodyContextNotOuterGroupID
-// is the regression guard for the routing trap: the outer Event.group_id is
-// EMPTY (nil), exactly as it is on the real wire for typing events (this
-// file's queueTypingStateChanged doc comment) -- if this function ever
-// regresses to reading evt.GetGroupId() like every other body arm, this
-// event would be silently dropped ("no usable group id") instead of routing
-// via the body's own space-1 context.
+// Typing events have an empty outer group_id on the wire; routing must use the body's context.
 func TestHandleGChatEventTypingStateChangedRoutesViaBodyContextNotOuterGroupID(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := typingStateChangedEvent(
@@ -270,11 +228,6 @@ func TestHandleGChatEventTypingStateChangedRoutesViaBodyContextNotOuterGroupID(t
 	}
 }
 
-// TestHandleGChatEventTypingStateChangedOuterGroupIDDifferentFromBodyUsesBody
-// strengthens the trap regression guard: the outer Event.group_id is set,
-// but to a DIFFERENT (wrong) group than the body's own context -- routing
-// must still follow the body, never fall back to (or prefer) the outer
-// field.
 func TestHandleGChatEventTypingStateChangedOuterGroupIDDifferentFromBodyUsesBody(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := typingStateChangedEvent(
@@ -391,11 +344,6 @@ func TestHandleGChatEventTypingStateChangedDMPortalKeyHasReceiver(t *testing.T) 
 	}
 }
 
-// TestHandleGChatEventTypingStateChangedTopicContextRoutesViaEmbeddedGroupID
-// covers the topic_id oneof arm of TypingContext (a typing notification
-// scoped to a thread): the group id lives inside TopicId.GroupId, not a
-// direct TypingContext.GroupId -- typingContextGroupID's fallback branch
-// (events.go) must still resolve the correct portal.
 func TestHandleGChatEventTypingStateChangedTopicContextRoutesViaEmbeddedGroupID(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := typingStateChangedEvent(

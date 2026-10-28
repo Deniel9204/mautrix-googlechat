@@ -1,18 +1,6 @@
 package connector
 
-// handleroomname.go -- Matrix -> Google Chat outbound space rename
-// (HandleMatrixRoomName). Issues the update_group RPC with the space id, the
-// new name, and the NAME update mask.
-//
-// Spaces only: UpdateGroupRequest has no DM arm (its target is a bare
-// SpaceId), and DMs have no user-settable name on Google Chat. A rename
-// attempted in a DM portal is rejected without an RPC.
-//
-// Per RoomNameHandlingNetworkAPI's contract (mautrix-go
-// bridgev2/networkinterface.go): on success this updates Portal.Name/NameSet
-// and returns true; on failure it returns (false, err) and leaves those
-// fields untouched, so a failed rename never leaves the portal wrongly
-// marked as name-set.
+// Rename is spaces only: UpdateGroupRequest has no DM arm. On failure Portal.Name/NameSet stay untouched.
 import (
 	"context"
 	"errors"

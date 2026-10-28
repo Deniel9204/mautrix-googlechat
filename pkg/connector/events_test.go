@@ -1,11 +1,5 @@
 package connector
 
-// events_test.go -- inbound MESSAGE_POSTED -> bridgev2.RemoteMessage.
-// Mirrors sync_test.go's queueChatResyncFn capture pattern: a bare
-// *GChatClient (no full bridgev2.Bridge+DB harness, see newTestUserLogin
-// in client_test.go) with queueRemoteEventFn overridden to append into a
-// local slice instead of dereferencing UserLogin.Bridge.
-
 import (
 	"context"
 	"errors"
@@ -21,12 +15,7 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// messagePostedEvent builds a *pb.Event shaped like a real MESSAGE_POSTED
-// event reaching handleGChatEvent after gchatmeow's splitEventBodies has
-// already copied the parent's group_id/type onto it (see
-// pkg/gchatmeow/client_test.go's TestSplitEventBodies) -- i.e. exactly the
-// per-event shape this package's handler receives, not the raw multi-body
-// wire frame.
+// messagePostedEvent builds a per-body event as produced by splitEventBodies.
 func messagePostedEvent(groupID *pb.GroupId, gcMessageID, creatorGaia, text string, createTimeMicros int64) *pb.Event {
 	return &pb.Event{
 		GroupId: groupID,
@@ -49,12 +38,7 @@ func messagePostedEvent(groupID *pb.GroupId, gcMessageID, creatorGaia, text stri
 
 // dmGroupID / spaceGroupID are defined in chatinfo_test.go.
 
-// newEventTestClient builds a *GChatClient wired with a capturing
-// queueRemoteEventFn, matching sync_test.go's queueChatResyncFn seam so
-// handleGChatEvent can be exercised without a live bridgev2.Bridge+DB
-// harness (UserLogin.QueueRemoteEvent would otherwise dereference
-// UserLogin.Bridge, which is nil for newTestUserLogin's lightweight
-// UserLogin -- client_test.go).
+// newEventTestClient returns a client whose queued remote events are captured.
 func newEventTestClient(ownGaia string) (*GChatClient, *[]bridgev2.RemoteEvent) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.ID = gcid.MakeUserLoginID(ownGaia)
@@ -68,8 +52,6 @@ func newEventTestClient(ownGaia string) (*GChatClient, *[]bridgev2.RemoteEvent) 
 	}
 	return gc, &queued
 }
-
-// --- MESSAGE_POSTED: space room --------------------------------------------
 
 func TestHandleGChatEventMessagePostedSpaceQueuesRemoteMessage(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -132,14 +114,6 @@ func TestHandleGChatEventMessagePostedSpaceQueuesRemoteMessage(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessagePostedSetsStreamOrder is the regression test
-// for the live path: a live MESSAGE_POSTED event must set StreamOrder to the
-// message's create-time microseconds, matching backfill.go's identical
-// `StreamOrder: msg.GetCreateTime()` (backfill_test.go's
-// TestFetchMessagesFlatThread's own StreamOrder assertion) -- previously
-// this was left at its zero value on the live path, an inconsistency
-// (harmless per bridgev2 treating 0 as "absent", but inconsistent with
-// backfill for the same underlying fact).
 func TestHandleGChatEventMessagePostedSetsStreamOrder(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-so", "98765", "hi", 1_000_000)
@@ -157,8 +131,6 @@ func TestHandleGChatEventMessagePostedSetsStreamOrder(t *testing.T) {
 		t.Errorf("GetStreamOrder() = %d, want 1000000 (create_time in µs)", got)
 	}
 }
-
-// --- MESSAGE_POSTED: DM room -- portal key is receiver-scoped --------------
 
 func TestHandleGChatEventMessagePostedDMPortalKeyHasReceiver(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -179,8 +151,6 @@ func TestHandleGChatEventMessagePostedDMPortalKeyHasReceiver(t *testing.T) {
 	}
 }
 
-// --- MESSAGE_POSTED: own message sets IsFromMe -----------------------------
-
 func TestHandleGChatEventMessagePostedOwnMessageSetsIsFromMe(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-3", "112233", "echo", 1)
@@ -198,8 +168,6 @@ func TestHandleGChatEventMessagePostedOwnMessageSetsIsFromMe(t *testing.T) {
 		t.Errorf("GetSender().Sender = %q, want %q (Sender is always set, even for own messages)", got, want)
 	}
 }
-
-// --- MESSAGE_POSTED: malformed events are skipped, not queued or panicked --
 
 func TestHandleGChatEventMessagePostedNoGroupIDSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -241,16 +209,6 @@ func TestHandleGChatEventMessagePostedNilMessageSkipped(t *testing.T) {
 	}
 }
 
-// --- MESSAGE_UPDATED (edit): body is the same message_posted
-// arm, but the outer event type is MESSAGE_UPDATED -- routed to a
-// bridgev2.RemoteEdit (ConvertEdit re-runs msgconv, see
-// msgconv_adapter_test.go's TestConvertEditToMatrix_* for the dedup/
-// re-conversion logic itself), never queued as a brand new message. -------
-
-// messageUpdatedEvent builds a *pb.Event shaped like a real MESSAGE_UPDATED
-// event: the same message_posted body shape messagePostedEvent uses (per
-// handleMessagePosted's doc comment, both share this one body arm), plus
-// last_edit_time/last_update_time for the dedup gate.
 func messageUpdatedEvent(groupID *pb.GroupId, gcMessageID, creatorGaia, text string, lastEditTime int64) *pb.Event {
 	evt := messagePostedEvent(groupID, gcMessageID, creatorGaia, text, 1)
 	evt.Type = pb.Event_MESSAGE_UPDATED.Enum()
@@ -307,11 +265,6 @@ func TestHandleGChatEventMessageUpdatedQueuesRemoteEdit(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageUpdatedSetsStreamOrder is the regression test
-// for the edit path: StreamOrder must track the SAME editTS value
-// queueMessageEdit already uses for EventMeta.Timestamp (last_edit_time,
-// falling back to last_update_time), for internal consistency between the
-// two fields on the same event.
 func TestHandleGChatEventMessageUpdatedSetsStreamOrder(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageUpdatedEvent(spaceGroupID("space-1"), "msg-so-edit", "98765", "edited", 5000)
@@ -330,8 +283,6 @@ func TestHandleGChatEventMessageUpdatedSetsStreamOrder(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageUpdatedDMPortalKeyHasReceiver mirrors
-// TestHandleGChatEventMessagePostedDMPortalKeyHasReceiver for edits.
 func TestHandleGChatEventMessageUpdatedDMPortalKeyHasReceiver(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageUpdatedEvent(dmGroupID("dm-1"), "msg-6", "98765", "edited", 5000)
@@ -351,10 +302,6 @@ func TestHandleGChatEventMessageUpdatedDMPortalKeyHasReceiver(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageUpdatedDedupSkipsDuplicate proves the DEDUP gate
-// end to end through the real dispatch path: ConvertEdit on a duplicate
-// (equal last_edit_time) MESSAGE_UPDATED must report
-// bridgev2.ErrIgnoringRemoteEvent and leave the stored metadata unchanged.
 func TestHandleGChatEventMessageUpdatedDedupSkipsDuplicate(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageUpdatedEvent(spaceGroupID("space-1"), "msg-7", "98765", "duplicate", 5000)
@@ -375,8 +322,6 @@ func TestHandleGChatEventMessageUpdatedDedupSkipsDuplicate(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageUpdatedNoGroupIDSkipped mirrors the
-// MESSAGE_POSTED malformed-payload coverage for the edit path.
 func TestHandleGChatEventMessageUpdatedNoGroupIDSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageUpdatedEvent(nil, "msg-8", "98765", "hi", 5000)
@@ -399,14 +344,7 @@ func TestHandleGChatEventMessageUpdatedNoMessageIDSkipped(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessagePostedOnHoldTypesAreQueued pins the fix: a
-// message_posted body must be dispatched as a new message for ANY Event.type
-// other than the literal MESSAGE_UPDATED, not just Event.type ==
-// MESSAGE_POSTED. ON_HOLD_MESSAGE_POSTED/_UPDATED/_PUBLISHED (Workspace
-// DLP-held messages) are real, observed event types carrying this same body
-// -- an earlier revision of handleMessagePosted keyed a switch on the
-// literal MESSAGE_POSTED value and silently dropped these (and any other
-// future non-MESSAGE_UPDATED type), which is message loss.
+// TestHandleGChatEventMessagePostedOnHoldTypesAreQueued: any type but MESSAGE_UPDATED is a new message.
 func TestHandleGChatEventMessagePostedOnHoldTypesAreQueued(t *testing.T) {
 	onHoldTypes := []pb.Event_EventType{
 		pb.Event_ON_HOLD_MESSAGE_POSTED,
@@ -428,19 +366,6 @@ func TestHandleGChatEventMessagePostedOnHoldTypesAreQueued(t *testing.T) {
 	}
 }
 
-// --- MESSAGE_DELETED: message_deleted body ->
-// bridgev2.RemoteMessageRemove. evt.message_id.message_id identifies the
-// message to redact; group id comes from the outer Event (same as every
-// other body arm, see this file's top-of-file doc comment), never from
-// anything on MessageDeletedEvent itself (it carries no group id). The
-// framework (bridgev2's handleRemoteMessageRemove) is responsible for
-// looking up the target's existing DB rows and redacting every Matrix part
-// over EVERY stored row for that gcid, so this event only needs to carry
-// the target's own message id, not any per-row detail. ------------------
-
-// messageDeletedEvent builds a *pb.Event shaped like a real MESSAGE_DELETED
-// event reaching handleGChatEvent, mirroring messagePostedEvent's shape for
-// the message_deleted body arm.
 func messageDeletedEvent(groupID *pb.GroupId, gcMessageID string, timestampMicros int64) *pb.Event {
 	return &pb.Event{
 		GroupId: groupID,
@@ -486,8 +411,6 @@ func TestHandleGChatEventMessageDeletedSpaceQueuesRemoteMessageRemove(t *testing
 	}
 }
 
-// TestHandleGChatEventMessageDeletedDMPortalKeyHasReceiver mirrors
-// TestHandleGChatEventMessagePostedDMPortalKeyHasReceiver for deletions.
 func TestHandleGChatEventMessageDeletedDMPortalKeyHasReceiver(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageDeletedEvent(dmGroupID("dm-1"), "msg-2", 1)
@@ -507,14 +430,7 @@ func TestHandleGChatEventMessageDeletedDMPortalKeyHasReceiver(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageDeletedThreadedTargetUsesSameMessageID covers
-// a deletion of a message that lives inside a thread: the target id is
-// still just the message's own id (a thread reply and its own topic head
-// have distinct ids; a delete targets the reply specifically), using
-// evt.message_id.message_id with no topic-id substitution at all -- unlike
-// outbound delete_message (handleredact.go), which DOES need the topic id
-// to route the RPC, inbound deletion only ever needs the plain message id
-// since bridgev2 looks up the existing DB row(s) by that id directly.
+// TestHandleGChatEventMessageDeletedThreadedTargetUsesSameMessageID: inbound deletes need no topic id.
 func TestHandleGChatEventMessageDeletedThreadedTargetUsesSameMessageID(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageDeletedEvent(spaceGroupID("space-1"), "reply-msg-9", 1)
@@ -529,8 +445,6 @@ func TestHandleGChatEventMessageDeletedThreadedTargetUsesSameMessageID(t *testin
 		t.Errorf("GetTargetMessage() = %q, want %q", got, want)
 	}
 }
-
-// --- MESSAGE_DELETED: malformed events are skipped, not queued or panicked
 
 func TestHandleGChatEventMessageDeletedNoGroupIDSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -557,20 +471,6 @@ func TestHandleGChatEventMessageDeletedNoMessageIDSkipped(t *testing.T) {
 	}
 }
 
-// --- MESSAGE_REACTION: message_reaction body ->
-// bridgev2.RemoteReaction / bridgev2.RemoteReactionRemove (both the same
-// simplevent.Reaction type). evt.message_id.message_id identifies the
-// reacted-to message; group id comes from the outer Event (same as every
-// other body arm, see this file's top-of-file doc comment), never from
-// anything on MessageReactionEvent itself (it carries no group id).
-// evt.type (ADD/REMOVE) selects RemoteEventReaction/RemoteEventReactionRemove;
-// evt.emoji.unicode is normalized both ways (variationselector.Remove for
-// EmojiID, .Add for the value handed toward Matrix) -- see handlereaction.go's
-// top-of-file doc comment. ------------------------------------------------
-
-// messageReactionEvent builds a *pb.Event shaped like a real MessageReaction
-// event reaching handleGChatEvent, mirroring messageDeletedEvent's shape for
-// the message_reaction body arm.
 func messageReactionEvent(groupID *pb.GroupId, gcMessageID, senderGaia, emojiUnicode string, reactionType pb.MessageReactionEvent_ReactionEventType, timestampMicros int64) *pb.Event {
 	return &pb.Event{
 		GroupId: groupID,
@@ -646,11 +546,6 @@ func TestHandleGChatEventMessageReactionAddQueuesRemoteReaction(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageReactionAddNormalizesEmojiAlreadyHavingSelector
-// proves the EmojiID stays bare even if a MessageReactionEvent's
-// evt.emoji.unicode were to unexpectedly carry a variation selector already
-// (defensive normalization -- GC's own wire protocol is not documented to
-// ever include one, see handlereaction.go's top-of-file doc comment).
 func TestHandleGChatEventMessageReactionAddNormalizesEmojiAlreadyHavingSelector(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-1", "98765", "❤️", pb.MessageReactionEvent_ADD, 1)
@@ -689,8 +584,6 @@ func TestHandleGChatEventMessageReactionRemoveQueuesRemoteReactionRemove(t *test
 	}
 }
 
-// --- MESSAGE_REACTION: DM room -- portal key is receiver-scoped -----------
-
 func TestHandleGChatEventMessageReactionDMPortalKeyHasReceiver(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageReactionEvent(dmGroupID("dm-1"), "msg-3", "98765", "❤", pb.MessageReactionEvent_ADD, 1)
@@ -710,8 +603,6 @@ func TestHandleGChatEventMessageReactionDMPortalKeyHasReceiver(t *testing.T) {
 	}
 }
 
-// --- MESSAGE_REACTION: own reaction sets IsFromMe --------------------------
-
 func TestHandleGChatEventMessageReactionOwnReactionSetsIsFromMe(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-4", "112233", "❤", pb.MessageReactionEvent_ADD, 1)
@@ -724,9 +615,6 @@ func TestHandleGChatEventMessageReactionOwnReactionSetsIsFromMe(t *testing.T) {
 		t.Error("GetSender().IsFromMe = false, want true (reactor gaia == login's own gaia)")
 	}
 }
-
-// --- MESSAGE_REACTION: malformed/unknown events are skipped, not queued or
-// panicked -------------------------------------------------------------
 
 func TestHandleGChatEventMessageReactionNoGroupIDSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
@@ -753,9 +641,6 @@ func TestHandleGChatEventMessageReactionNoMessageIDSkipped(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventMessageReactionUnknownTypeSkipped pins the unknown-type
-// branch: a MessageReactionEvent.type outside {ADD, REMOVE} must be logged
-// and ignored, not queued as either kind.
 func TestHandleGChatEventMessageReactionUnknownTypeSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := messageReactionEvent(spaceGroupID("space-1"), "msg-6", "98765", "❤", pb.MessageReactionEvent_ReactionEventType(99), 1)

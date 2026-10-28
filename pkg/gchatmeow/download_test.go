@@ -14,11 +14,6 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// --- AttachmentURL -----------------------------------------------------
-
-// TestAttachmentURLImage verifies the FIFE_URL branch: an image content_type
-// gets url_type=FIFE_URL, sz=w10000-h10000, and content_type echoed back,
-// all against the get_attachment_url endpoint.
 func TestAttachmentURLImage(t *testing.T) {
 	meta := &pb.UploadMetadata{
 		Payload:     &pb.UploadMetadata_AttachmentToken{AttachmentToken: "TOK123"},
@@ -56,9 +51,6 @@ func TestAttachmentURLImage(t *testing.T) {
 	}
 }
 
-// TestAttachmentURLNonImage verifies the DOWNLOAD_URL branch (the default
-// query), and that NEITHER sz NOR content_type are present -- those are only
-// added inside the image branch.
 func TestAttachmentURLNonImage(t *testing.T) {
 	meta := &pb.UploadMetadata{
 		Payload:     &pb.UploadMetadata_AttachmentToken{AttachmentToken: "TOK456"},
@@ -92,8 +84,6 @@ func TestAttachmentURLNonImage(t *testing.T) {
 	}
 }
 
-// TestAttachmentURLNilMeta verifies a nil UploadMetadata errors rather than
-// panicking on a nil dereference.
 func TestAttachmentURLNilMeta(t *testing.T) {
 	if _, _, err := (&Client{}).AttachmentURL(nil); err == nil {
 		t.Fatal("AttachmentURL(nil) = nil error, want an error")
@@ -101,8 +91,6 @@ func TestAttachmentURLNilMeta(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
-
-// --- DownloadAttachment --------------------------------------------------
 
 func newTestDownloadClient(t *testing.T, cookies map[string]string, allowedHost string) *Client {
 	t.Helper()
@@ -116,9 +104,6 @@ func newTestDownloadClient(t *testing.T, cookies map[string]string, allowedHost 
 	return c
 }
 
-// TestDownloadAttachmentRedirectChain verifies a multi-hop 302 chain is
-// followed to its final 200 response, and mime/filename/data are extracted
-// correctly (usually there are 4 redirects for files).
 func TestDownloadAttachmentRedirectChain(t *testing.T) {
 	useDownloadClient(t)
 	const body = "hello attachment bytes"
@@ -158,9 +143,6 @@ func TestDownloadAttachmentRedirectChain(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentRedirectCapExceeded verifies a redirect chain that
-// never terminates is capped at maxDownloadRedirects hops and errors
-// instead of looping forever or silently falling off the end of the loop.
 func TestDownloadAttachmentRedirectCapExceeded(t *testing.T) {
 	useDownloadClient(t)
 	var hits int32
@@ -181,9 +163,6 @@ func TestDownloadAttachmentRedirectCapExceeded(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentMaxSizeContentLength verifies a Content-Length that
-// already exceeds maxSize is rejected via ErrFileTooLarge before the body
-// would need to be read.
 func TestDownloadAttachmentMaxSizeContentLength(t *testing.T) {
 	useDownloadClient(t)
 	body := strings.Repeat("x", 1000)
@@ -201,10 +180,6 @@ func TestDownloadAttachmentMaxSizeContentLength(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentMaxSizeChunked verifies the read-loop cap catches an
-// oversized body even when Content-Length is unknown (chunked transfer, no
-// upfront length to fast-path reject on) -- the "read one more byte than the
-// cap, then fail if we got it" safety net.
 func TestDownloadAttachmentMaxSizeChunked(t *testing.T) {
 	useDownloadClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -227,9 +202,6 @@ func TestDownloadAttachmentMaxSizeChunked(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentMaxSizeZeroMeansUnlimited verifies maxSize <= 0
-// disables the cap entirely -- the documented "unlimited" contract (see
-// download.go's DownloadAttachment doc comment).
 func TestDownloadAttachmentMaxSizeZeroMeansUnlimited(t *testing.T) {
 	useDownloadClient(t)
 	body := strings.Repeat("y", 5000)
@@ -249,9 +221,6 @@ func TestDownloadAttachmentMaxSizeZeroMeansUnlimited(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentCookiesPerHost verifies auth cookies are sent to an
-// allowlisted host but withheld from one outside the allowlist -- the M5
-// download flow's core requirement (session.go's hostAllowed).
 func TestDownloadAttachmentCookiesPerHost(t *testing.T) {
 	useDownloadClient(t)
 	var allowedCookie, outsideCookie string
@@ -295,16 +264,7 @@ func TestDownloadAttachmentCookiesPerHost(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentCookiesAcrossRedirectChain verifies the core reason
-// DownloadAttachment follows redirects manually instead of relying on
-// net/http's default policy: a single call whose redirect chain crosses
-// allowlisted -> non-allowlisted -> allowlisted hosts must attach cookies on
-// the first and third hops and withhold them on the second, and -- critically
-// -- must RE-attach cookies on the third hop after they were withheld on the
-// second. This exact scenario arises when a download is redirected from
-// googleusercontent.com back to chat.google.com; Go's default automatic
-// redirect-following would instead permanently strip the Cookie header on
-// the first cross-host hop and never restore it.
+// TestDownloadAttachmentCookiesAcrossRedirectChain: cookies must be re-attached after a non-allowlisted hop.
 func TestDownloadAttachmentCookiesAcrossRedirectChain(t *testing.T) {
 	useDownloadClient(t)
 	var cookieAtHop1, cookieAtHop2, cookieAtHop3 string
@@ -335,9 +295,7 @@ func TestDownloadAttachmentCookiesAcrossRedirectChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	// Only hop1 and hop3's hosts are allowlisted; hop2's is deliberately
-	// left out so it plays the role of a googleusercontent.com-style hop in
-	// the middle of the chain.
+	// hop2 stands in for a googleusercontent.com hop.
 	c.session.allowedHostSuffixes = []string{
 		testServerHost(t, hop1.URL),
 		testServerHost(t, hop3.URL),
@@ -362,11 +320,6 @@ func TestDownloadAttachmentCookiesAcrossRedirectChain(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentFilenameEmptyPathFallback verifies the
-// Content-Disposition-absent fallback for a URL with NO path segment at all
-// yields an empty filename -- not path.Base's "." for an empty string, which
-// download.go's doc comment explicitly calls out as the reason it uses a
-// manual strings.Split instead of Go's path.Base.
 func TestDownloadAttachmentFilenameEmptyPathFallback(t *testing.T) {
 	useDownloadClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -386,8 +339,6 @@ func TestDownloadAttachmentFilenameEmptyPathFallback(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentFilenameFallback verifies the filename falls back to
-// the URL's last path segment when Content-Disposition is absent.
 func TestDownloadAttachmentFilenameFallback(t *testing.T) {
 	useDownloadClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -410,8 +361,6 @@ func TestDownloadAttachmentFilenameFallback(t *testing.T) {
 	}
 }
 
-// TestDownloadAttachmentErrorStatus verifies a non-redirect, >=400 response
-// is surfaced as an error rather than being read as a successful body.
 func TestDownloadAttachmentErrorStatus(t *testing.T) {
 	useDownloadClient(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -425,14 +374,7 @@ func TestDownloadAttachmentErrorStatus(t *testing.T) {
 	}
 }
 
-// useDownloadClient installs a plain client for the duration of the test.
-//
-// The shipped downloadHTTPClient refuses to dial internal addresses, which
-// every test in this file would otherwise trip: httptest servers live on
-// loopback. Swapping the client is the same seam avatar.go's tests use, and
-// it is safe for the redirect tests specifically because DownloadAttachment
-// imposes its own CheckRedirect per call rather than inheriting the
-// installed client's policy.
+// useDownloadClient installs a plain client; the shipped one refuses loopback test servers.
 func useDownloadClient(t *testing.T) {
 	t.Helper()
 	orig := downloadHTTPClient
@@ -440,12 +382,7 @@ func useDownloadClient(t *testing.T) {
 	t.Cleanup(func() { downloadHTTPClient = orig })
 }
 
-// TestDownloadAttachmentBlocksInternalHopWithProductionClient drives the REAL
-// shipped client at a loopback listener. The attachment URL itself is always
-// Google's fixed endpoint, so this is defence in depth: it is what stops a
-// redirect anywhere in the chain -- an open redirect on Google's side, a
-// compromised CDN hop, an on-path injection -- from steering the bridge at
-// its operator's own network.
+// TestDownloadAttachmentBlocksInternalHopWithProductionClient: defence in depth against a redirect into the operator's network.
 func TestDownloadAttachmentBlocksInternalHopWithProductionClient(t *testing.T) {
 	srv := newLoopbackServer(t, "127.0.0.20", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("server was reached; the dial should have been blocked")

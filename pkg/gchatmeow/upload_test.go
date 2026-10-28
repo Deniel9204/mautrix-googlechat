@@ -14,11 +14,7 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// newTestUploadClient builds a Client wired to srv via the unexported
-// uploadBaseURL override (api.go), with the httptest host trusted by the
-// Session's allowlist so cookies actually get attached -- upload.go's
-// package comment requires the resumable upload go through the SAME
-// authenticated Session as every other RPC (chat.google.com needs cookies).
+// newTestUploadClient wires a Client to srv with srv's host allowlisted so cookies attach.
 func newTestUploadClient(t *testing.T, srv *httptest.Server, cookies map[string]string) *Client {
 	t.Helper()
 	c, err := NewClient(ClientOpts{Cookies: cookies})
@@ -30,18 +26,7 @@ func newTestUploadClient(t *testing.T, srv *httptest.Server, cookies map[string]
 	return c
 }
 
-// TestUploadFileRoundTrip is the RED/GREEN anchor for the whole resumable
-// flow: start (POST /uploads, resumable-start headers) -> read x-goog-upload-url
-// from the response header -> finalize (PUT, "upload, finalize" + offset 0)
-// -> base64(binary UploadMetadata) response body decoded back into a
-// *pb.UploadMetadata.
-//
-// It also asserts the ONE concrete requirement this task's diff turned up
-// (see upload.go's package doc comment): purple-googlechat's
-// actively-maintained upload path (googlechat_conversation.c:1839,
-// 1792-1806) sends neither an "alt=" nor a "key=<API_KEY>" query param on
-// either request. This port matches purple: neither "alt" nor "key" should
-// appear on either request.
+// TestUploadFileRoundTrip covers start -> finalize -> decode, and that neither "alt" nor "key" is sent.
 func TestUploadFileRoundTrip(t *testing.T) {
 	const (
 		groupID  = "space/AAAAgroup123"
@@ -117,7 +102,6 @@ func TestUploadFileRoundTrip(t *testing.T) {
 		t.Fatalf("UploadFile: %v", err)
 	}
 
-	// -- start request --
 	if startMethod != http.MethodPost {
 		t.Errorf("start method = %q, want POST", startMethod)
 	}
@@ -155,7 +139,6 @@ func TestUploadFileRoundTrip(t *testing.T) {
 		t.Errorf("start x-framework-xsrf-token = %q, want %q (matches purple-googlechat's googlechat_set_auth_headers, called on every upload request)", got, wantXSRFToken)
 	}
 
-	// -- finalize request --
 	if finalizeMethod != http.MethodPut {
 		t.Errorf("finalize method = %q, want PUT", finalizeMethod)
 	}
@@ -188,7 +171,6 @@ func TestUploadFileRoundTrip(t *testing.T) {
 		t.Errorf("finalize x-framework-xsrf-token = %q, want %q (matches purple-googlechat's googlechat_set_auth_headers, called on every upload request)", got, wantXSRFToken)
 	}
 
-	// -- decoded response --
 	if got.GetAttachmentToken() != wantMeta.GetAttachmentToken() {
 		t.Errorf("AttachmentToken = %q, want %q", got.GetAttachmentToken(), wantMeta.GetAttachmentToken())
 	}
@@ -200,11 +182,6 @@ func TestUploadFileRoundTrip(t *testing.T) {
 	}
 }
 
-// TestUploadFileNoXSRFTokenOmitsHeader verifies that before any XSRF token
-// has been set (Client's zero value -- e.g. before the very first
-// FetchXSRFToken/mole-world round trip), UploadFile simply omits the
-// x-framework-xsrf-token header instead of sending an empty one, mirroring
-// api.go's doRequestOnce (`if token := c.XSRFToken(); token != ""`).
 func TestUploadFileNoXSRFTokenOmitsHeader(t *testing.T) {
 	var startHeaders, finalizeHeaders http.Header
 	mux := http.NewServeMux()
@@ -244,10 +221,6 @@ func mustMarshalUploadMetadata(t *testing.T) []byte {
 	return b
 }
 
-// TestUploadFileStartServerError verifies a 500 from the /uploads start
-// request surfaces as a clear, non-nil error (the #114 path: Google's
-// /uploads endpoint reportedly 500s) rather than panicking or silently
-// returning a zero-value UploadMetadata.
 func TestUploadFileStartServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -265,9 +238,6 @@ func TestUploadFileStartServerError(t *testing.T) {
 	}
 }
 
-// TestUploadFileFinalizeServerError verifies a 500 from the finalize
-// PUT (start succeeds and hands back a valid upload URL) also surfaces as a
-// clear error.
 func TestUploadFileFinalizeServerError(t *testing.T) {
 	mux := http.NewServeMux()
 	var srv *httptest.Server
@@ -292,9 +262,6 @@ func TestUploadFileFinalizeServerError(t *testing.T) {
 	}
 }
 
-// TestUploadFileMissingUploadURLHeader verifies a 200 start response that
-// omits x-goog-upload-url (the only way the client learns where to PUT the
-// bytes) is a clear error rather than a panic on an empty PUT target.
 func TestUploadFileMissingUploadURLHeader(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -308,8 +275,6 @@ func TestUploadFileMissingUploadURLHeader(t *testing.T) {
 	}
 }
 
-// TestUploadFileBadBase64 verifies a finalize response body that isn't
-// valid base64 surfaces as a clear decode error.
 func TestUploadFileBadBase64(t *testing.T) {
 	mux := http.NewServeMux()
 	var srv *httptest.Server
@@ -331,14 +296,6 @@ func TestUploadFileBadBase64(t *testing.T) {
 	}
 }
 
-// TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace is the item-6
-// regression test (M7 Task 3): a finalize response body's base64 can carry
-// embedded whitespace -- e.g. base64 wrapped at a fixed line length, or CRLF
-// mangled by an intermediary -- anywhere in the string, not just at the
-// ends. Go's encoding/base64 has no tolerance for this: StdEncoding.
-// DecodeString errors on ANY embedded whitespace. This pins the fix:
-// UploadFile must strip embedded whitespace (not just leading/trailing,
-// which bytes.TrimSpace already handled) before decoding.
 func TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace(t *testing.T) {
 	wantMeta := &pb.UploadMetadata{
 		Payload:     &pb.UploadMetadata_AttachmentToken{AttachmentToken: "TOK-whitespace"},
@@ -349,9 +306,6 @@ func TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace(t *testing.T) {
 		t.Fatalf("marshal test UploadMetadata: %v", err)
 	}
 	b64 := base64.StdEncoding.EncodeToString(wantMetaBytes)
-	// Wrap the base64 payload with embedded newlines (MIME-style line
-	// wrapping) plus a stray embedded space -- all of which a lenient base64
-	// decoder would silently ignore, but Go's strict decoder rejects.
 	wrapped := b64[:len(b64)/2] + "\n" + b64[len(b64)/2:len(b64)-2] + " " + b64[len(b64)-2:] + "\n"
 
 	mux := http.NewServeMux()
@@ -377,13 +331,8 @@ func TestUploadFileFinalizeResponseToleratesEmbeddedWhitespace(t *testing.T) {
 	}
 }
 
-// TestUploadFileBadProto verifies a base64-valid but non-protobuf payload
-// surfaces as a clear decode error.
 func TestUploadFileBadProto(t *testing.T) {
-	// A single 0x00 byte is tag=0 (field number 0), which golang/protobuf
-	// deterministically rejects ("illegal tag 0 (wire type 0)") -- protobuf's
-	// wire format is otherwise too permissive to guarantee a parse failure
-	// (see api.go's unmarshalAPIResponse doc comment on this exact risk).
+	// 0x00 is tag 0, which protobuf deterministically rejects.
 	badProto := []byte{0x00}
 	badProtoB64 := base64.StdEncoding.EncodeToString(badProto)
 
@@ -407,9 +356,6 @@ func TestUploadFileBadProto(t *testing.T) {
 	}
 }
 
-// TestUploadFileContextCanceled verifies a canceled context aborts the
-// upload with a wrapped context error rather than hanging or panicking --
-// table stakes for a Go network call.
 func TestUploadFileContextCanceled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -429,19 +375,10 @@ func TestUploadFileContextCanceled(t *testing.T) {
 	}
 }
 
-// TestUploadFileWithholdsXSRFFromOffAllowlistUploadURL: the finalize target
-// comes from the START RESPONSE's x-goog-upload-url header, i.e. it is
-// server-supplied rather than something this client chose. Every other place
-// that follows a server-supplied URL gates Session-derived credentials on the
-// host allowlist (download.go's per-hop cookie decision); the anti-CSRF token
-// must be gated the same way, so it is never handed to a host outside the
-// allowlist.
+// TestUploadFileWithholdsXSRFFromOffAllowlistUploadURL: the server-supplied upload URL must not receive the token.
 func TestUploadFileWithholdsXSRFFromOffAllowlistUploadURL(t *testing.T) {
 	var finalizeHeaders http.Header
-	// A SEPARATE server on a DIFFERENT loopback IP, standing in for an
-	// upload URL that points off the allowlist. It has to differ by host,
-	// not merely by port: hostAllowed matches on hostname, so two servers on
-	// 127.0.0.1 would both be allowlisted and the test would prove nothing.
+	// Must differ by host, not port: hostAllowed matches on hostname.
 	elsewhere := newLoopbackServer(t, "127.0.0.2", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		finalizeHeaders = r.Header.Clone()
 		w.WriteHeader(http.StatusOK)
@@ -469,9 +406,6 @@ func TestUploadFileWithholdsXSRFFromOffAllowlistUploadURL(t *testing.T) {
 	}
 }
 
-// TestUploadFileSendsXSRFToAllowlistedUploadURL is the other half: the token
-// must still be sent on the normal path, where the upload URL stays on an
-// allowlisted host.
 func TestUploadFileSendsXSRFToAllowlistedUploadURL(t *testing.T) {
 	const token = "secret-xsrf-token"
 	var finalizeHeaders http.Header

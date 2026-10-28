@@ -13,9 +13,7 @@ import (
 	"testing"
 )
 
-// externalTLSClient trusts srvs' self-signed certs and refuses to follow
-// redirects itself, so a test can only pass if DownloadExternalMedia is
-// imposing its own redirect policy.
+// externalTLSClient trusts srvs and never follows redirects itself.
 func externalTLSClient(t *testing.T, srvs ...*httptest.Server) *http.Client {
 	t.Helper()
 	pool := x509.NewCertPool()
@@ -37,11 +35,6 @@ func useExternalClient(t *testing.T, c *http.Client) {
 	t.Cleanup(func() { externalHTTPClient = orig })
 }
 
-// TestExternalHTTPClientHasNoProxyAndGuardedDialer pins the two concessions
-// downloadHTTPClient makes for Google's own fixed endpoint and which must NOT
-// be inherited here, where the URL is chosen by a remote party. With a proxy
-// configured, net/http CONNECTs to the proxy, so the dialer would only ever
-// see the proxy's address and the whole address check becomes a no-op.
 func TestExternalHTTPClientHasNoProxyAndGuardedDialer(t *testing.T) {
 	c := newExternalHTTPClient()
 	tr, ok := c.Transport.(*http.Transport)
@@ -62,9 +55,7 @@ func TestExternalHTTPClientHasNoProxyAndGuardedDialer(t *testing.T) {
 	}
 }
 
-// TestDownloadExternalMediaBlocksLoopbackWithProductionClient drives the
-// PRODUCTION client, so it proves the guarded dialer is actually installed --
-// every other test here swaps the client out and would pass without it.
+// Drives the production client to prove the guarded dialer is installed.
 func TestDownloadExternalMediaBlocksLoopbackWithProductionClient(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("server was reached; the dial should have been blocked")
@@ -95,8 +86,6 @@ func TestDownloadExternalMediaRejectsNonHTTPSURL(t *testing.T) {
 	}
 }
 
-// TestDownloadExternalMediaRejectsRedirectToHTTP: the scheme check must run on
-// EVERY hop, so an https host cannot bounce the bridge into a plaintext fetch.
 func TestDownloadExternalMediaRejectsRedirectToHTTP(t *testing.T) {
 	var plainHits int
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -120,8 +109,6 @@ func TestDownloadExternalMediaRejectsRedirectToHTTP(t *testing.T) {
 	}
 }
 
-// TestDownloadExternalMediaFollowsHTTPSRedirect is the regression guard:
-// hardening must not break an ordinary CDN redirect.
 func TestDownloadExternalMediaFollowsHTTPSRedirect(t *testing.T) {
 	const want = "final-gif-bytes"
 	final := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -161,9 +148,6 @@ func TestDownloadExternalMediaCapsRedirects(t *testing.T) {
 	}
 }
 
-// TestDownloadExternalMediaRejectsOversizedBody pins that the caller's cap is
-// actually passed through, for both the Content-Length shortcut and a chunked
-// body where no length is declared.
 func TestDownloadExternalMediaRejectsOversizedBody(t *testing.T) {
 	const maxSize = 1 << 10
 
@@ -196,8 +180,6 @@ func TestDownloadExternalMediaRejectsOversizedBody(t *testing.T) {
 	})
 }
 
-// TestDownloadExternalMediaReturnsFilename: the Matrix side needs a filename,
-// which comes from Content-Disposition when the server offers one.
 func TestDownloadExternalMediaReturnsFilename(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/gif")
@@ -216,13 +198,7 @@ func TestDownloadExternalMediaReturnsFilename(t *testing.T) {
 	}
 }
 
-// TestDownloadExternalMediaCapsEvenWhenCallerSaysUnlimited is the control for
-// a memory-exhaustion hole. The caller's cap comes from the homeserver's
-// media_config, which bridgev2 fetches once with no retry -- so a single
-// failed fetch leaves it at 0 forever, and readBodyWithMaxSize reads 0 as
-// "unlimited". That contract was written for Google's own fixed endpoint; here
-// it would mean an unbounded read of a body served by a host a remote party
-// named.
+// TestDownloadExternalMediaCapsEvenWhenCallerSaysUnlimited: maxSize 0 must not mean unbounded here.
 func TestDownloadExternalMediaCapsEvenWhenCallerSaysUnlimited(t *testing.T) {
 	for _, callerMax := range []int64{0, -1, maxExternalMediaSize * 4} {
 		t.Run(strconv.FormatInt(callerMax, 10), func(t *testing.T) {

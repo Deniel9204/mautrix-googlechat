@@ -20,15 +20,11 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/matrixfmt"
 )
 
-// loggedCtx returns a context carrying a zerolog.Logger that writes to buf,
-// so a test can assert a DB-error path actually logged something instead of
-// silently swallowing it (M7 Task 3 item 3).
+// loggedCtx returns a context whose zerolog.Logger writes to buf.
 func loggedCtx(buf *bytes.Buffer) context.Context {
 	logger := zerolog.New(buf)
 	return logger.WithContext(context.Background())
 }
-
-// --- gchatMentionResolver (GC gaia id -> Matrix mention target) -----------
 
 func TestGChatMentionResolver_GhostPill(t *testing.T) {
 	resolve := gchatMentionResolver(
@@ -45,11 +41,7 @@ func TestGChatMentionResolver_GhostPill(t *testing.T) {
 	if !ok || mxid != "@200_ghost:example.com" {
 		t.Fatalf("resolve(200) = (%q, %q, %v), want (@200_ghost:example.com, _, true)", mxid, name, ok)
 	}
-	// Ghost mentions leave name "" -- gchatfmt falls back to entity_text
-	// (the original "@Name" text already in the message), matching
-	// from_googlechat.py's unconditional mention_text = entity_text default
-	// for the non-double-puppet branch (see mentions.go's package doc
-	// comment).
+	// Ghost mentions leave name "" so gchatfmt falls back to entity_text.
 	if name != "" {
 		t.Errorf("name = %q, want \"\" (caller should fall back to entity_text)", name)
 	}
@@ -106,8 +98,7 @@ func TestGChatMentionResolver_GhostMXIDEmpty(t *testing.T) {
 }
 
 func TestGChatMentionResolver_LoginWithoutUserMXIDFallsBackToGhost(t *testing.T) {
-	// Defensive edge case: a UserLogin row with no UserMXID set yet should
-	// not short-circuit resolution with an empty pill target.
+	// A login with no UserMXID must not yield an empty pill target.
 	resolve := gchatMentionResolver(
 		func(gaiaID networkid.UserID) id.UserID {
 			if gaiaID == "100" {
@@ -124,14 +115,6 @@ func TestGChatMentionResolver_LoginWithoutUserMXIDFallsBackToGhost(t *testing.T)
 		t.Errorf("resolve(100) = (%q, _, %v), want ghost fallback (@100_ghost:example.com, true)", mxid, ok)
 	}
 }
-
-// --- mentionsFromParsed (ParsedMentions -> content.Mentions) --------------
-// The chip-filter / bounds / dedup / MENTION_ALL logic itself now lives in
-// gchatfmt.collectMentions (exercised via gchatfmt.Parse's 3rd return in
-// pkg/msgconv/gchatfmt/convert_test.go); mentionsFromParsed is the thin
-// ParsedMentions -> *event.Mentions adapter, so its tests focus on that
-// mapping. The end-to-end tests further down prove the whole
-// resolver+Parse+mentionsFromParsed chain agrees with the rendered pills.
 
 func TestMentionsFromParsed_EmptyReturnsNil(t *testing.T) {
 	if got := mentionsFromParsed(gchatfmt.ParsedMentions{}); got != nil {
@@ -169,8 +152,6 @@ func TestMentionsFromParsed_RoomAndUser(t *testing.T) {
 	}
 }
 
-// --- cloneMentions ----------------------------------------------------
-
 func TestCloneMentions_Nil(t *testing.T) {
 	if got := cloneMentions(nil); got != nil {
 		t.Errorf("cloneMentions(nil) = %+v, want nil", got)
@@ -193,11 +174,6 @@ func TestCloneMentions_IndependentBackingArray(t *testing.T) {
 		t.Error("mutating the clone's UserIDs leaked back into the original -- shared backing array")
 	}
 }
-
-// --- End-to-end: gchatMentionResolver + gchatfmt.Parse + mentionsFromParsed
-// (the brief's headline requirement: "GC mention gaia -> correct ghost MXID
-// pill + content.Mentions populated" -- now from the SAME rendered-mention
-// output, so the pill and the ping can never disagree).
 
 func TestGChatMention_EndToEnd_PillAndMentionsBothCorrect(t *testing.T) {
 	resolve := gchatMentionResolver(
@@ -251,19 +227,14 @@ func TestGChatMention_EndToEnd_UnknownGaiaFallsBackToPlainText(t *testing.T) {
 	}
 }
 
-// TestGChatMention_EndToEnd_PhantomPingPrevented is the headline regression
-// test for this fix: a mention annotation whose span is out of bounds (no
-// corresponding "@Name" text in the body) forces gchatfmt to fall back to
-// plain text AND must NOT ping the user -- previously the connector's
-// independent annotation walk (inboundMentions) had no bounds gate and would
-// have pinged them regardless (a phantom notification).
+// TestGChatMention_EndToEnd_PhantomPingPrevented: an out-of-bounds mention renders
+// as plain text and must not ping.
 func TestGChatMention_EndToEnd_PhantomPingPrevented(t *testing.T) {
 	resolve := gchatMentionResolver(
 		func(networkid.UserID) id.UserID { return "@200_ghost:example.com" },
 		nil,
 	)
-	// Body is 2 UTF-16 units ("hi"), but the mention claims [0,50): out of
-	// bounds -> no pill rendered, no reference to the user in the body.
+	// Body is 2 UTF-16 units but the mention claims [0,50).
 	anns := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 50, "200")}
 
 	_, html, parsed := gchatfmt.Parse(context.Background(), "hi", anns, resolve)
@@ -275,13 +246,8 @@ func TestGChatMention_EndToEnd_PhantomPingPrevented(t *testing.T) {
 	}
 }
 
-// TestGChatMention_EndToEnd_ValidMentionStillPingsDespiteUnrelatedMalformedAnnotation
-// pins the subtle case: a VALID mention alongside an UNRELATED malformed
-// FORMAT annotation. The malformed annotation forces the whole HTML render
-// to fall back to plain text, but the plain body still literally contains
-// the mention's "@Bob" text, so pinging Bob is correct, not phantom --
-// mentions are keyed on each mention annotation's own validity, independent
-// of overall render success.
+// TestGChatMention_EndToEnd_ValidMentionStillPingsDespiteUnrelatedMalformedAnnotation:
+// a malformed FORMAT annotation forces plain text, but "@Bob" is still in the body.
 func TestGChatMention_EndToEnd_ValidMentionStillPingsDespiteUnrelatedMalformedAnnotation(t *testing.T) {
 	resolve := gchatMentionResolver(
 		func(gaiaID networkid.UserID) id.UserID {
@@ -294,10 +260,9 @@ func TestGChatMention_EndToEnd_ValidMentionStillPingsDespiteUnrelatedMalformedAn
 	)
 	body := "hi @Bob" // 7 UTF-16 units; "@Bob" is [3,7)
 	anns := []*pb.Annotation{
-		// A malformed FORMAT annotation (huge length, out of bounds) that
-		// makes renderAnnotations error -> whole message falls back to plain.
+		// Out of bounds: forces a plain-text fallback.
 		gchatfmt.MakeFormatAnnotation(0, 2147483647, pb.FormatMetadata_BOLD),
-		// A perfectly valid, resolvable mention over the real "@Bob" text.
+		// A valid mention over "@Bob".
 		gchatfmt.MakeMentionAnnotation(3, 4, "200"),
 	}
 
@@ -310,8 +275,6 @@ func TestGChatMention_EndToEnd_ValidMentionStillPingsDespiteUnrelatedMalformedAn
 		t.Errorf("content.Mentions = %+v, want to still include @200_ghost:example.com (body still shows @Bob)", mentions)
 	}
 }
-
-// --- matrixMentionResolver (Matrix pill MXID -> GC gaia id) ---------------
 
 func TestMatrixMentionResolver_GhostPill(t *testing.T) {
 	resolve := matrixMentionResolver(
@@ -388,10 +351,6 @@ func TestMatrixMentionResolver_GetExistingUserError(t *testing.T) {
 	}
 }
 
-// TestMatrixMentionResolver_GetExistingUserError_LogsError is the item-3
-// regression test: a genuine GetExistingUserByMXID DB error must be logged
-// (not silently discarded) even though the resolver still correctly
-// degrades to ok=false.
 func TestMatrixMentionResolver_GetExistingUserError_LogsError(t *testing.T) {
 	var buf bytes.Buffer
 	resolve := matrixMentionResolver(
@@ -427,10 +386,6 @@ func TestMatrixMentionResolver_FindPreferredLoginError(t *testing.T) {
 	}
 }
 
-// TestMatrixMentionResolver_FindPreferredLoginError_LogsError is the item-3
-// regression test for the second DB-error path in matrixMentionResolver: a
-// GENUINE failure (not the expected "not logged in") must be logged, not
-// silently swallowed.
 func TestMatrixMentionResolver_FindPreferredLoginError_LogsError(t *testing.T) {
 	var buf bytes.Buffer
 	dbErr := errors.New("login lookup: connection reset")
@@ -452,10 +407,7 @@ func TestMatrixMentionResolver_FindPreferredLoginError_LogsError(t *testing.T) {
 	}
 }
 
-// TestMatrixMentionResolver_NotLoggedIn_NotLogged pins that the EXPECTED
-// bridgev2.ErrNotLoggedIn outcome (a mentioned Matrix user who simply has no
-// Google Chat login -- a common case on ordinary traffic) is NOT logged at
-// Warn, so it can't flood the log; the fallback is still ok=false.
+// TestMatrixMentionResolver_NotLoggedIn_NotLogged: ErrNotLoggedIn is expected and not warned.
 func TestMatrixMentionResolver_NotLoggedIn_NotLogged(t *testing.T) {
 	var buf bytes.Buffer
 	resolve := matrixMentionResolver(
@@ -482,9 +434,6 @@ func TestMatrixMentionResolver_NilDeps(t *testing.T) {
 		t.Error("resolve with nil deps should be ok=false, not panic")
 	}
 }
-
-// --- End-to-end: matrixMentionResolver + matrixfmt.Parse ------------------
-// (the brief's "Matrix pill MXID (a bridge ghost) -> correct gaia MENTION")
 
 func TestMatrixMention_EndToEnd_GhostPillBecomesMentionAnnotation(t *testing.T) {
 	resolve := matrixMentionResolver(
@@ -548,10 +497,6 @@ func formatAnnotationsForTest(anns []*pb.Annotation) string {
 	return s + "]"
 }
 
-// --- newInboundMentionResolver / newOutboundMentionResolver nil-safety ---
-// (portal/Bridge/Matrix not fully wired -- bare test fixtures, matching
-// this package's established "often nil in tests" pattern, client.go)
-
 func TestNewInboundMentionResolver_NilPortal(t *testing.T) {
 	resolve := newInboundMentionResolver(nil)
 	if _, _, ok := resolve("200"); ok {
@@ -582,13 +527,7 @@ func TestNewOutboundMentionResolver_NilBridge(t *testing.T) {
 	}
 }
 
-// --- newInboundMentionResolver / newOutboundMentionResolver real wiring --
-// A minimal fake bridgev2.MatrixConnector/MatrixAPI (embedding the real
-// interfaces as nil and overriding only the methods these two functions
-// actually call) proves the wiring closures call the right
-// bridgev2.MatrixConnector methods with the right arguments, without
-// needing a live database (GetCachedUserLoginByID reads only bridgev2.Bridge's
-// unexported-but-nil-safe cache map; ParseGhostMXID is pure).
+// Fake MatrixConnector/MatrixAPI overriding only the methods the resolver wiring calls.
 
 type fakeMatrixAPI struct {
 	bridgev2.MatrixAPI
@@ -600,10 +539,7 @@ func (f fakeMatrixAPI) GetMXID() id.UserID { return f.mxid }
 type fakeMatrixConnector struct {
 	bridgev2.MatrixConnector
 	ghostIntent func(networkid.UserID) id.UserID
-	// ghostIntentAPI, when set, overrides ghostIntent entirely and lets a
-	// test hand back an arbitrary bridgev2.MatrixAPI -- used by
-	// TestNewInboundMentionResolver_RecoversFromGhostIntentPanic to inject
-	// a GetMXID() that panics, the way a real ASIntent{Matrix: nil} would.
+	// ghostIntentAPI, when set, overrides ghostIntent entirely.
 	ghostIntentAPI func(networkid.UserID) bridgev2.MatrixAPI
 	parseGhostMXID func(id.UserID) (networkid.UserID, bool)
 }
@@ -637,12 +573,7 @@ func TestNewInboundMentionResolver_RealWiring(t *testing.T) {
 	}
 }
 
-// panicMatrixAPI simulates the theoretical bridgev2 edge case flagged by
-// the M3 Task 3 port audit: GhostIntent(id) can return a non-nil MatrixAPI
-// wrapping a nil *appservice.IntentAPI (e.g. a malformed/empty encoded
-// ghost localpart), whose GetMXID() then nil-pointer-panics. This runs on
-// every live message conversion, so newInboundMentionResolver must degrade
-// to "no pill for this mention" rather than crash the whole conversion.
+// panicMatrixAPI's GetMXID panics, like a GhostIntent wrapping a nil IntentAPI.
 type panicMatrixAPI struct {
 	bridgev2.MatrixAPI
 }

@@ -21,20 +21,8 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// ---------------------------------------------------------------------------
-// Fake BrowserChannel server
-// ---------------------------------------------------------------------------
-//
-// Emulates the request choreography of channel.py: GET /register (hands out a
-// webchannel COMPASS cookie), then GET /events long-polls. The FIRST /events
-// GET carries SID=null and its RESPONSE header X-HTTP-Initial-Response is what
-// hands the client its SID (channel.py:419-425); the client then fires an ack
-// GET (RID=rpc&AID=0, channel.py:429-442) and a ping POST
-// (channel.py:347-360) before reading the first response's streamed body.
-//
-// Request classification (deterministic given the client's fixed
-// choreography): the first GET /events with a non-null SID is always the ack;
-// any later one is a re-poll.
+// Fake BrowserChannel server: GET /register, then /events long-polls. The first /events (SID=null) returns the SID
+// in X-HTTP-Initial-Response; the client then acks and pings. The first later GET with a SID is the ack.
 
 type fakeReq struct {
 	kind   string // register | longpoll-init | ack | longpoll | ping
@@ -60,7 +48,6 @@ type fakeChannel struct {
 
 	sid string // SID handed out via X-HTTP-Initial-Response
 
-	// Overridable handlers (defaults set in newFakeChannel).
 	handleInit     func(w http.ResponseWriter, r *http.Request, f *fakeChannel)
 	handleAck      func(w http.ResponseWriter, r *http.Request, f *fakeChannel)
 	handleLongpoll func(w http.ResponseWriter, r *http.Request, f *fakeChannel, n int)
@@ -77,8 +64,7 @@ func newFakeChannel(t *testing.T) *fakeChannel {
 		pingCh:       make(chan struct{}, 8),
 		reRegistered: make(chan struct{}),
 	}
-	// Default init: hand out SID, then hold the body open until the client
-	// disconnects (so no re-poll happens and the ordering stays observable).
+	// Default init: hand out SID, then hold the body open.
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
 		writeInitialSID(w, f.sid)
 		<-r.Context().Done()
@@ -186,15 +172,13 @@ func (f *fakeChannel) initReqCount() int {
 }
 
 func writeInitialSID(w http.ResponseWriter, sid string) {
-	// Matches _parse_sid_response's expected shape: json[0][1][1] == sid
-	// (channel.py:124-134): [[0,["c","<sid>","",8,12]]].
+	// Shape: [[0,["c","<sid>","",8,12]]].
 	w.Header().Set("X-HTTP-Initial-Response", fmt.Sprintf(`[[0,["c",%q,"",8,12]]]`, sid))
 	w.WriteHeader(http.StatusOK)
 	flush(w)
 }
 
-// writeFrame writes one BrowserChannel frame: "<utf16len>\n<payload>".
-// length is the payload length in UTF-16 code units (channel.py:88-110).
+// writeFrame writes one "<utf16len>\n<payload>" frame.
 func writeFrame(w http.ResponseWriter, payload string) {
 	n := len(utf16.Encode([]rune(payload)))
 	io.WriteString(w, fmt.Sprintf("%d\n%s", n, payload))
@@ -207,9 +191,6 @@ func flush(w http.ResponseWriter) {
 	}
 }
 
-// newTestChannel builds a Channel wired to the fake server: a Session whose
-// allowlist trusts the httptest host, and the unexported baseURL pointed at
-// the fake server.
 func newTestChannel(t *testing.T, f *fakeChannel) *Channel {
 	t.Helper()
 	sess, err := NewSession(nil, "")
@@ -232,10 +213,6 @@ func goroutineID() int64 {
 	id, _ := strconv.ParseInt(fields[1], 10, 64)
 	return id
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 func TestRegisterExtractsSID(t *testing.T) {
 	f := newFakeChannel(t)
@@ -264,7 +241,7 @@ func TestRegisterExtractsSID(t *testing.T) {
 	if ch.sid != "sid-XYZ-123" {
 		t.Fatalf("ch.sid = %q, want %q", ch.sid, "sid-XYZ-123")
 	}
-	// The ack request must carry the freshly extracted SID.
+	// The ack must carry the freshly extracted SID.
 	var ack *fakeReq
 	for _, r := range f.snapshot() {
 		if r.kind == "ack" {
@@ -329,12 +306,12 @@ func TestAckAndPingSentAfterRegister(t *testing.T) {
 		t.Fatalf("wrong request order: register=%d init=%d ack=%d ping=%d",
 			idxRegister, idxInit, idxAck, idxPing)
 	}
-	// Ack must be a GET with RID=rpc and AID=0 (channel.py:429-431).
+	// Ack must be a GET with RID=rpc and AID=0.
 	ack := reqs[idxAck]
 	if ack.method != http.MethodGet || ack.rid != "rpc" || ack.aid != "0" {
 		t.Fatalf("ack request = %+v, want GET RID=rpc AID=0", ack)
 	}
-	// Ping must be a POST (forward channel, channel.py:333-339).
+	// Ping must be a POST.
 	if reqs[idxPing].method != http.MethodPost {
 		t.Fatalf("ping method = %q, want POST", reqs[idxPing].method)
 	}
@@ -344,8 +321,7 @@ func TestEventsDeliveredInOrder(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
 		writeInitialSID(w, f.sid)
-		// Three separate frames, each a container array with one inner
-		// [array_id, data_array] pair.
+		// Three frames, each a container with one [array_id, data_array] pair.
 		writeFrame(w, `[[1,["a"]]]`)
 		writeFrame(w, `[[2,["b"]]]`)
 		writeFrame(w, `[[3,["c"]]]`)
@@ -431,8 +407,7 @@ func TestCleanEOFRepolls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	// Large backoff base: if the retry counter were NOT reset on clean EOF,
-	// the re-poll would be delayed by >= 500ms.
+	// Large backoff base: re-poll is delayed if retries are not reset on clean EOF.
 	go func() { done <- ch.Listen(ctx, 3, 500*time.Millisecond) }()
 
 	select {
@@ -445,7 +420,7 @@ func TestCleanEOFRepolls(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// Re-poll must use the same SID (no re-register).
+	// Re-poll must use the same SID.
 	var repoll *fakeReq
 	for _, r := range f.snapshot() {
 		if r.kind == "longpoll" {
@@ -460,7 +435,7 @@ func TestCleanEOFRepolls(t *testing.T) {
 	if repoll.sid != f.sid {
 		t.Fatalf("re-poll SID = %q, want same SID %q", repoll.sid, f.sid)
 	}
-	// Retry counter reset => no backoff => near-immediate re-poll.
+
 	if gap := repollAt.Sub(eofAt); gap > 250*time.Millisecond {
 		t.Fatalf("re-poll gap %v too large; retry counter not reset (backoff applied)", gap)
 	}
@@ -491,16 +466,11 @@ func TestUnknownSIDPropagates(t *testing.T) {
 
 func TestBackoffOnConnectError(t *testing.T) {
 	f := newFakeChannel(t)
-	// Disable server keep-alives so every attempt dials a FRESH connection.
-	// net/http.Transport auto-retries an idempotent GET only on a *reused*
-	// connection; on a fresh one it surfaces the connect error immediately.
-	// Without this, a transport retry would silently swallow one of the two
-	// server-side refusals and collapse the two expected backoffs into one.
+	// No keep-alives: net/http retries a GET on a reused connection, which would hide a refusal.
 	f.srv.Config.SetKeepAlivesEnabled(false)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
 		if f.initReqCount() <= 2 {
-			// Refuse: hijack and drop the connection with no response, so the
-			// client's request fails at the transport layer (-> NetworkError).
+			// Drop the connection so the request fails at the transport layer.
 			hj, ok := w.(http.Hijacker)
 			if !ok {
 				t.Errorf("ResponseWriter is not a Hijacker")
@@ -533,8 +503,7 @@ func TestBackoffOnConnectError(t *testing.T) {
 	cancel()
 	<-done
 
-	// Two failures => backoff of base (2^0) then 2*base (2^1) = 3*base = 90ms.
-	// Assert clearly-nonzero cumulative backoff (slack for scheduling).
+	// Backoff of base then 2*base.
 	if elapsed < 2*base {
 		t.Fatalf("recovered in %v; expected >= %v of backoff between retries", elapsed, 2*base)
 	}
@@ -546,8 +515,7 @@ func TestBackoffOnConnectError(t *testing.T) {
 func TestLifetimeRecycle(t *testing.T) {
 	f := newFakeChannel(t)
 	ch := newTestChannel(t, f)
-	// Inject a tiny lifetime via the unexported field: the loop's age check
-	// (channel.py:218-219) fires on the first iteration.
+	// Tiny lifetime: the age check fires on the first iteration.
 	ch.maxAge = time.Nanosecond
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -565,18 +533,12 @@ func TestLifetimeRecycle(t *testing.T) {
 	}
 }
 
-// TestSIDExpiringReRegisters exercises the truncated-body ladder
-// (channel.py:461-463 ClientPayloadError -> SIDExpiringError -> re-register,
-// channel.py:233-240): a mid-stream truncation surfaces as io.ErrUnexpectedEOF
-// -> ErrSIDExpiring, which must trigger a fresh GET /register (not a plain
-// re-poll) with the retry counter incremented but backoff skipped.
+// TestSIDExpiringReRegisters: a truncated body (io.ErrUnexpectedEOF) must re-register without backoff.
 func TestSIDExpiringReRegisters(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
 		if f.initReqCount() == 1 {
-			// Hijack and send a response that promises more bytes than it
-			// delivers, then close -> the client's body read ends with
-			// io.ErrUnexpectedEOF (aiohttp ClientPayloadError equivalent).
+			// Promise more bytes than delivered so the read ends with io.ErrUnexpectedEOF.
 			hj, ok := w.(http.Hijacker)
 			if !ok {
 				t.Errorf("ResponseWriter is not a Hijacker")
@@ -593,7 +555,7 @@ func TestSIDExpiringReRegisters(t *testing.T) {
 				"Content-Length: 1000000\r\n" +
 				"\r\n" + frame
 			_, _ = conn.Write([]byte(raw))
-			// Give the client time to read the frame before we truncate.
+
 			time.Sleep(30 * time.Millisecond)
 			conn.Close()
 			return
@@ -607,8 +569,7 @@ func TestSIDExpiringReRegisters(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	// Large backoff base: the SIDExpiring path must NOT back off, so re-register
-	// happening quickly proves skipBackoff.
+	// Large backoff base: a quick re-register proves backoff was skipped.
 	go func() { done <- ch.Listen(ctx, 3, 500*time.Millisecond) }()
 
 	select {
@@ -619,7 +580,6 @@ func TestSIDExpiringReRegisters(t *testing.T) {
 	cancel()
 	<-done
 
-	// At least two register requests: initial + the SIDExpiring re-register.
 	registers := 0
 	for _, r := range f.snapshot() {
 		if r.kind == "register" {
@@ -631,11 +591,7 @@ func TestSIDExpiringReRegisters(t *testing.T) {
 	}
 }
 
-// TestReadIdleTriggersDisconnectAndReconnect exercises the 60s read-idle
-// watchdog (here shortened via the unexported readIdleTimeout) and the
-// connect/disconnect/reconnect event sequence (channel.py:251-253, 474-482):
-// a live poll that goes silent must fire OnDisconnect, and the next poll's
-// first chunk must fire OnReconnect (Task 8's gap-sync hook).
+// TestReadIdleTriggersDisconnectAndReconnect: a silent poll fires OnDisconnect, the next chunk OnReconnect.
 func TestReadIdleTriggersDisconnectAndReconnect(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
@@ -694,10 +650,7 @@ func TestReadIdleTriggersDisconnectAndReconnect(t *testing.T) {
 	}
 }
 
-// TestDebugDumpWritesFrameAndArray covers choreography point 7: with
-// GCHAT_DEBUG_DUMP set, each received chunk is dumped as a self-contained WIRE
-// frame ("<utf16len>\n<payload>", byte-exact + replayable per capture-fixtures
-// SKILL.md), and each decoded data_array as .json.
+// TestDebugDumpWritesFrameAndArray: chunks are dumped as byte-exact wire frames, arrays as .json.
 func TestDebugDumpWritesFrameAndArray(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("GCHAT_DEBUG_DUMP", dir)
@@ -746,7 +699,7 @@ func TestDebugDumpWritesFrameAndArray(t *testing.T) {
 			jsonBody = string(b)
 		}
 	}
-	// Frame must include the length prefix and be byte-exact to the wire.
+
 	if rawBody != "11\n[[7,[\"x\"]]]" {
 		t.Fatalf("chunk .raw = %q, want framed %q", rawBody, "11\n[[7,[\"x\"]]]")
 	}
@@ -755,17 +708,11 @@ func TestDebugDumpWritesFrameAndArray(t *testing.T) {
 	}
 }
 
-// TestUnknownSIDInStatusLinePropagates covers the check-BOTH semantics of
-// channel.py:408-411: a 400 whose reason phrase is "Unknown SID" but whose
-// body does NOT contain it must still map to ErrSIDInvalid. Go's resp.Status
-// is the full "400 Unknown SID" line, so this exercises the status-line branch
-// (which an == "Unknown SID" equality check would silently miss).
+// TestUnknownSIDInStatusLinePropagates: "Unknown SID" only in the status line must still map to ErrSIDInvalid.
 func TestUnknownSIDInStatusLinePropagates(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
-		// Hijack to control the reason phrase: httptest's WriteHeader always
-		// emits Go's canonical reason ("Bad Request"), so we must write the raw
-		// status line ourselves. Empty body -> only the status line carries it.
+		// Hijack to control the reason phrase; httptest always writes the canonical one.
 		hj, ok := w.(http.Hijacker)
 		if !ok {
 			t.Errorf("ResponseWriter is not a Hijacker")
@@ -796,13 +743,7 @@ func TestUnknownSIDInStatusLinePropagates(t *testing.T) {
 	}
 }
 
-// TestChunkedTruncationReRegisters hardens the highest-risk branch with a
-// REAL wire shape: a chunked response truncated mid-stream (no terminating
-// 0-length chunk) makes the client's body read end in io.ErrUnexpectedEOF,
-// which must map to ErrSIDExpiring -> re-register (channel.py:461-463, 233-240).
-// The Content-Length variant (TestSIDExpiringReRegisters) exercises the same
-// mapping; this proves it also holds for chunked transfer-encoding, the shape
-// Google actually uses.
+// TestChunkedTruncationReRegisters: a chunked response truncated mid-stream must re-register.
 func TestChunkedTruncationReRegisters(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
@@ -818,8 +759,7 @@ func TestChunkedTruncationReRegisters(t *testing.T) {
 				return
 			}
 			frame := "11\n" + `[[1,["x"]]]` // one complete BrowserChannel frame
-			// A single chunk, then close WITHOUT the terminating "0\r\n\r\n" ->
-			// truncated chunked stream -> io.ErrUnexpectedEOF on the client.
+			// No terminating "0\r\n\r\n" -> io.ErrUnexpectedEOF.
 			raw := "HTTP/1.1 200 OK\r\n" +
 				"X-HTTP-Initial-Response: [[0,[\"c\",\"" + f.sid + "\",\"\",8,12]]]\r\n" +
 				"Transfer-Encoding: chunked\r\n" +
@@ -859,12 +799,7 @@ func TestChunkedTruncationReRegisters(t *testing.T) {
 	}
 }
 
-// TestMalformedContainerFrameSkipped: a frame whose whole container array is
-// undecodable must be dropped on its own, leaving the channel live for the
-// frames that follow. Returning an error here instead would propagate through
-// readBody/longpollRequest into Listen's `default:` branch and tear the poll
-// session down, contrary to the project's log-and-skip invariant for stream
-// decode errors.
+// TestMalformedContainerFrameSkipped: an undecodable frame is dropped and the channel stays live.
 func TestMalformedContainerFrameSkipped(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
@@ -916,14 +851,12 @@ func TestMalformedContainerFrameSkipped(t *testing.T) {
 	}
 }
 
-// TestMalformedInnerElementsSkipped: within ONE container, a bad inner
-// element must cost only itself -- the well-formed pairs beside it, including
-// those after it, must still be delivered.
+// TestMalformedInnerElementsSkipped: a bad inner element costs only itself.
 func TestMalformedInnerElementsSkipped(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
 		writeInitialSID(w, f.sid)
-		// good pair, wrong-length inner, non-numeric array_id, good pair.
+		// Good pair, wrong-length inner, non-numeric array_id, good pair.
 		writeFrame(w, `[[1,["a"]],[2],["x",["ignored"],9],[3,["c"]]]`)
 		<-r.Context().Done()
 	}
@@ -969,7 +902,6 @@ func TestMalformedInnerElementsSkipped(t *testing.T) {
 	}
 }
 
-// pingReqs returns the recorded forward-channel POSTs, in arrival order.
 func (f *fakeChannel) pingReqs() []fakeReq {
 	var out []fakeReq
 	for _, r := range f.snapshot() {
@@ -980,9 +912,7 @@ func (f *fakeChannel) pingReqs() []fakeReq {
 	return out
 }
 
-// TestSendStreamEventNon200IsError: a rejected forward-channel POST must
-// surface. Returning nil for, say, a 400 makes a rejected send
-// indistinguishable from a delivered one.
+// TestSendStreamEventNon200IsError: a rejected forward-channel POST must surface.
 func TestSendStreamEventNon200IsError(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handlePing = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
@@ -1006,9 +936,7 @@ func TestSendStreamEventNon200IsError(t *testing.T) {
 	}
 }
 
-// TestSendStreamEventWithoutSIDIsError: register() clears the SID for the
-// whole re-register round trip. Sending in that window would put SID= on the
-// wire, which the server rejects; the caller must be told instead.
+// TestSendStreamEventWithoutSIDIsError: sends during re-register (empty SID) must fail.
 func TestSendStreamEventWithoutSIDIsError(t *testing.T) {
 	f := newFakeChannel(t)
 	ch := newTestChannel(t, f)
@@ -1022,10 +950,7 @@ func TestSendStreamEventWithoutSIDIsError(t *testing.T) {
 	}
 }
 
-// TestInitialPingRejectionPropagates: the ping is what makes the server start
-// streaming, so a rejected ping means no events will ever arrive. Swallowing
-// it leaves the poll looking healthy until the 60s read-idle watchdog fires,
-// hiding the real cause; it must fail fast instead.
+// TestInitialPingRejectionPropagates: a rejected ping must fail fast, not wait for the idle watchdog.
 func TestInitialPingRejectionPropagates(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handlePing = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
@@ -1049,10 +974,7 @@ func TestInitialPingRejectionPropagates(t *testing.T) {
 	}
 }
 
-// TestConcurrentSendStreamEventsAreSerialized: ofs is a strict sequence the
-// server rejects out of order. Assigning the numbers under a lock is not
-// enough -- the requests must also reach the wire in that order, so the sends
-// themselves have to be serialized.
+// TestConcurrentSendStreamEventsAreSerialized: ofs must reach the wire in order.
 func TestConcurrentSendStreamEventsAreSerialized(t *testing.T) {
 	f := newFakeChannel(t)
 	var (
@@ -1097,17 +1019,8 @@ func TestConcurrentSendStreamEventsAreSerialized(t *testing.T) {
 	}
 }
 
-// TestInitialPingOwnsOfsZero: the counters are reset to zero for a fresh SID,
-// then an ack round trip happens before the ping is sent. A concurrent send
-// landing in that window would consume ofs=0 and push the ping to ofs=1,
-// which the server rejects -- and since a rejected ping means the server
-// never streams anything, the channel would sit connected but permanently
-// silent.
-//
-// The assertion identifies the ping by its PAYLOAD rather than by arrival
-// order: the racing send is what arrives first when the sequence is not
-// atomic, so "the first POST had ofs=0" would be satisfied by the very bug
-// this test exists to catch.
+// TestInitialPingOwnsOfsZero: a send racing the ack must not take ofs=0 from the ping.
+// The ping is identified by payload, not arrival order, since the racer arrives first under the bug.
 func TestInitialPingOwnsOfsZero(t *testing.T) {
 	emptyBody, err := pblite.Marshal(&pb.StreamEventsRequest{})
 	if err != nil {
@@ -1118,7 +1031,7 @@ func TestInitialPingOwnsOfsZero(t *testing.T) {
 	ackReached := make(chan struct{})
 	f.handleAck = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
 		close(ackReached)
-		// Hold the ack open to widen the window a racing send would use.
+		// Hold the ack open to widen the race window.
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 	}
@@ -1129,7 +1042,6 @@ func TestInitialPingOwnsOfsZero(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- ch.Listen(ctx, 3, 20*time.Millisecond) }()
 
-	// Fire an external forward-channel send while the ack is still open.
 	racer := make(chan struct{})
 	go func() {
 		defer close(racer)
@@ -1168,14 +1080,9 @@ func TestInitialPingOwnsOfsZero(t *testing.T) {
 	}
 }
 
-// TestDebugDumpUsesPrivatePermissions: the dump files hold raw conversation
-// content -- message text, sender and room ids -- so they must not be
-// world-readable, and the directory must not be created world-traversable.
-// The capture-fixtures workflow points this env var at a real account, so on
-// any shared host 0644 exposes other people's messages to every local user.
+// TestDebugDumpUsesPrivatePermissions: dumps hold real messages, so files and directory must be private.
 func TestDebugDumpUsesPrivatePermissions(t *testing.T) {
-	// A path that does not exist yet: debugDump must create it itself
-	// rather than silently writing nothing.
+	// A missing directory must be created.
 	dir := filepath.Join(t.TempDir(), "dumps")
 	t.Setenv("GCHAT_DEBUG_DUMP", dir)
 

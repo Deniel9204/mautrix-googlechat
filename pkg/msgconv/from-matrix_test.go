@@ -12,9 +12,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
 
-// TestFromMatrix_PlainText covers the base case: content.Body becomes the
-// Google Chat text_body verbatim when there's no HTML formatting, with no
-// annotations produced.
 func TestFromMatrix_PlainText(t *testing.T) {
 	mc := msgconv.New()
 	content := &event.MessageEventContent{
@@ -32,10 +29,6 @@ func TestFromMatrix_PlainText(t *testing.T) {
 	}
 }
 
-// TestFromMatrix_FormattedBodyProducesAnnotations is the headline M3 Task 4
-// outbound behavior: an HTML formatted_body must be run through
-// matrixfmt.Parse, producing an annotation-stripped text_body plus the
-// matching annotations list.
 func TestFromMatrix_FormattedBodyProducesAnnotations(t *testing.T) {
 	mc := msgconv.New()
 	content := &event.MessageEventContent{
@@ -56,10 +49,6 @@ func TestFromMatrix_FormattedBodyProducesAnnotations(t *testing.T) {
 	}
 }
 
-// TestFromMatrix_MentionUsesPassedResolver proves FromMatrix actually
-// threads the mention parameter into matrixfmt.Parse (not just accepting
-// and ignoring it): a resolver that knows the MXID must produce a MENTION
-// annotation.
 func TestFromMatrix_MentionUsesPassedResolver(t *testing.T) {
 	mc := msgconv.New()
 	content := &event.MessageEventContent{
@@ -86,9 +75,6 @@ func TestFromMatrix_MentionUsesPassedResolver(t *testing.T) {
 	}
 }
 
-// TestFromMatrix_NilResolverDoesNotPanic: a nil mention resolver must
-// degrade to matrixfmt's own nil-safe fallback (render plain text, no
-// MENTION annotation), not panic.
 func TestFromMatrix_NilResolverDoesNotPanic(t *testing.T) {
 	mc := msgconv.New()
 	content := &event.MessageEventContent{
@@ -108,8 +94,6 @@ func TestFromMatrix_NilResolverDoesNotPanic(t *testing.T) {
 	}
 }
 
-// TestFromMatrix_EmptyBody: an empty body with no formatting produces an
-// empty text_body and no annotations.
 func TestFromMatrix_EmptyBody(t *testing.T) {
 	mc := msgconv.New()
 	content := &event.MessageEventContent{MsgType: event.MsgText, Body: ""}
@@ -124,8 +108,6 @@ func TestFromMatrix_EmptyBody(t *testing.T) {
 	}
 }
 
-// TestFromMatrix_UnicodeEmojiPreserved proves UTF-8 text (including
-// astral-plane emoji) survives untouched through the plain-body path.
 func TestFromMatrix_UnicodeEmojiPreserved(t *testing.T) {
 	mc := msgconv.New()
 	want := "héllo 👋🏽 世界 🇺🇳"
@@ -138,12 +120,7 @@ func TestFromMatrix_UnicodeEmojiPreserved(t *testing.T) {
 	}
 }
 
-// TestFromMatrix_NoticeBody: m.notice messages carry the same Body field
-// and must convert identically to m.text -- both m.text and m.notice route
-// through the same text path, and FromMatrix itself doesn't even look at
-// MsgType (that gate lives in the connector's routing decision,
-// handlematrix.go), so this just confirms Body extraction doesn't silently
-// depend on MsgType.
+// FromMatrix ignores MsgType, so m.notice must convert exactly like m.text.
 func TestFromMatrix_NoticeBody(t *testing.T) {
 	mc := msgconv.New()
 	content := &event.MessageEventContent{MsgType: event.MsgNotice, Body: "a notice"}

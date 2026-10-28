@@ -1,15 +1,5 @@
 package migrate
 
-// White-box tests (package migrate) for migrateUserPortals, covering the
-// DM-only user_portal synthesis rule and the backfill_task decision
-// (documented in userportal.go's backfillTaskSeedingNote).
-//
-// Like message_test.go, these tests run the real migratePortals/migrateUsers
-// migrators first (against the same Deps) rather than hand-seeding the
-// target, since migrateUserPortals's FK guards (userLoginExistsInTarget,
-// portalExistsInTarget) need those rows to actually exist in the target the
-// same way a real migration run would produce them.
-
 import (
 	"context"
 	"database/sql"
@@ -56,11 +46,7 @@ func countUserPortals(t *testing.T, target *dbutil.Database) int {
 	return count
 }
 
-// runFullChainUpToUserPortals runs every migrator migrateUserPortals depends
-// on (portals, then users, then logins -- ghosts/messages/reactions are
-// irrelevant to user_portal's FK guards) against the same Deps, failing the
-// test immediately on any unexpected error, then returns migrateUserPortals's
-// own result for the caller to assert on.
+// runFullChainUpToUserPortals runs portals, users and logins, then returns migrateUserPortals's result.
 func runFullChainUpToUserPortals(t *testing.T, ctx context.Context, deps *Deps) (int, []string) {
 	t.Helper()
 	if _, _, err := migratePortals(ctx, deps, Options{}); err != nil {
@@ -88,9 +74,7 @@ func TestMigrateUserPortals_DMSynthesisAndSpaceGap(t *testing.T) {
 
 	count, warnings := runFullChainUpToUserPortals(t, ctx, deps)
 
-	// Shared fixture has 1 DM portal (dm:gGboEmVbEyE, receiver
-	// 103432744896036786916, owned by @user1:example.com who DOES get a
-	// migrated login) and 1 space portal (space:AAAAdaMWXXc).
+	// Shared fixture: 1 DM portal owned by @user1 (who has a login) and 1 space portal.
 	if count != 1 {
 		t.Fatalf("expected 1 user_portal row (the DM portal), got %d", count)
 	}
@@ -116,14 +100,10 @@ func TestMigrateUserPortals_DMSynthesisAndSpaceGap(t *testing.T) {
 		t.Errorf("last_read = %+v, want NULL (no Python source)", row.LastRead)
 	}
 
-	// The space portal must NOT get a user_portal row -- confirm via the
-	// total table count (1, not 2).
 	if got := countUserPortals(t, deps.Target); got != 1 {
 		t.Errorf("total user_portal rows = %d, want 1 (space portal must not synthesize one)", got)
 	}
 
-	// Exactly one summary warning, about the one un-reconstructable space
-	// portal (schema map §6 / Risk #5).
 	if len(warnings) != 1 {
 		t.Fatalf("expected exactly 1 warning (the space-portal gap summary), got %d: %v", len(warnings), warnings)
 	}
@@ -135,14 +115,7 @@ func TestMigrateUserPortals_DMSynthesisAndSpaceGap(t *testing.T) {
 	}
 }
 
-// newUserPortalEdgeCasesSourceDB covers the two DM-portal failure paths that
-// the shared fixture doesn't exercise:
-//   - dm:noLoginRoom, receiver=555555555555555555: the owning user
-//     (@partial:example.com) exists and has a matching gcid, but NO cookies
-//     (so migrateUsers never writes it a user_login) -- "missing user_login"
-//     warn+skip.
-//   - dm:noUserRoom, receiver=666666666666666666: no Python user has this
-//     gcid at all -- "no migrated user" warn+skip.
+// newUserPortalEdgeCasesSourceDB covers a DM whose owner has no login and a DM whose receiver matches no user.
 func newUserPortalEdgeCasesSourceDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "userportal_edge_cases_source.db")
@@ -225,12 +198,7 @@ func TestMigrateUserPortals_MissingLoginAndMissingUser_WarnAndSkip(t *testing.T)
 	}
 }
 
-// TestRun_SeedsNoBackfillTaskRows pins the M7 Task 7 backfill_task decision
-// (schema map Risk #11, resolved in m7-migration-preflight.md, documented in
-// full in userportal.go's backfillTaskSeedingNote): a complete migration Run
-// must write ZERO backfill_task rows, and must document that decision in
-// Summary.Warnings so an operator reading the migration report sees it
-// explicitly rather than just an empty table.
+// TestRun_SeedsNoBackfillTaskRows asserts no backfill_task rows are written and the decision is in Summary.Warnings.
 func TestRun_SeedsNoBackfillTaskRows(t *testing.T) {
 	deps := validDeps(t)
 	ctx := context.Background()

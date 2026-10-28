@@ -1,8 +1,5 @@
 package connector
 
-// createspace_test.go -- CreateGroup -> create_group (web client shape) +
-// create_membership per participant.
-
 import (
 	"context"
 	"errors"
@@ -93,8 +90,7 @@ func TestCreateGroupNeedsName(t *testing.T) {
 	}
 }
 
-// A failed create is never retried: after a 5xx or a transport error the
-// space may already exist, and even a 400 has no second shape to try.
+// A failed create is never retried: after a 5xx the space may already exist.
 func TestCreateGroupNeverRetries(t *testing.T) {
 	for name, failure := range map[string]error{
 		"400":       &gchatmeow.UnexpectedStatusError{Status: 400},
@@ -143,8 +139,6 @@ func TestCreateGroupReportsFailedInviteButKeepsSpace(t *testing.T) {
 	}
 }
 
-// The command's own Matrix room must become the portal, bound before anyone is
-// invited (provisionutil would otherwise create a second room).
 func TestCreateGroupBindsCommandRoomBeforeInviting(t *testing.T) {
 	var order []string
 	bound := &bridgev2.Portal{}
@@ -216,8 +210,6 @@ func TestCreateGroupBindFailureIsReported(t *testing.T) {
 	}
 }
 
-// The bot's power is settled before the space exists: if it cannot be, no
-// space is created at all.
 func TestCreateGroupPromotesBotBeforeCreating(t *testing.T) {
 	var order []string
 	gc := &GChatClient{

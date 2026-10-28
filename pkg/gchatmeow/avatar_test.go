@@ -16,12 +16,8 @@ import (
 	"time"
 )
 
-// avatarTLSClient builds a client trusting exactly the given test servers'
-// certificates, with a CheckRedirect that FAILS the fetch if it is ever
-// consulted. DownloadAvatar overrides CheckRedirect on every call so its own
-// manual loop does the following; if that override is ever removed, this trap
-// fires and the redirect tests break loudly instead of silently passing on
-// the injected client's auto-follow.
+// avatarTLSClient trusts the given servers and fails if CheckRedirect is ever consulted,
+// proving DownloadAvatar follows redirects itself.
 func avatarTLSClient(t *testing.T, srvs ...*httptest.Server) *http.Client {
 	t.Helper()
 	pool := x509.NewCertPool()
@@ -36,15 +32,12 @@ func avatarTLSClient(t *testing.T, srvs ...*httptest.Server) *http.Client {
 	}
 }
 
-// useAvatarClient swaps in c for the duration of the test.
 func useAvatarClient(t *testing.T, c *http.Client) {
 	t.Helper()
 	orig := avatarHTTPClient
 	avatarHTTPClient = c
 	t.Cleanup(func() { avatarHTTPClient = orig })
 }
-
-// --- ForceHTTPS --------------------------------------------------------
 
 func TestForceHTTPS(t *testing.T) {
 	cases := []struct {
@@ -66,13 +59,6 @@ func TestForceHTTPS(t *testing.T) {
 	}
 }
 
-// --- isDisallowedIP ------------------------------------------------------
-
-// TestIsDisallowedIP pins the SSRF blocklist: every range that can reach the
-// bridge operator's own host or private network must be refused, and
-// ordinary public addresses must not be. The IPv4-mapped IPv6 cases matter
-// because "::ffff:127.0.0.1" is the classic way to smuggle a loopback
-// address past a naive v4-only check.
 func TestIsDisallowedIP(t *testing.T) {
 	blocked := []string{
 		"127.0.0.1",              // loopback
@@ -140,11 +126,6 @@ func TestIsDisallowedIP(t *testing.T) {
 	}
 }
 
-// --- DownloadAvatar: transport hardening ---------------------------------
-
-// TestAvatarHTTPClientIsHardened pins the production client's configuration.
-// http.DefaultClient (the previous value) has no timeout and follows
-// redirects automatically to any host -- both of which this fix removes.
 func TestAvatarHTTPClientIsHardened(t *testing.T) {
 	if avatarHTTPClient == http.DefaultClient {
 		t.Fatal("avatarHTTPClient is http.DefaultClient: no timeout, auto-follows redirects anywhere")
@@ -160,10 +141,7 @@ func TestAvatarHTTPClientIsHardened(t *testing.T) {
 	if !ok {
 		t.Fatalf("avatarHTTPClient.Transport = %T, want *http.Transport", avatarHTTPClient.Transport)
 	}
-	// A forward proxy is dialed INSTEAD of the real target and reaches it via
-	// CONNECT, so the dial-time address check would only ever inspect the
-	// proxy. Honouring $HTTPS_PROXY here would silently reduce the SSRF
-	// defence to a no-op for exactly the ranges it exists to block.
+	// With a proxy the dial-time address check would only see the proxy.
 	if tr.Proxy != nil {
 		t.Error("avatarHTTPClient Transport.Proxy is set: proxy CONNECT tunnelling bypasses the dial-time address check")
 	}
@@ -175,17 +153,11 @@ func TestAvatarHTTPClientIsHardened(t *testing.T) {
 	}
 }
 
-// TestDownloadAvatarBoundsWholeChain pins that DownloadAvatar imposes its
-// OWN deadline across the whole redirect chain. http.Client.Timeout applies
-// per Do() call, so with a caller-supplied context that carries no deadline
-// (the framework does not always set one) a chain of slow redirects would
-// otherwise get a fresh budget on every hop and run for
-// avatarRequestTimeout * (maxAvatarRedirects+1).
+// TestDownloadAvatarBoundsWholeChain: Client.Timeout is per hop, so the chain needs its own deadline.
 func TestDownloadAvatarBoundsWholeChain(t *testing.T) {
 	const hopDelay = 120 * time.Millisecond
 
 	origTimeout := avatarRequestTimeout
-	// Comfortably longer than one hop, far shorter than the whole chain.
 	avatarRequestTimeout = 2 * hopDelay
 	t.Cleanup(func() { avatarRequestTimeout = origTimeout })
 
@@ -197,8 +169,6 @@ func TestDownloadAvatarBoundsWholeChain(t *testing.T) {
 	defer srv.Close()
 	useAvatarClient(t, avatarTLSClient(t, srv))
 
-	// Deliberately deadline-free: the bound under test must come from
-	// DownloadAvatar itself, not from the caller.
 	start := time.Now()
 	_, err := DownloadAvatar(context.Background(), srv.URL)
 	elapsed := time.Since(start)
@@ -211,11 +181,7 @@ func TestDownloadAvatarBoundsWholeChain(t *testing.T) {
 	}
 }
 
-// TestDownloadAvatarBlocksLoopbackWithProductionClient drives the REAL
-// production client (no override) at a loopback listener. The dial-time
-// Control hook must refuse it before any TLS handshake, which is what also
-// defeats DNS rebinding: the check sees the address actually being dialed,
-// not the hostname.
+// TestDownloadAvatarBlocksLoopbackWithProductionClient proves the Control hook is wired into the real client.
 func TestDownloadAvatarBlocksLoopbackWithProductionClient(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("server was reached; the dial should have been blocked")
@@ -228,11 +194,6 @@ func TestDownloadAvatarBlocksLoopbackWithProductionClient(t *testing.T) {
 	}
 }
 
-// --- DownloadAvatar: scheme enforcement ----------------------------------
-
-// TestDownloadAvatarRejectsNonHTTPSURL: ForceHTTPS only rewrites the URL the
-// caller starts with, so DownloadAvatar must refuse a plaintext URL outright
-// rather than trusting that rewrite happened.
 func TestDownloadAvatarRejectsNonHTTPSURL(t *testing.T) {
 	var hits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -251,9 +212,6 @@ func TestDownloadAvatarRejectsNonHTTPSURL(t *testing.T) {
 	}
 }
 
-// TestDownloadAvatarRejectsRedirectToHTTP covers the downgrade path: an
-// https avatar URL that 302s to plaintext. Cloud metadata (IMDSv1) is
-// http-only, so accepting this hop would undo the scheme requirement.
 func TestDownloadAvatarRejectsRedirectToHTTP(t *testing.T) {
 	var plainHits int
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -277,10 +235,6 @@ func TestDownloadAvatarRejectsRedirectToHTTP(t *testing.T) {
 	}
 }
 
-// --- DownloadAvatar: redirects -------------------------------------------
-
-// TestDownloadAvatarFollowsHTTPSRedirect is a regression guard: hardening
-// must not stop ordinary CDN redirects from working.
 func TestDownloadAvatarFollowsHTTPSRedirect(t *testing.T) {
 	want := "final-avatar-bytes"
 	final := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -303,9 +257,6 @@ func TestDownloadAvatarFollowsHTTPSRedirect(t *testing.T) {
 	}
 }
 
-// TestDownloadAvatarRedirectCap: a server that redirects to itself forever
-// must be stopped by our own cap, with our own sentinel -- not left to the
-// injected client's default policy.
 func TestDownloadAvatarRedirectCap(t *testing.T) {
 	var srv *httptest.Server
 	srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -314,9 +265,7 @@ func TestDownloadAvatarRedirectCap(t *testing.T) {
 	defer srv.Close()
 	useAvatarClient(t, avatarTLSClient(t, srv))
 
-	// Bounded independently of the production timeout so that deleting the
-	// cap fails this test in seconds with a readable diff, instead of
-	// spinning until go test's global -timeout kills the process.
+	// Bounded so a removed cap fails fast instead of hitting the global -timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -326,10 +275,6 @@ func TestDownloadAvatarRedirectCap(t *testing.T) {
 	}
 }
 
-// --- DownloadAvatar: size cap --------------------------------------------
-
-// TestDownloadAvatarRejectsOversizedContentLength: an over-cap
-// Content-Length must be refused before any body byte is buffered.
 func TestDownloadAvatarRejectsOversizedContentLength(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", strconv.FormatInt(maxAvatarSize+1, 10))
@@ -344,10 +289,6 @@ func TestDownloadAvatarRejectsOversizedContentLength(t *testing.T) {
 	}
 }
 
-// TestDownloadAvatarRejectsOversizedChunkedBody is the case the
-// Content-Length check cannot catch: a chunked response that just keeps
-// going. This is the actual memory-exhaustion vector -- io.ReadAll with no
-// LimitReader would buffer the whole thing.
 func TestDownloadAvatarRejectsOversizedChunkedBody(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK) // no Content-Length -> chunked
@@ -367,12 +308,7 @@ func TestDownloadAvatarRejectsOversizedChunkedBody(t *testing.T) {
 	}
 }
 
-// TestDownloadAvatarRejectsDecompressionBomb covers the case a
-// Content-Length check alone cannot: a small gzip payload that expands past
-// the cap. Go's transport decompresses transparently and reports
-// ContentLength = -1, so the fast-reject never fires -- the cap holds only
-// because the LimitReader wraps the DECOMPRESSED stream. Deleting that
-// LimitReader would let a ~50KB response allocate 50MiB here.
+// TestDownloadAvatarRejectsDecompressionBomb: the LimitReader must wrap the decompressed stream.
 func TestDownloadAvatarRejectsDecompressionBomb(t *testing.T) {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
@@ -397,8 +333,6 @@ func TestDownloadAvatarRejectsDecompressionBomb(t *testing.T) {
 	}
 }
 
-// TestDownloadAvatarAcceptsBodyAtCap proves the cap is inclusive, so a
-// legitimate avatar exactly at the limit is not spuriously rejected.
 func TestDownloadAvatarAcceptsBodyAtCap(t *testing.T) {
 	body := make([]byte, maxAvatarSize)
 	for i := range body {
@@ -418,8 +352,6 @@ func TestDownloadAvatarAcceptsBodyAtCap(t *testing.T) {
 		t.Errorf("len(body) = %d, want %d", len(got), len(body))
 	}
 }
-
-// --- DownloadAvatar: existing behaviour ----------------------------------
 
 func TestDownloadAvatarRoundTrip(t *testing.T) {
 	want := []byte("fake-avatar-bytes")

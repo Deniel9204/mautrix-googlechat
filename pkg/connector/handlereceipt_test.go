@@ -1,14 +1,5 @@
 package connector
 
-// handlereceipt_test.go -- read receipts, both directions.
-//
-// Outbound: HandleMatrixReadReceipt -> mark_group_readstate RPC. Mirrors
-// handleedit_test.go's request-construction / error-path test shape.
-//
-// Inbound: handleGChatEvent's ReadReceiptChanged and GroupViewed body arms
-// (events.go). Mirrors events_test.go's queueRemoteEventFn capture pattern
-// (newEventTestClient).
-
 import (
 	"context"
 	"errors"
@@ -26,13 +17,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// --- HandleMatrixReadReceipt: outbound -------------------------------------
-
-// matrixReadReceipt builds a *bridgev2.MatrixReadReceipt, matching what
-// bridgev2's own handleMatrixReadReceipt hands
-// ReadReceiptHandlingNetworkAPI.HandleMatrixReadReceipt (mautrix-go
-// bridgev2/portal.go:949-966) after it has already resolved ExactMessage (or
-// left it nil) and computed ReadUpTo.
 func matrixReadReceipt(portal *bridgev2.Portal, exactMessage *database.Message, receiptTS time.Time) *bridgev2.MatrixReadReceipt {
 	return &bridgev2.MatrixReadReceipt{
 		Portal:       portal,
@@ -55,10 +39,9 @@ func TestHandleMatrixReadReceiptExactMessageUsesStoredTimestampMicro(t *testing.
 	target := &database.Message{
 		ID:        gcid.MakeMessageID("msg1"),
 		Metadata:  &MessageMetadata{TimestampMicro: 1700000000123456},
-		Timestamp: time.UnixMilli(1234567890), // deliberately different -- must NOT be used when TimestampMicro is present
+		Timestamp: time.UnixMilli(1234567890), // must NOT be used when TimestampMicro is present
 	}
-	// The receipt's own timestamp is deliberately different too, to prove
-	// the target message's stored create_time wins over it.
+	// The receipt's own timestamp differs too; the stored create_time must win.
 	msg := matrixReadReceipt(spacePortal("space1"), target, time.UnixMilli(999999999))
 
 	err := gc.HandleMatrixReadReceipt(context.Background(), msg)
@@ -84,9 +67,6 @@ func TestHandleMatrixReadReceiptNilExactMessageUsesReceiptTimestampMsToMicros(t 
 		},
 	}
 
-	// ExactMessage == nil -- the interface's own required tolerance
-	// (mautrix-go bridgev2/networkinterface.go:660's "Network connectors
-	// must gracefully handle [MatrixReadReceipt.ExactMessage] being nil").
 	msg := matrixReadReceipt(spacePortal("space1"), nil, time.UnixMilli(1700000000123))
 
 	err := gc.HandleMatrixReadReceipt(context.Background(), msg)
@@ -102,11 +82,6 @@ func TestHandleMatrixReadReceiptNilExactMessageUsesReceiptTimestampMsToMicros(t 
 	}
 }
 
-// TestHandleMatrixReadReceiptExactMessageWithoutMetadataFallsBack covers a
-// target with no usable stored TimestampMicro (e.g. a legacy
-// row, or an unexpected Metadata type) -- the defensive fallback path,
-// mirroring buildReplyTarget's identical Metadata-shape check
-// (handlematrix.go).
 func TestHandleMatrixReadReceiptExactMessageWithoutMetadataFallsBack(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.MarkGroupReadstateRequest
@@ -120,7 +95,7 @@ func TestHandleMatrixReadReceiptExactMessageWithoutMetadataFallsBack(t *testing.
 
 	target := &database.Message{
 		ID:        gcid.MakeMessageID("msg1"),
-		Timestamp: time.UnixMilli(1700000000000), // no Metadata at all
+		Timestamp: time.UnixMilli(1700000000000),
 	}
 	msg := matrixReadReceipt(spacePortal("space1"), target, time.UnixMilli(1))
 
@@ -134,10 +109,6 @@ func TestHandleMatrixReadReceiptExactMessageWithoutMetadataFallsBack(t *testing.
 	}
 }
 
-// TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow pins the
-// `timestamp or now` defensive fallback: a zero-value Receipt.Timestamp
-// (and no ExactMessage) must not produce Go's zero time.Time's large
-// NEGATIVE microsecond value -- it must fall back to "now" instead.
 func TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.MarkGroupReadstateRequest
@@ -150,7 +121,7 @@ func TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow(t *testing.T) {
 	}
 
 	before := time.Now()
-	msg := matrixReadReceipt(spacePortal("space1"), nil, time.Time{}) // zero Receipt.Timestamp
+	msg := matrixReadReceipt(spacePortal("space1"), nil, time.Time{})
 	err := gc.HandleMatrixReadReceipt(context.Background(), msg)
 	after := time.Now()
 	if err != nil {
@@ -158,10 +129,7 @@ func TestHandleMatrixReadReceiptZeroTimestampFallsBackToNow(t *testing.T) {
 	}
 
 	got := gchatmeow.MicrosToTime(gotReq.GetLastReadTime())
-	// The stored value is time.Now() truncated to microseconds (TimeToMicros ->
-	// UnixMicro), so it can be up to 999ns earlier than `before` (which is at
-	// nanosecond precision). Truncate the lower bound to µs to avoid a flaky
-	// sub-microsecond boundary failure.
+	// Stored value is truncated to µs, so truncate the lower bound too.
 	if got.Before(before.Truncate(time.Microsecond)) || got.After(after) {
 		t.Errorf("LastReadTime = %v, want between %v and %v (fallback to time.Now(), not a zero-time-derived negative value)", got, before, after)
 	}
@@ -268,13 +236,6 @@ func TestHandleMatrixReadReceiptPropagatesRPCError(t *testing.T) {
 	}
 }
 
-// --- Inbound: READ_RECEIPT_CHANGED -----------------------------------------
-
-// readReceiptChangedEvent builds a *pb.Event shaped like a real
-// ReadReceiptChanged event reaching handleGChatEvent, mirroring
-// messageReactionEvent's shape (events_test.go) for the read_receipt_changed
-// body arm. Each (userGaia, readTimeMicros) pair becomes one ReadReceipt
-// entry in the event's ReadReceiptSet.
 func readReceiptChangedEvent(groupID *pb.GroupId, receipts ...[2]any) *pb.Event {
 	rrs := make([]*pb.ReadReceipt, 0, len(receipts))
 	for _, r := range receipts {
@@ -347,11 +308,6 @@ func TestHandleGChatEventReadReceiptChangedOwnUserSetsIsFromMe(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventReadReceiptChangedMultipleReceiptsQueuesOnePerUser
-// pins the per-user fan-out over evt.read_receipt_set.read_receipts: a
-// ReadReceiptSet announcing several users' read states at once must queue
-// one bridgev2.RemoteReadReceipt per user, since simplevent.Receipt only
-// carries a single Sender.
 func TestHandleGChatEventReadReceiptChangedMultipleReceiptsQueuesOnePerUser(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := readReceiptChangedEvent(spaceGroupID("space-1"),
@@ -376,11 +332,6 @@ func TestHandleGChatEventReadReceiptChangedMultipleReceiptsQueuesOnePerUser(t *t
 	}
 }
 
-// TestHandleGChatEventReadReceiptChangedStopsOnFirstFailure pins
-// queueReadReceiptChanged's documented "stop at the first failed queue"
-// behavior: a ReadReceiptSet with multiple entries must not attempt to queue
-// the second entry once the first has failed, and the overall result must
-// report the failure (so handleGChatEvent does not advance the watermark).
 func TestHandleGChatEventReadReceiptChangedStopsOnFirstFailure(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.ID = gcid.MakeUserLoginID("112233")
@@ -443,14 +394,7 @@ func TestHandleGChatEventReadReceiptChangedNoGroupIDSkipped(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventReadReceiptChangedEmptyUserIDSkipped pins the
-// fix guarding against a bogus bot-intent read receipt:
-// an rr entry with no user.user_id.id (gaiaID == "") must be skipped
-// entirely, exactly like queueMembershipChanged's identical empty-gaia-id
-// guard for MEMBERSHIP_CHANGED members (systemmessage.go) -- otherwise it
-// resolves to EventSender{Sender: ""}, which bridgev2 treats as "no sender"
-// and falls back to the bridge BOT intent, silently marking the room read
-// as the bot rather than the (unknown) actual reader.
+// An empty user id would fall back to the bot intent and mark the room read as the bot.
 func TestHandleGChatEventReadReceiptChangedEmptyUserIDSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := readReceiptChangedEvent(spaceGroupID("space-1"), [2]any{"", int64(1)})
@@ -465,11 +409,6 @@ func TestHandleGChatEventReadReceiptChangedEmptyUserIDSkipped(t *testing.T) {
 	}
 }
 
-// TestHandleGChatEventReadReceiptChangedEmptyUserIDAmongOthersOnlyQueuesRest
-// pins the same guard in a mixed ReadReceiptSet: an empty-user-id entry
-// alongside real ones must be skipped without aborting the loop or affecting
-// the entries around it (unlike a genuine queue failure, which does stop the
-// loop -- see TestHandleGChatEventReadReceiptChangedStopsOnFirstFailure).
 func TestHandleGChatEventReadReceiptChangedEmptyUserIDAmongOthersOnlyQueuesRest(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
 	evt := readReceiptChangedEvent(spaceGroupID("space-1"),
@@ -497,7 +436,7 @@ func TestHandleGChatEventReadReceiptChangedEmptyUserIDAmongOthersOnlyQueuesRest(
 
 func TestHandleGChatEventReadReceiptChangedEmptySetSkipped(t *testing.T) {
 	gc, queued := newEventTestClient("112233")
-	evt := readReceiptChangedEvent(spaceGroupID("space-1")) // no receipts
+	evt := readReceiptChangedEvent(spaceGroupID("space-1"))
 
 	res := gc.handleGChatEvent(context.Background(), evt)
 
@@ -509,11 +448,6 @@ func TestHandleGChatEventReadReceiptChangedEmptySetSkipped(t *testing.T) {
 	}
 }
 
-// --- Inbound: GROUP_VIEWED --------------------------------------------------
-
-// groupViewedEvent builds a *pb.Event shaped like a real GroupViewed event
-// reaching handleGChatEvent, mirroring messageDeletedEvent's shape
-// (events_test.go) for the group_viewed body arm.
 func groupViewedEvent(groupID *pb.GroupId, viewTimeMicros int64) *pb.Event {
 	return &pb.Event{
 		GroupId: groupID,

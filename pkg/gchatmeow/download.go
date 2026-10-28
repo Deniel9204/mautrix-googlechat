@@ -1,21 +1,5 @@
 package gchatmeow
 
-// Attachment download: builds the URL to fetch an UPLOAD_METADATA
-// annotation's file from, then performs the actual GET with manual
-// redirect-following, per-hop cookie gating, and a size cap.
-//
-// The download path is chosen by a "*.google.com" host check: google.com
-// hosts get the authenticated (cookie-bearing) session, and everything else
-// gets a fresh cookie-less request. DownloadAttachment below collapses both
-// cases into ONE loop, switching per-hop between the authenticated session
-// and a cookie-less one. This is a strict superset of the two paths the
-// protocol needs: a URL that never leaves google.com simply never takes the
-// cookie-less branch, and a URL that's cookie-less end-to-end (an external
-// CDN attachment) behaves like a plain single-session download except that
-// it also follows redirects. External CDN links don't redirect back to an
-// authenticated Google endpoint, so following redirects there is harmless --
-// and it keeps this package's callers (Task 3) from needing to know which
-// download path applies to a given URL up front.
 import (
 	"context"
 	"fmt"
@@ -30,39 +14,20 @@ import (
 )
 
 const (
-	// getAttachmentURLEndpoint is Google Chat's attachment-URL API endpoint.
 	getAttachmentURLEndpoint = "https://chat.google.com/api/get_attachment_url"
 
-	// fifeImageSize is the `sz` query value -- an effectively-unbounded size
-	// request to Google's FIFE image proxy so the full-resolution original is
-	// returned rather than a thumbnail.
+	// fifeImageSize asks the FIFE proxy for the full-resolution original.
 	fifeImageSize = "w10000-h10000"
 
-	// maxDownloadRedirects caps manual redirect-following at 10 hops (usually
-	// there are 4 redirects for files and 1 for images). On reaching the cap
-	// this port deliberately raises an explicit error rather than returning
-	// empty-handed, per the brief's mandate ("capped at 10 -> error on the
-	// 11th"); see DownloadAttachment's loop.
+	// maxDownloadRedirects caps manual redirects (usually 4 for files, 1 for images).
 	maxDownloadRedirects = 10
 )
 
-// downloadHTTPClient performs each single-hop GET for DownloadAttachment,
-// with automatic redirect-following disabled via CheckRedirect:
-// DownloadAttachment's own loop inspects each redirect's Location header
-// itself and decides afresh, at EVERY hop, whether the next hop's host
-// should get cookies. Redirects must be followed manually in order to re-add
-// authorization headers when redirected from googleusercontent.com back to
-// chat.google.com. Go's default automatic redirect-following would instead
-// permanently strip the Cookie header on the FIRST cross-host hop (net/http's
-// shouldCopyHeaderOnRedirect) and never restore it even if a later hop
-// lands back on an allowed host. Overridable in tests, same seam pattern as
-// avatar.go's avatarHTTPClient.
+// downloadHTTPClient never follows redirects itself: the loop must re-add cookies when a
+// googleusercontent.com hop redirects back to chat.google.com, which net/http would not.
 var downloadHTTPClient = newDownloadHTTPClient()
 
-// downloadConnectTimeout bounds the TCP dial and TLS handshake for an
-// attachment hop. The overall transfer is deliberately left unbounded here
-// (a large attachment on a slow link is legitimate); the caller's ctx and
-// maxSize govern that.
+// downloadConnectTimeout bounds only dial and TLS; the transfer is bounded by ctx and maxSize.
 const downloadConnectTimeout = 30 * time.Second
 
 func newDownloadHTTPClient() *http.Client {
@@ -71,17 +36,8 @@ func newDownloadHTTPClient() *http.Client {
 			return http.ErrUseLastResponse
 		},
 		Transport: &http.Transport{
-			// Proxy is KEPT here, unlike avatar.go which drops it. Attachments
-			// are core functionality, so an operator whose egress requires a
-			// proxy would lose all inbound media -- too high a price. The
-			// trade-off is the same one documented on avatar.go: with a proxy
-			// configured, net/http dials the PROXY and reaches the real target
-			// via CONNECT, so the guard below only inspects the proxy. That is
-			// acceptable on THIS path in a way it was not for avatars, because
-			// the attachment URL is always Google's own fixed endpoint rather
-			// than a remote-supplied one -- the guard here is defence against a
-			// hostile redirect mid-chain, not against an attacker-chosen
-			// destination.
+			// Proxy is kept (unlike avatar.go): losing all media behind a proxy is too costly, and the
+			// URL here is Google's fixed endpoint, not remote-supplied.
 			Proxy:               http.ProxyFromEnvironment,
 			DialContext:         newGuardedDialer(downloadConnectTimeout).DialContext,
 			TLSHandshakeTimeout: downloadConnectTimeout,
@@ -89,13 +45,7 @@ func newDownloadHTTPClient() *http.Client {
 	}
 }
 
-// AttachmentURL builds the URL to fetch an UPLOAD_METADATA annotation's file
-// from. For an image content_type the query uses url_type=FIFE_URL with a
-// sz bound and the content_type echoed back; otherwise url_type=DOWNLOAD_URL.
-//
-// isImage reports whether the image branch was taken (content_type has an
-// "image/" prefix), for callers (M5 Task 3) that need the same signal
-// derivable from the download response's mime type.
+// AttachmentURL builds the fetch URL for an UPLOAD_METADATA annotation; isImage reports the FIFE_URL branch.
 func (c *Client) AttachmentURL(meta *pb.UploadMetadata) (string, bool, error) {
 	if meta == nil {
 		return "", false, fmt.Errorf("googlechat: nil upload metadata")
@@ -116,35 +66,16 @@ func (c *Client) AttachmentURL(meta *pb.UploadMetadata) (string, bool, error) {
 
 	u, err := url.Parse(getAttachmentURLEndpoint)
 	if err != nil {
-		// Unreachable in practice: getAttachmentURLEndpoint is a constant,
-		// valid URL. Guarded anyway rather than panicking.
 		return "", false, fmt.Errorf("googlechat: invalid get_attachment_url endpoint: %w", err)
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), isImage, nil
 }
 
-// DownloadAttachment fetches an attachment from urlStr, following redirects
-// manually up to maxDownloadRedirects hops, sending auth cookies ONLY to
-// hosts matching the Client's Session host allowlist (google.com; see
-// session.go's hostAllowed/defaultAllowedHostSuffixes and its doc comment on
-// why googleusercontent.com is deliberately excluded) and NONE otherwise (a
-// fresh, cookie-less request for non-google.com hops). maxSize, if greater
-// than zero, caps the downloaded body: a Content-Length that already exceeds
-// it is rejected before any body bytes are read, and the body read itself is
-// ALSO capped in case Content-Length was absent or understated. maxSize <= 0
-// means no cap: 0 is the documented "unlimited" contract. No real caller
-// trips over this today since the homeserver-configured media upload_size
-// limit is always positive.
-//
-// Returns the raw body, the mime type (from the Content-Type header) and
-// the filename (from Content-Disposition, falling back to the URL's last
-// path segment).
+// DownloadAttachment follows redirects manually, sending cookies only to allowlisted hosts. maxSize > 0 caps
+// the body (0 means unlimited). Returns body, mime type and filename.
 func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize int64) ([]byte, string, string, error) {
-	// Copy the installed client so the manual-redirect contract holds even if
-	// the client it was handed would follow redirects itself -- the per-hop
-	// cookie decision below is only meaningful if this loop is the thing
-	// doing the following. Same reasoning as DownloadAvatar.
+	// Force manual redirects so the per-hop cookie decision holds.
 	client := *downloadHTTPClient
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -162,12 +93,7 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 			return nil, "", "", fmt.Errorf("googlechat: invalid attachment url %q: %w", urlStr, err)
 		}
 
-		// The ".google.com" host check decides cookie vs cookie-less:
-		// c.session.hostAllowed reuses the SAME allowlist that gates cookie
-		// attachment for every other RPC this Client makes (session.go); the
-		// cookie-less branch below builds a plain request with NO
-		// Session-derived headers at all (User-Agent, Connection) -- mirroring
-		// this package's existing avatar.go/DownloadAvatar cookie-less pattern.
+		// Allowlisted hops use the Session; others get a plain request with no Session-derived headers.
 		var req *http.Request
 		if c.session.hostAllowed(u) {
 			req, err = c.session.buildRequest(ctx, http.MethodGet, urlStr, nil, nil)
@@ -183,8 +109,7 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 			return nil, "", "", fmt.Errorf("googlechat: attachment download failed: %w", err)
 		}
 
-		// Only these four statuses are followed as redirects (notably NOT
-		// 303, unlike net/http's default redirect policy).
+		// 303 is deliberately not followed.
 		if isRedirectStatus(resp.StatusCode) {
 			loc := resp.Header.Get("Location")
 			resp.Body.Close()
@@ -199,9 +124,6 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 			continue
 		}
 
-		// Any status >= 400 is treated as an error; 2xx/3xx (other than the
-		// four redirect codes just handled) fall through to the success path
-		// below.
 		if resp.StatusCode >= 400 {
 			resp.Body.Close()
 			return nil, "", "", &UnexpectedStatusError{URL: urlStr, Status: resp.StatusCode}
@@ -220,8 +142,7 @@ func (c *Client) DownloadAttachment(ctx context.Context, urlStr string, maxSize 
 	}
 }
 
-// isRedirectStatus reports whether status is one of 301, 302, 307, 308 --
-// 303 See Other is deliberately NOT included.
+// isRedirectStatus reports 301, 302, 307, 308; 303 is deliberately excluded.
 func isRedirectStatus(status int) bool {
 	switch status {
 	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
@@ -231,11 +152,7 @@ func isRedirectStatus(status int) bool {
 	}
 }
 
-// attachmentFilename extracts a filename from resp's Content-Disposition
-// header, falling back to the last path segment of u.
-//
-// The fallback is computed via a manual split rather than path.Base so an
-// empty u.Path yields "" instead of path.Base's "." for an empty string.
+// attachmentFilename uses Content-Disposition, falling back to u's last path segment ("" for an empty path).
 func attachmentFilename(resp *http.Response, u *url.URL) string {
 	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
 		if _, params, err := mime.ParseMediaType(cd); err == nil {
@@ -248,20 +165,12 @@ func attachmentFilename(resp *http.Response, u *url.URL) string {
 	return segments[len(segments)-1]
 }
 
-// readWithMaxSize reads resp's body, enforcing maxSize if it is greater than
-// zero. Content-Length is checked first as a fast-path rejection before any
-// body bytes are read; the read itself is ALSO capped via
-// io.LimitReader(maxSize+1) in case Content-Length was absent (chunked
-// transfer) or understated -- read one more byte than the cap, then fail if
-// we got it.
+// readWithMaxSize enforces maxSize via Content-Length fast-reject plus a LimitReader(maxSize+1).
 func readWithMaxSize(resp *http.Response, maxSize int64) ([]byte, error) {
 	return readBodyWithMaxSize(resp, maxSize, "attachment")
 }
 
-// readBodyWithMaxSize is readWithMaxSize with the noun used in error
-// messages made explicit, so the avatar path (avatar.go) does not report a
-// size failure as an "attachment" problem and send an operator debugging a
-// ghost-avatar sync down the wrong trail.
+// readBodyWithMaxSize is readWithMaxSize with the noun used in error messages.
 func readBodyWithMaxSize(resp *http.Response, maxSize int64, what string) ([]byte, error) {
 	if maxSize <= 0 {
 		data, err := io.ReadAll(resp.Body)

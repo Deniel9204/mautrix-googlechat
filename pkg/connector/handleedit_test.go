@@ -1,9 +1,5 @@
 package connector
 
-// handleedit_test.go -- HandleMatrixEdit: outbound Matrix edit ->
-// edit_message RPC. Mirrors handlematrix_test.go's request-construction /
-// response-mapping / error-path test shape for HandleMatrixMessage.
-
 import (
 	"context"
 	"errors"
@@ -21,10 +17,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
 
-// textMatrixEdit builds a *bridgev2.MatrixEdit targeting target, matching
-// what bridgev2's own handleMatrixEdit hands EditHandlingNetworkAPI.HandleMatrixEdit
-// (mautrix-go bridgev2/portal.go:1551-1561) after already swapping in
-// m.new_content and fetching EditTarget from the DB.
 func textMatrixEdit(portal *bridgev2.Portal, body string, target *database.Message) *bridgev2.MatrixEdit {
 	return &bridgev2.MatrixEdit{
 		MatrixEventBase: bridgev2.MatrixEventBase[*event.MessageEventContent]{
@@ -40,8 +32,6 @@ func editMessageResponse(lastEditTime int64) *pb.EditMessageResponse {
 		Message: &pb.Message{LastEditTime: proto.Int64(lastEditTime)},
 	}
 }
-
-// --- HandleMatrixEdit: request construction ---------------------------------
 
 func TestHandleMatrixEditSpacePortalBuildsEditMessageRequest(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
@@ -116,10 +106,6 @@ func TestHandleMatrixEditDMPortalBuildsDmGroupID(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixEditUsesStoredTopicIDForThreadReply covers a reply-in-thread
-// target: the target's own stored MessageMetadata.TopicID (the thread's
-// topic, distinct from the target's own message id) must be used as the
-// edit's thread/topic id, not the target's own message id.
 func TestHandleMatrixEditUsesStoredTopicIDForThreadReply(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.EditMessageRequest
@@ -148,10 +134,6 @@ func TestHandleMatrixEditUsesStoredTopicIDForThreadReply(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixEditFallsBackToOwnIDWhenTopicIDMissing pins the
-// `thread_id or message_id` fallback: a target with no stored TopicID (e.g. a
-// legacy row) must fall back to its own message id, exactly
-// like threadRootTopicID (handlematrix.go), which this method reuses.
 func TestHandleMatrixEditFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.EditMessageRequest
@@ -163,7 +145,7 @@ func TestHandleMatrixEditFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 		},
 	}
 
-	target := &database.Message{ID: gcid.MakeMessageID("headmsg1")} // no Metadata at all
+	target := &database.Message{ID: gcid.MakeMessageID("headmsg1")}
 	edit := textMatrixEdit(spacePortal("space1"), "edited", target)
 
 	if err := gc.HandleMatrixEdit(context.Background(), edit); err != nil {
@@ -174,14 +156,6 @@ func TestHandleMatrixEditFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 	}
 }
 
-// --- HandleMatrixEdit: LastEditTime bookkeeping ------------------------------
-
-// TestHandleMatrixEditUpdatesLastEditTimeOnSuccess pins the last-edit-time
-// dedup bookkeeping on the DB row: EditTarget.Metadata.LastEditTime must be
-// bumped to the server's own response value, and bridgev2 itself persists
-// EditTarget after this method returns
-// (EditHandlingNetworkAPI.HandleMatrixEdit's own doc comment), so no explicit
-// DB.Message.Update call belongs here.
 func TestHandleMatrixEditUpdatesLastEditTimeOnSuccess(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	gc := &GChatClient{
@@ -208,8 +182,7 @@ func TestHandleMatrixEditUpdatesLastEditTimeOnSuccess(t *testing.T) {
 	if meta.LastEditTime != 9999 {
 		t.Errorf("Metadata.LastEditTime = %d, want %d", meta.LastEditTime, 9999)
 	}
-	// TopicID/TimestampMicro must survive untouched -- an edit never
-	// changes a message's original create_time or the topic it belongs to.
+	// An edit must not change TopicID or TimestampMicro.
 	if meta.TopicID != "msg1" {
 		t.Errorf("Metadata.TopicID = %q, want %q (unaffected by an edit)", meta.TopicID, "msg1")
 	}
@@ -218,11 +191,6 @@ func TestHandleMatrixEditUpdatesLastEditTimeOnSuccess(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixEditNoExistingMetadataStillWorks covers a target with no
-// prior MessageMetadata at all (defensive Go-only case, mirroring
-// handlematrix.go's other nil-safe Metadata handling): a fresh
-// *MessageMetadata carrying only LastEditTime must be created rather than
-// panicking on the type assertion.
 func TestHandleMatrixEditNoExistingMetadataStillWorks(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	gc := &GChatClient{
@@ -232,7 +200,7 @@ func TestHandleMatrixEditNoExistingMetadataStillWorks(t *testing.T) {
 		},
 	}
 
-	target := &database.Message{ID: gcid.MakeMessageID("msg1")} // Metadata is nil
+	target := &database.Message{ID: gcid.MakeMessageID("msg1")}
 	edit := textMatrixEdit(spacePortal("space1"), "edited", target)
 
 	if err := gc.HandleMatrixEdit(context.Background(), edit); err != nil {
@@ -247,14 +215,6 @@ func TestHandleMatrixEditNoExistingMetadataStillWorks(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixEditNonTextMsgTypeRejected pins the
-// stricter-than-new-message gate: we don't support non-text edits yet.
-// Unlike HandleMatrixMessage (handlematrix.go), which accepts BOTH TEXT and
-// NOTICE for a brand new send, an edit's new content must be literal TEXT --
-// bridgev2's own generic checkMessageContentCaps (mautrix-go
-// bridgev2/portal.go:1108-1146) whitelists MsgText/MsgNotice/MsgEmote with
-// "no checks for now" and does NOT enforce this, so this method must reject
-// it itself.
 func TestHandleMatrixEditNonTextMsgTypeRejected(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	called := false
@@ -278,8 +238,6 @@ func TestHandleMatrixEditNonTextMsgTypeRejected(t *testing.T) {
 		t.Error("editMessageFn was called for a NOTICE edit, want rejected before the RPC")
 	}
 }
-
-// --- HandleMatrixEdit: error paths -------------------------------------------
 
 func TestHandleMatrixEditInvalidPortalIDErrors(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
@@ -338,20 +296,13 @@ func TestHandleMatrixEditPropagatesRPCError(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Errorf("error = %v, want wrapping %v", err, wantErr)
 	}
-	// A failed RPC must not bump LastEditTime -- there is nothing to dedup
-	// against since the edit never reached the server.
+	// A failed RPC must not bump LastEditTime.
 	meta := target.Metadata.(*MessageMetadata)
 	if meta.LastEditTime != 5000 {
 		t.Errorf("Metadata.LastEditTime = %d, want unchanged 5000 after a failed RPC", meta.LastEditTime)
 	}
 }
 
-// --- HandleMatrixEdit: formatting/mentions reuse ----------------------------
-
-// TestHandleMatrixEditFormattedTextBuildsAnnotations proves edits reuse the
-// same matrixfmt outbound formatting path as HandleMatrixMessage: an HTML
-// formatted_body must produce an annotation-stripped TextBody plus the
-// HTML-derived formatting annotation.
 func TestHandleMatrixEditFormattedTextBuildsAnnotations(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.EditMessageRequest
@@ -380,9 +331,6 @@ func TestHandleMatrixEditFormattedTextBuildsAnnotations(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixEditMentionPillBecomesMentionAnnotation proves the outbound
-// mention resolver (mentions.go's newOutboundMentionResolver) is wired into
-// the edit path too, not just HandleMatrixMessage.
 func TestHandleMatrixEditMentionPillBecomesMentionAnnotation(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	matrix := &fakeMatrixConnector{

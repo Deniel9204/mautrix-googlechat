@@ -11,9 +11,6 @@ import (
 	"maunium.net/go/mautrix/event"
 )
 
-// portalWithMeta builds a bare *bridgev2.Portal carrying the given
-// PortalMetadata, matching the construction pattern chatinfo_test.go already
-// uses for ExtraUpdater tests.
 func portalWithMeta(meta *PortalMetadata) *bridgev2.Portal {
 	var m any
 	if meta != nil {
@@ -30,14 +27,7 @@ func TestGetCapabilitiesThreadedSpaceAdvertisesThread(t *testing.T) {
 	if !caps.Thread.Full() {
 		t.Errorf("Thread = %v, want fully supported", caps.Thread)
 	}
-	// Reply must ALSO stay fully supported in a threaded space: Google
-	// Chat's wire protocol composes reply_to with a thread message (the
-	// send_message RPC sets message_info.reply_to on both the threaded and
-	// flat request branches), and a plain reply to a standalone (non-thread)
-	// message is sent as a genuine cross-topic reply with no thread at all.
-	// Forcing Reply=Unsupported here would make bridgev2 unconditionally
-	// discard every reply pointer and always start a new thread instead --
-	// see capabilities.go's gchatCapsThreaded doc comment.
+	// Reply must stay supported alongside Thread, or bridgev2 drops every reply pointer.
 	if !caps.Reply.Full() {
 		t.Errorf("Reply = %v, want fully supported (GC composes reply_to with thread messages)", caps.Reply)
 	}
@@ -56,25 +46,8 @@ func TestGetCapabilitiesFlatRoomAdvertisesReply(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread
-// pins a fix: a legacy
-// topic-threaded space (ThreadsEnabled without the 2023+ ThreadsOnly model)
-// must ALSO advertise Thread -- an earlier revision of roomFeatures keyed
-// purely off ThreadsOnly and routed these rooms exactly like a flat one,
-// which silently made every genuine GC thread reply in such a room
-// unreachable via bridgev2's own outbound resolution (mautrix-go
-// bridgev2/portal.go:1235-1244 never extracts relatesTo.GetThreadParent()
-// into MatrixMessage.ThreadRoot unless caps.Thread.Partial()), so Task 6's
-// create_message routing (handlematrix.go's sendThreadedMessage) could
-// never be reached for this room type at all.
-//
-// These two room types are NOT distinguished at all for outbound routing
-// purposes: the whole thread_id computation is gated on threads_enabled (=
-// flat_threads_enabled OR threads_only), the SAME boolean for both the 2023+
-// threads-only model and legacy flat-with-threads-enabled spaces --
-// ThreadsOnly only matters separately for the INBOUND self-referencing
-// head-message case (pkg/msgconv/from-gchat.go's ToMatrix, deliberately NOT
-// changed by this fix).
+// TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread: legacy threaded
+// spaces need Thread too, or bridgev2 never sets ThreadRoot.
 func TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread(t *testing.T) {
 	portal := portalWithMeta(&PortalMetadata{ThreadsOnly: false, ThreadsEnabled: true})
 
@@ -88,11 +61,6 @@ func TestGetCapabilitiesLegacyThreadsEnabledWithoutThreadsOnlyAdvertisesThread(t
 	}
 }
 
-// TestGetCapabilitiesNeitherFlagSetIsFlat: a portal with BOTH ThreadsOnly
-// and ThreadsEnabled false (a genuinely non-threaded space, or a portal
-// whose chat_info sync hasn't run yet) must still be flat -- the
-// ThreadsEnabled fix above must not accidentally widen to "always
-// threaded".
 func TestGetCapabilitiesNeitherFlagSetIsFlat(t *testing.T) {
 	portal := portalWithMeta(&PortalMetadata{ThreadsOnly: false, ThreadsEnabled: false})
 
@@ -107,9 +75,7 @@ func TestGetCapabilitiesNeitherFlagSetIsFlat(t *testing.T) {
 }
 
 func TestGetCapabilitiesDMPerItsFlags(t *testing.T) {
-	// A DM has no space/thread concept in Google Chat -- its PortalMetadata
-	// never sets ThreadsOnly, so it must fall into the flat/Reply branch
-	// exactly like a flat space.
+	// A DM never sets ThreadsOnly, so it is flat.
 	portal := portalWithMeta(&PortalMetadata{})
 
 	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
@@ -163,11 +129,7 @@ func TestGetCapabilitiesNilPortalDoesNotPanic(t *testing.T) {
 }
 
 func TestGetCapabilitiesTypedNilMetadataDoesNotPanic(t *testing.T) {
-	// A typed-nil *PortalMetadata boxed into the Metadata `any` field is a
-	// distinct case from an untyped-nil interface (portalWithMeta(nil)
-	// above): the type assertion `meta, ok := portal.Metadata.(*PortalMetadata)`
-	// succeeds with ok=true and meta==nil here, so roomFeatures' `meta !=
-	// nil` guard must catch it before dereferencing meta.ThreadsOnly.
+	// A typed nil passes the type assertion, so roomFeatures' nil check must catch it.
 	var typedNil *PortalMetadata
 	portal := &bridgev2.Portal{Portal: &database.Portal{Metadata: typedNil}}
 
@@ -191,10 +153,6 @@ func TestGetCapabilitiesMaxTextLength(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesFormattingSupportedKeys asserts every formatting
-// feature the gchatfmt/matrixfmt pair actually implements (bold, italic,
-// underline, strikethrough, inline code, code block, hyperlink, user
-// mention, @room, foreground color) is advertised as fully supported.
 func TestGetCapabilitiesFormattingSupportedKeys(t *testing.T) {
 	supported := []event.FormattingFeature{
 		event.FmtBold,
@@ -220,13 +178,7 @@ func TestGetCapabilitiesFormattingSupportedKeys(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesFormattingUnsupportedKeysNotClaimed asserts formatting
-// features matrixfmt/gchatfmt do NOT genuinely support (blockquote is a
-// lossy "> " text-prefix best-effort, headers become "#### " + bold text,
-// spoiler is silently dropped -- see matrixfmt/html.go's blockquoteToString,
-// headerToString, and spanToString's "data-mx-spoiler is intentionally
-// ignored" comment) are never advertised as fully (or even partially)
-// supported.
+// TestGetCapabilitiesFormattingUnsupportedKeysNotClaimed: blockquote, headers and spoiler are lossy.
 func TestGetCapabilitiesFormattingUnsupportedKeysNotClaimed(t *testing.T) {
 	unsupported := []event.FormattingFeature{
 		event.FmtBlockquote,
@@ -251,11 +203,7 @@ func TestGetCapabilitiesFormattingUnsupportedKeysNotClaimed(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesEditFullySupportedNoLimits pins the Edit capability
-// wiring: Edit must be fully supported (otherwise bridgev2's own
-// handleMatrixEdit, mautrix-go bridgev2/portal.go:1530-1532, drops every
-// Matrix edit before ever calling HandleMatrixEdit), with no
-// EditMaxCount/EditMaxAge limit -- neither is ever enforced.
+// TestGetCapabilitiesEditFullySupportedNoLimits: without Edit, bridgev2 drops every Matrix edit.
 func TestGetCapabilitiesEditFullySupportedNoLimits(t *testing.T) {
 	for _, threadsOnly := range []bool{true, false} {
 		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
@@ -272,14 +220,6 @@ func TestGetCapabilitiesEditFullySupportedNoLimits(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesM4FeaturesFullySupported pins the
-// fix for gchatCapsFlat (inherited by gchatCapsThreaded via Clone()): every
-// capability -- delete, reaction, read receipts, and typing notifications --
-// must be advertised as supported
-// in BOTH threaded and flat portals, exactly like Edit already was.
-// Before this fix, capability-honoring Matrix clients that read
-// com.beeper.room_features would hide reaction/redact/receipt/typing UI in
-// every Google Chat room even though all four are fully implemented.
 func TestGetCapabilitiesM4FeaturesFullySupported(t *testing.T) {
 	for _, threadsOnly := range []bool{true, false} {
 		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
@@ -300,10 +240,6 @@ func TestGetCapabilitiesM4FeaturesFullySupported(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesReactionUnrestricted pins that Google Chat's per-emoji
-// (not one-per-user) reaction model is advertised as unrestricted: no
-// ReactionCount cap (handlereaction.go's MaxReactions is likewise left at 0)
-// and no AllowedReactions allow-list, since any Unicode emoji is valid.
 func TestGetCapabilitiesReactionUnrestricted(t *testing.T) {
 	portal := portalWithMeta(&PortalMetadata{})
 	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
@@ -316,14 +252,7 @@ func TestGetCapabilitiesReactionUnrestricted(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesFileMediaTypesFullySupported pins the outbound
-// media capability wiring: without a File map entry for a given msgtype,
-// bridgev2's own checkMessageContentCaps (mautrix-go bridgev2/portal.go)
-// rejects the message with ErrUnsupportedMessageType BEFORE
-// HandleMatrixMessage is ever called -- so this map must advertise exactly
-// the four msgtypes isOutboundMediaMsgType (media.go) accepts, with
-// captions fully supported (this bridge keeps both the file and a genuine
-// caption, never drops either).
+// TestGetCapabilitiesFileMediaTypesFullySupported: a msgtype missing from File is rejected by bridgev2.
 func TestGetCapabilitiesFileMediaTypesFullySupported(t *testing.T) {
 	for _, threadsOnly := range []bool{true, false} {
 		portal := portalWithMeta(&PortalMetadata{ThreadsOnly: threadsOnly})
@@ -344,14 +273,7 @@ func TestGetCapabilitiesFileMediaTypesFullySupported(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesFileVoiceAndGIFSupported pins the voice/GIF fix:
-// bridgev2's checkMessageContentCaps keys caps.File lookups on
-// content.GetCapMsgType() (mautrix-go event/message.go:155-176), which
-// promotes an m.audio MSC3245 voice message to CapMsgVoice and an m.video
-// GIF to CapMsgGIF -- so without explicit CapMsgVoice/CapMsgGIF entries,
-// bridgev2 hard-rejects both (voice messages from Element are common) even
-// though Google Chat's generic /uploads endpoint accepts the bytes fine and
-// isOutboundMediaMsgType (switching on the raw m.audio/m.video) accepts them.
+// TestGetCapabilitiesFileVoiceAndGIFSupported: GetCapMsgType promotes voice and GIF, so both need entries.
 func TestGetCapabilitiesFileVoiceAndGIFSupported(t *testing.T) {
 	caps := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{}))
 
@@ -366,10 +288,6 @@ func TestGetCapabilitiesFileVoiceAndGIFSupported(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesFileDoesNotClaimSticker pins that event.CapMsgSticker
-// is deliberately absent -- see isOutboundMediaMsgType's doc comment
-// (media.go) for why: Google Chat's upload pipeline has no sticker concept,
-// and this bridge's inbound half never produces one either.
 func TestGetCapabilitiesFileDoesNotClaimSticker(t *testing.T) {
 	caps := (&GChatClient{}).GetCapabilities(context.Background(), portalWithMeta(&PortalMetadata{}))
 
@@ -389,8 +307,6 @@ func TestGetCapabilitiesFormattingSameAcrossThreadModes(t *testing.T) {
 	}
 }
 
-// portalWithIDAndMeta builds a portal that has BOTH a real portal id (so the
-// DM-vs-space distinction is visible) and metadata.
 func portalWithIDAndMeta(id string, isDM bool, meta *PortalMetadata) *bridgev2.Portal {
 	var m any
 	if meta != nil {
@@ -402,9 +318,6 @@ func portalWithIDAndMeta(id string, isDM bool, meta *PortalMetadata) *bridgev2.P
 	}}
 }
 
-// TestGetCapabilitiesSpaceAdvertisesMemberActions: invite/kick/leave are
-// implemented for spaces (handlemembership.go), but were never advertised, so
-// clients that gate their member UI on this field never offered them.
 func TestGetCapabilitiesSpaceAdvertisesMemberActions(t *testing.T) {
 	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{})
 
@@ -415,16 +328,12 @@ func TestGetCapabilitiesSpaceAdvertisesMemberActions(t *testing.T) {
 			t.Errorf("MemberActions[%s] = %v, want fully supported", action, caps.MemberActions[action])
 		}
 	}
-	// Ban has no Google Chat equivalent and HandleMatrixMembership rejects
-	// it, so advertising it would make clients offer an action that fails.
+	// Ban has no Google Chat equivalent.
 	if _, present := caps.MemberActions[event.MemberActionBan]; present {
 		t.Error("MemberActions advertises ban, which HandleMatrixMembership rejects")
 	}
 }
 
-// TestGetCapabilitiesSpaceAdvertisesRoomNameAndTopic: HandleMatrixRoomName
-// implements m.room.name -> update_group(NAME) and HandleMatrixRoomTopic
-// m.room.topic -> update_group(SPACE_DETAILS), for spaces.
 func TestGetCapabilitiesSpaceAdvertisesRoomNameAndTopic(t *testing.T) {
 	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{})
 
@@ -441,12 +350,7 @@ func TestGetCapabilitiesSpaceAdvertisesRoomNameAndTopic(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesDMOmitsSpaceOnlyActions is the reason this cannot simply
-// be added to the shared flat capability set: HandleMatrixMembership and
-// HandleMatrixRoomName/HandleMatrixRoomTopic all reject DMs outright
-// ("membership changes are not supported in DMs", "cannot rename a DM", "a DM
-// has no description"), so advertising any of them in a DM would make
-// clients offer actions that are guaranteed to fail.
+// TestGetCapabilitiesDMOmitsSpaceOnlyActions: the handlers reject these actions in DMs.
 func TestGetCapabilitiesDMOmitsSpaceOnlyActions(t *testing.T) {
 	portal := portalWithIDAndMeta("dm1", true, &PortalMetadata{})
 
@@ -464,8 +368,6 @@ func TestGetCapabilitiesDMOmitsSpaceOnlyActions(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesThreadedSpaceKeepsMemberActions: the threaded variant is
-// still a space, so it must carry the space-only capabilities too.
 func TestGetCapabilitiesThreadedSpaceKeepsMemberActions(t *testing.T) {
 	portal := portalWithIDAndMeta("space1", false, &PortalMetadata{ThreadsOnly: true})
 
@@ -482,9 +384,6 @@ func TestGetCapabilitiesThreadedSpaceKeepsMemberActions(t *testing.T) {
 	}
 }
 
-// TestGetCapabilitiesUnparseablePortalIDOmitsSpaceOnlyActions: without a
-// usable id there is no way to know the portal is a space, so the
-// conservative choice is to advertise nothing that DMs would reject.
 func TestGetCapabilitiesUnparseablePortalIDOmitsSpaceOnlyActions(t *testing.T) {
 	portal := &bridgev2.Portal{Portal: &database.Portal{
 		PortalKey: networkid.PortalKey{ID: "not-a-valid-portal-id"},

@@ -1,42 +1,7 @@
 //go:build live
 
-// Package gchatmeow live-protocol validation harness.
-//
-// This is the ONLY test that talks to real Google Chat. It is gated behind the
-// `live` build tag AND the presence of real cookies in the environment, so it
-// never runs in CI or the normal `go test ./...` suite.
-//
-// # How to run
-//
-//	export GCHAT_LIVE_COMPASS='...'   # the 5 cookie values from a logged-in
-//	export GCHAT_LIVE_SSID='...'      # chat.google.com session (DevTools ->
-//	export GCHAT_LIVE_SID='...'       # Application -> Cookies -> chat.google.com)
-//	export GCHAT_LIVE_OSID='...'
-//	export GCHAT_LIVE_HSID='...'
-//	# optional: capture sanitizable wire fixtures for the unit suites
-//	export GCHAT_DEBUG_DUMP="$PWD/.spike-fixtures"
-//	go test -tags 'goolm live' -run TestLive -v -timeout 5m ./pkg/gchatmeow/
-//
-// The cookies are SECRETS: they are read only from the environment, never
-// logged, never written to the repo. `.spike-fixtures` and `.env` are
-// gitignored.
-//
-// What it validates (the 2026 protocol-drift risks):
-//   - the frozen API key + client_version=2440378181258 still authenticate;
-//   - GET /mole/world still yields an XSRF token (not a logged-out page);
-//   - alt=proto responses decode (and whether any arrive base64 — api.go's
-//     dual-decode heuristic);
-//   - PaginatedWorld returns the account's chats (world sync);
-//   - the BrowserChannel choreography (register -> SID -> ack GET -> initial
-//     ping) actually delivers events, and the $req double-encoding is accepted.
-//
-// Opt-in probes for the outbound-membership/rename feature (issue #11), each
-// gated on its own env var and skipped otherwise:
-//   - TestLiveUpload: outbound media upload (GCHAT_LIVE_GROUP_ID).
-//   - TestLiveRoomName: reversible space rename (GCHAT_LIVE_SPACE_ID).
-//   - TestLiveMembershipRoundTrip: net-zero invite+remove, i.e. the
-//     create_membership + remove_memberships RPCs (GCHAT_LIVE_SPACE_ID +
-//     GCHAT_LIVE_INVITE_GAIA). DESTRUCTIVE -- use a throwaway target account.
+// Live protocol tests. Export GCHAT_LIVE_{COMPASS,SSID,SID,OSID,HSID} cookies, then run:
+// go test -tags 'goolm live' -run TestLive -v -timeout 5m ./pkg/gchatmeow/
 package gchatmeow
 
 import (
@@ -59,10 +24,7 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// errDetail surfaces the server's response body (first 512 bytes) from an
-// *UnexpectedStatusError, which the error's own Error() omits -- for an
-// opaque 500/4xx this is where Google's actual reason (e.g. invalid user id,
-// permission) appears.
+// errDetail returns the response body (first 512 bytes) of an *UnexpectedStatusError, where Google's reason appears.
 func errDetail(err error) string {
 	var ue *UnexpectedStatusError
 	if errors.As(err, &ue) && ue.Body != "" {
@@ -95,9 +57,7 @@ func liveCookies(t *testing.T) map[string]string {
 	return cookies
 }
 
-// TestLiveProtocol exercises the real Google Chat protocol end to end and
-// prints a PASS/FAIL line per drift concern. It does not assert hard on the
-// event-delivery step (that depends on live traffic) but reports what it saw.
+// TestLiveProtocol exercises the real protocol end to end; event delivery is reported, not asserted.
 func TestLiveProtocol(t *testing.T) {
 	cookies := liveCookies(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
@@ -108,14 +68,11 @@ func TestLiveProtocol(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 
-	// 1. XSRF bootstrap + logged-in detection (frozen API key/client_version,
-	//    /mole/world scrape).
 	if err := client.FetchXSRFToken(ctx); err != nil {
 		t.Fatalf("FAIL FetchXSRFToken (cookies invalid / logged out / drift): %v", err)
 	}
 	t.Log("PASS  FetchXSRFToken: /mole/world scrape + XSRF token OK (session valid)")
 
-	// 2. GetSelfUserStatus -> confirms the binary-proto RPC round trip + gaia id.
 	self, err := client.GetSelfUserStatus(ctx, &pb.GetSelfUserStatusRequest{})
 	if err != nil {
 		t.Fatalf("FAIL GetSelfUserStatus (RPC wire format / base64 decode / drift): %v", err)
@@ -123,7 +80,6 @@ func TestLiveProtocol(t *testing.T) {
 	gaia := self.GetUserStatus().GetUserId().GetId()
 	t.Logf("PASS  GetSelfUserStatus: own gaia id = %q (RPC + proto decode OK)", gaia)
 
-	// 3. PaginatedWorld -> world sync.
 	world, err := client.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
 		FetchFromUserSpaces:  boolPtr(true),
 		FetchOptions:         []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
@@ -134,8 +90,7 @@ func TestLiveProtocol(t *testing.T) {
 	}
 	t.Logf("PASS  PaginatedWorld: %d world items returned (chat-list sync OK)", len(world.GetWorldItems()))
 
-	// 4. BrowserChannel: register -> SID -> ack -> ping, then observe whether
-	//    any events flow. We connect for a bounded window and count.
+	// BrowserChannel: connect for a bounded window and count events.
 	var events int
 	firstConnected := make(chan struct{}, 1)
 	client.OnConnectionState = func(state ConnState, err error) {
@@ -166,8 +121,6 @@ func TestLiveProtocol(t *testing.T) {
 		t.Fatal("FAIL BrowserChannel: no Connected state within 60s (choreography/$req/ack drift?)")
 	}
 
-	// Let it run a bit to observe events (send yourself a message on the test
-	// account from another device during this window to exercise receive).
 	t.Log("      channel live — send a message to this account from another device now to test receive (30s window)...")
 	select {
 	case <-time.After(30 * time.Second):
@@ -181,15 +134,7 @@ func TestLiveProtocol(t *testing.T) {
 
 func boolPtr(b bool) *bool { return &b }
 
-// TestLiveSendReceive exercises the send path (create_topic) and the inbound
-// MESSAGE_POSTED→text conversion against real Google Chat: it finds a
-// conversation the test account can post to, sends a uniquely-marked message,
-// and confirms the message comes back on the channel as a MESSAGE_POSTED echo
-// carrying the same text and local_id (proving send + inbound decode + the
-// local_id echo round-trip that no unit test can verify).
-//
-// If the test account has no existing conversation, it skips the send with a
-// clear message — create one first (e.g. have another user DM the account).
+// TestLiveSendReceive sends a marked message and expects its MESSAGE_POSTED echo with the same text and local_id.
 func TestLiveSendReceive(t *testing.T) {
 	cookies := liveCookies(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
@@ -203,7 +148,6 @@ func TestLiveSendReceive(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / drift): %v", err)
 	}
 
-	// Find a group/DM to post into.
 	world, err := client.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
 		FetchFromUserSpaces:  boolPtr(true),
 		FetchOptions:         []pb.PaginatedWorldRequest_FetchOptions{pb.PaginatedWorldRequest_EXCLUDE_GROUP_LITE},
@@ -224,14 +168,12 @@ func TestLiveSendReceive(t *testing.T) {
 			"have another user DM the account first, then re-run")
 	}
 
-	// Unique marker so we can recognize our own echo unambiguously.
 	marker := "m2-live-" + os.Getenv("GCHAT_LIVE_MARKER")
 	if marker == "m2-live-" {
 		marker = "m2-live-probe" // caller can override via GCHAT_LIVE_MARKER for a fresh value
 	}
 	localID := "mautrix-googlechat%42424242"
 
-	// Watch the channel for our echo.
 	echoSeen := make(chan *pb.Message, 4)
 	client.OnStreamEvent = func(ctx context.Context, ev *pb.Event) {
 		msg := ev.GetBody().GetMessagePosted().GetMessage()
@@ -257,7 +199,6 @@ func TestLiveSendReceive(t *testing.T) {
 		t.Fatalf("Connect returned early: %v", err)
 	}
 
-	// Send via create_topic (the send path; RequestHeader is stamped inside).
 	resp, err := client.CreateTopic(ctx, &pb.CreateTopicRequest{
 		GroupId:   target,
 		LocalId:   &localID,
@@ -282,21 +223,7 @@ func TestLiveSendReceive(t *testing.T) {
 	<-connErr
 }
 
-// TestLiveUpload attempts exactly one real media upload against Google's
-// /uploads endpoint -- the issue #114 risk path. It answers, definitively for
-// THIS bridge's wire shape (which deliberately avoids polluting the signed
-// upload URL with alt=/key= query params and sends the XSRF header on both
-// hops), whether outbound media upload works today. A 500 here == #114 also
-// affects our shape; a pass == #114 is caused by the signed-URL alt=/key=
-// pollution this shape avoids.
-//
-// The account whose cookies you export MUST have at least one Google Chat
-// conversation (a DM or space) — the upload is scoped to a group_id. A
-// throwaway test account with no chats will skip. -count=1 is REQUIRED: Go
-// caches test results on inputs it can see, but Google's server state isn't
-// one of them, so without it a stale skip/pass is replayed.
-//
-//	go test -tags 'goolm live' -run TestLiveUpload -v -count=1 -timeout 5m ./pkg/gchatmeow/
+// TestLiveUpload does one real media upload. Needs a conversation (or GCHAT_LIVE_GROUP_ID); use -count=1.
 func TestLiveUpload(t *testing.T) {
 	cookies := liveCookies(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -310,22 +237,13 @@ func TestLiveUpload(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// Fast path: upload into a known conversation. UploadFile only needs valid
-	// cookies + XSRF and a group id -- it does NOT depend on the realtime
-	// channel or on world sync, so a known-good group id skips the flaky
-	// discovery below entirely. Pass the PLAIN numeric id (no dm:/space:
-	// prefix), e.g. from the migrated portal ids (dm:hBEIAUAAAAE -> hBEIAUAAAAE)
-	// or any group id printed in the channel logs.
+	// Fast path: GCHAT_LIVE_GROUP_ID is a plain group id (no dm:/space: prefix).
 	if gid := os.Getenv("GCHAT_LIVE_GROUP_ID"); gid != "" {
 		runUploadProbe(t, ctx, client, gid)
 		return
 	}
 
-	// Discovery path: PaginatedWorld only returns the account's chats for a
-	// session with a live realtime channel, so mirror production -- connect,
-	// wait for CONNECTED, then sync. (Note: this has been observed returning 0
-	// items even post-connect for accounts that demonstrably have chats; if it
-	// skips, use GCHAT_LIVE_GROUP_ID above instead.)
+	// PaginatedWorld needs a live channel, so connect first.
 	connCtx, connCancel := context.WithCancel(ctx)
 	defer connCancel()
 	connected := make(chan struct{}, 1)
@@ -346,8 +264,6 @@ func TestLiveUpload(t *testing.T) {
 	case <-time.After(60 * time.Second):
 		t.Fatal("no CONNECTED state within 60s (channel choreography drift?)")
 	}
-	// connErr is buffered(1), so the Connect goroutine can send and exit even
-	// with no reader once the deferred connCancel() unblocks it -- no leak.
 
 	world, err := client.PaginatedWorld(ctx, &pb.PaginatedWorldRequest{
 		FetchFromUserSpaces:  boolPtr(true),
@@ -376,9 +292,7 @@ func TestLiveUpload(t *testing.T) {
 		}
 	}
 	if groupID == "" {
-		// Distinguish "account genuinely has no chats" (0 items / 0 with a
-		// group id) from a discovery bug (items exist but none yielded a
-		// plain id) so a skip is diagnosable without guessing.
+		// Distinguish "no chats" from a discovery bug.
 		t.Skipf("live upload skipped: no conversation to upload into "+
 			"(world items=%d, with group id=%d) -- set GCHAT_LIVE_GROUP_ID to a "+
 			"known plain group id (e.g. a migrated portal id without its dm:/"+
@@ -388,12 +302,10 @@ func TestLiveUpload(t *testing.T) {
 	runUploadProbe(t, ctx, client, groupID)
 }
 
-// runUploadProbe uploads a 1x1 PNG to groupID via the #114 risk path and
-// fails on any error (a 500 == #114 affects our wire shape too).
+// runUploadProbe uploads a 1x1 PNG to groupID.
 func runUploadProbe(t *testing.T, ctx context.Context, client *Client, groupID string) {
 	t.Helper()
-	// A 1x1 transparent PNG -- the smallest valid image, well under #114's
-	// reported <500KB threshold.
+	// A 1x1 transparent PNG.
 	png, err := base64.StdEncoding.DecodeString(
 		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 	if err != nil {
@@ -408,25 +320,7 @@ func runUploadProbe(t *testing.T, ctx context.Context, client *Client, groupID s
 		groupID, meta.GetAttachmentToken(), meta.GetContentType())
 }
 
-// TestLiveDiagnosePaginatedWorld gathers evidence for the "PaginatedWorld
-// returns 0 world items even though the account has chats" bug WITHOUT any
-// hypothesis baked in: it issues the exact paginated_world request
-// doRequestOnce would, captures the RAW response body, and reports enough to
-// tell apart three root causes at a glance:
-//
-//   - base64 mis-parse: the server base64-encoded the body (because of the
-//     X-Goog-Encode-Response-If-Executable header), and unmarshalAPIResponse's
-//     "try raw binary first" step parses that ASCII as a valid-but-EMPTY proto
-//     with no error (the residual risk documented at api.go:238). Signature:
-//     body is printable base64, raw-unmarshal err=nil items=0, but
-//     base64-then-unmarshal yields items>0.
-//   - genuinely empty: body is short binary, both paths give items=0. The
-//     account really has no world items from this endpoint.
-//   - proto drift: body is sizable binary, raw-unmarshal err=nil items=0, and
-//     it is NOT valid base64. World data is on the wire under field numbers our
-//     schema doesn't map -> inspect proto.Message unknown fields next.
-//
-// Run: go test -tags 'goolm live' -run TestLiveDiagnosePaginatedWorld -v -count=1 ./pkg/gchatmeow/
+// TestLiveDiagnosePaginatedWorld dumps raw paginated_world bodies to tell base64 mis-parse, empty and proto drift apart.
 func TestLiveDiagnosePaginatedWorld(t *testing.T) {
 	cookies := liveCookies(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
@@ -440,14 +334,7 @@ func TestLiveDiagnosePaginatedWorld(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// Controlled A/B/C: same session, three request shapes, one variable at a
-	// time. Evidence so far: our shape returns a 2-byte body (no world_items).
-	// The only difference from the maintained purple-googlechat client is that
-	// purple always sends a world_section_requests entry with a page_size.
-	//   A = our current shape (baseline; expected 0 items)
-	//   B = A + one world_section_requests{page_size:999} (isolates the section)
-	//   C = purple's exact shape (fetch_snippets_for_unnamed_rooms + section,
-	//       no fetch_options) -- the known-working reference
+	// A = our shape, B = A + world_section_requests{page_size:999}, C = purple-googlechat's shape.
 	variantA := &pb.PaginatedWorldRequest{
 		RequestHeader:       newRequestHeader(),
 		FetchFromUserSpaces: boolPtr(true),
@@ -475,8 +362,7 @@ func TestLiveDiagnosePaginatedWorld(t *testing.T) {
 		"if all 0 -> not a request-shape issue, investigate header/session.")
 }
 
-// probeWorld issues one paginated_world request (raw, so we see the real body)
-// and reports the world_items count plus body diagnostics.
+// probeWorld issues one raw paginated_world request and reports item count and body diagnostics.
 func probeWorld(t *testing.T, ctx context.Context, client *Client, label string, req *pb.PaginatedWorldRequest) {
 	t.Helper()
 	reqBody, err := proto.Marshal(req)
@@ -512,7 +398,7 @@ func probeWorld(t *testing.T, ctx context.Context, client *Client, label string,
 	var resp pb.PaginatedWorldResponse
 	rawErr := proto.Unmarshal(body, &resp)
 	if rawErr != nil {
-		// Fall back to base64 (matches unmarshalAPIResponse) just in case.
+		// Fall back to base64, as unmarshalAPIResponse does.
 		if decoded, b64Err := base64.StdEncoding.DecodeString(string(bytes.TrimSpace(body))); b64Err == nil {
 			proto.Reset(&resp)
 			rawErr = proto.Unmarshal(decoded, &resp)
@@ -527,20 +413,7 @@ func probeWorld(t *testing.T, ctx context.Context, client *Client, label string,
 		rawErr, len(resp.GetWorldItems()), len(resp.GetWorldSectionResponses()))
 }
 
-// TestLiveRoomName verifies the update_group rename RPC end to end and
-// REVERSIBLY: it reads the space's current name, renames it to a probe value,
-// asserts the RPC succeeds, then restores the original name -- net-zero.
-//
-// Requires GCHAT_LIVE_SPACE_ID = a plain space id (no space: prefix) the
-// account can rename; renaming may require a space-manager role, in which case
-// a plain member gets a clean error here (which is itself a useful result).
-// Skips if unset. Optionally set GCHAT_LIVE_SPACE_ORIG_NAME to the space's
-// current name to skip the get_group read-back (and thus verify update_group
-// even if get_group is unavailable for the account).
-//
-//	export GCHAT_LIVE_SPACE_ID='AAAAxxxxxxx'
-//	# optional: export GCHAT_LIVE_SPACE_ORIG_NAME='My Space'
-//	go test -tags 'goolm live' -run TestLiveRoomName -v -count=1 ./pkg/gchatmeow/
+// TestLiveRoomName renames GCHAT_LIVE_SPACE_ID and restores it (optional GCHAT_LIVE_SPACE_ORIG_NAME skips get_group).
 func TestLiveRoomName(t *testing.T) {
 	cookies := liveCookies(t)
 	spaceID := os.Getenv("GCHAT_LIVE_SPACE_ID")
@@ -558,11 +431,6 @@ func TestLiveRoomName(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// The original name is needed so the rename can be restored (net-zero).
-	// Prefer an explicitly provided name (GCHAT_LIVE_SPACE_ORIG_NAME) so the
-	// rename RPC can be verified even if get_group is unavailable; otherwise
-	// read it via get_group, mirroring production's exact request shape
-	// (chatinfo.go: MEMBERS + INCLUDE_DYNAMIC_GROUP_NAME + IncludeInviteDms).
 	orig := os.Getenv("GCHAT_LIVE_SPACE_ORIG_NAME")
 	if orig == "" {
 		gg, err := client.GetGroup(ctx, &pb.GetGroupRequest{
@@ -597,7 +465,7 @@ func TestLiveRoomName(t *testing.T) {
 	}
 	t.Logf("PASS update_group renamed space to %q", probe)
 
-	// Restore -- best-effort; if it fails, tell the operator to fix it manually.
+	// Restore; best-effort.
 	if err := rename(orig); err != nil {
 		t.Errorf("could not restore original name %q (space is currently %q, rename it back manually): %v", orig, probe, err)
 	} else {
@@ -605,17 +473,8 @@ func TestLiveRoomName(t *testing.T) {
 	}
 }
 
-// TestLiveMembershipRoundTrip verifies create_membership + remove_memberships
-// against a live space, NET-ZERO: it invites GCHAT_LIVE_INVITE_GAIA into the
-// space, then removes them. The remove path is the SAME remove_memberships RPC
-// a self-leave uses, so this covers invite, kick, and leave in one run.
-//
-// DESTRUCTIVE / opt-in: the target account receives a real invite and is then
-// removed -- use a throwaway or second account you control, never a stranger.
-// Requires GCHAT_LIVE_SPACE_ID + GCHAT_LIVE_INVITE_GAIA (the target's email or numeric gaia id). Skips if either is unset.
-//
-//	export GCHAT_LIVE_SPACE_ID='AAAAxxxxxxx' GCHAT_LIVE_INVITE_GAIA='123456789012345'
-//	go test -tags 'goolm live' -run TestLiveMembershipRoundTrip -v -count=1 ./pkg/gchatmeow/
+// TestLiveMembershipRoundTrip invites and then removes GCHAT_LIVE_INVITE_GAIA (email or gaia) in GCHAT_LIVE_SPACE_ID.
+// DESTRUCTIVE: use a throwaway target account.
 func TestLiveMembershipRoundTrip(t *testing.T) {
 	cookies := liveCookies(t)
 	spaceID := os.Getenv("GCHAT_LIVE_SPACE_ID")
@@ -635,10 +494,7 @@ func TestLiveMembershipRoundTrip(t *testing.T) {
 	}
 	groupID := PartsToGroupID(spaceID, false)
 
-	// Build the invitee: an email goes in invitee_info.email, a numeric gaia in
-	// invitee_info.user_id. The connector always has a ghost's gaia (user_id);
-	// email is a live-test convenience, since a human has an email handier than
-	// a raw gaia id.
+	// An email goes in invitee_info.email, a numeric gaia in invitee_info.user_id.
 	var invitee *pb.InviteeInfo
 	if strings.Contains(target, "@") {
 		invitee = &pb.InviteeInfo{Email: proto.String(target)}
@@ -648,19 +504,13 @@ func TestLiveMembershipRoundTrip(t *testing.T) {
 		t.Logf("inviting by gaia %q", target)
 	}
 
-	// Snapshot current members so an EMAIL invite (whose gaia we don't know up
-	// front) can still be cleaned up net-zero via a diff. Not needed for a
-	// gaia invite (we already know the id), but cheap and useful.
+	// Snapshot members so an email invite can be cleaned up via a diff.
 	before, err := spaceMemberGaias(ctx, client, spaceID)
 	if err != nil {
 		t.Fatalf("get_group (pre-invite snapshot): %v%s", err, errDetail(err))
 	}
 
-	// Invite. Non-fatal on error: create_membership success is proven when it
-	// returns nil (logged PASS), but a re-run against a target already invited
-	// from a prior run may error here -- in which case we still proceed to the
-	// remove step so the stuck invite gets cleaned up and remove_memberships is
-	// exercised.
+	// Non-fatal: a re-run may hit an existing invite; still remove it.
 	if _, err := client.CreateMembership(ctx, &pb.CreateMembershipRequest{
 		GroupId: groupID,
 		InviteeMemberInfos: []*pb.InviteeMemberInfo{
@@ -672,9 +522,6 @@ func TestLiveMembershipRoundTrip(t *testing.T) {
 		t.Logf("PASS create_membership invited %q", target)
 	}
 
-	// Decide whom to remove. For a gaia target we know exactly who it is (no
-	// need to trust a get_group diff, which can miss a pending invite); for an
-	// email target, diff the membership snapshot to find the added gaia.
 	var toRemove []string
 	if !strings.Contains(target, "@") {
 		toRemove = []string{target}
@@ -709,8 +556,7 @@ func TestLiveMembershipRoundTrip(t *testing.T) {
 	}
 }
 
-// spaceMemberGaias returns the set of gaia ids currently in the space (joined
-// + invited members), read via get_group with production's request shape.
+// spaceMemberGaias returns the gaia ids of joined and invited members.
 func spaceMemberGaias(ctx context.Context, client *Client, spaceID string) (map[string]bool, error) {
 	resp, err := client.GetGroup(ctx, &pb.GetGroupRequest{
 		GroupId: PartsToGroupID(spaceID, false),
@@ -742,18 +588,7 @@ func spaceMemberGaias(ctx context.Context, client *Client, spaceID string) (map[
 	return set, nil
 }
 
-// TestLiveDumpLinkAnnotations is a diagnostic for the "inbound links are not
-// links in Matrix" bug: it fetches recent messages from a conversation and
-// dumps, for every message containing a URL, the raw annotation data --
-// crucially whether chip_render_type is SET at all and what value it holds.
-//
-// gchatfmt only renders a url_metadata annotation as <a href> when
-// chip_render_type == DO_NOT_RENDER; an unset field decodes as UNKNOWN(0) and
-// is skipped, leaving the URL as plain text. This probe says which case real
-// Google Chat traffic actually hits.
-//
-//	export GCHAT_LIVE_GROUP_ID='<a dm or space id with a link in it>'
-//	go test -tags 'goolm live' -run TestLiveDumpLinkAnnotations -v -count=1 ./pkg/gchatmeow/
+// TestLiveDumpLinkAnnotations dumps url_metadata annotations (notably chip_render_type) for messages in GCHAT_LIVE_GROUP_ID.
 func TestLiveDumpLinkAnnotations(t *testing.T) {
 	cookies := liveCookies(t)
 	groupID := os.Getenv("GCHAT_LIVE_GROUP_ID")
@@ -771,7 +606,7 @@ func TestLiveDumpLinkAnnotations(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// The id may be a DM or a space; try DM first, fall back to space.
+	// The id may be a DM or a space; try DM first.
 	var resp *pb.ListTopicsResponse
 	for _, isDM := range []bool{true, false} {
 		resp, err = client.ListTopics(ctx, &pb.ListTopicsRequest{
@@ -819,39 +654,12 @@ func TestLiveDumpLinkAnnotations(t *testing.T) {
 	t.Logf("DONE: %d message(s) with a URL inspected", withURL)
 }
 
-// TestLiveCreateDm verifies the create_dm request shape against the real
-// server. Like the membership RPCs before it, the exact shape is guesswork
-// until it round-trips: this is the test that turns it into a fact.
-//
-// SAFE TO REPEAT: a DM is unique per pair on Google Chat, so create_dm with
-// someone you already have a DM with returns THAT DM rather than making a
-// second one. Running this twice does not litter the account.
-//
-// Verified live: the email (invitees) and gaia (members) paths both succeed
-// and BOTH return the same existing DM id, confirming the find-existing
-// behaviour ResolveIdentifier depends on. A 400 here almost certainly means
-// the gaia is not a user this account can DM rather than a malformed
-// request -- both envelopes were checked against a known-good id.
-//
-// Now ASSERTED rather than logged: the response's memberships name somebody
-// other than this account. That is the only way the email branch ever learns
-// who it just started talking to, and it was previously an assumption.
-//
-// Two open questions this also settles, both opt-in because they need their
-// own targets -- see TestLiveSelfDm and TestLiveGetMembersUnknownID below.
-//
-//	export GCHAT_LIVE_INVITE_GAIA='1234567890'      # or:
-//	export GCHAT_LIVE_INVITE_EMAIL='someone@example.com'
-//	go test -tags 'goolm live' -run TestLiveCreateDm -v -count=1 ./pkg/gchatmeow/
+// TestLiveCreateDm checks create_dm via GCHAT_LIVE_INVITE_GAIA and/or GCHAT_LIVE_INVITE_EMAIL. Safe to repeat: DMs are unique per pair.
 func TestLiveCreateDm(t *testing.T) {
 	cookies := liveCookies(t)
 	gaia := strings.TrimSpace(os.Getenv("GCHAT_LIVE_INVITE_GAIA"))
 	email := strings.TrimSpace(os.Getenv("GCHAT_LIVE_INVITE_EMAIL"))
 
-	// Report what was actually seen before doing anything. A stale export
-	// from an earlier run has already produced a misleading 400 once during
-	// this feature's investigation, and "which branch ran?" is not something
-	// the reader should have to infer.
 	t.Logf("env: GCHAT_LIVE_INVITE_GAIA=%s  GCHAT_LIVE_INVITE_EMAIL=%s",
 		presence(gaia), presence(email))
 	if gaia == "" && email == "" {
@@ -869,11 +677,7 @@ func TestLiveCreateDm(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// The peer's gaia id is the ONE thing the email branch of
-	// connector.ResolveIdentifier cannot get any other way -- there is no
-	// email-to-gaia lookup -- so "memberships names somebody other than me"
-	// is a load-bearing protocol fact rather than a detail. It used to be
-	// only logged; below it is asserted, which needs this account's own id.
+	// The email branch learns the peer's gaia only from memberships, so assert it names someone else.
 	selfResp, err := client.GetSelfUserStatus(ctx, &pb.GetSelfUserStatusRequest{})
 	if err != nil {
 		t.Fatalf("GetSelfUserStatus (needed to tell the peer from this account): %v", err)
@@ -883,9 +687,6 @@ func TestLiveCreateDm(t *testing.T) {
 		t.Fatal("get_self_user_status returned no gaia id")
 	}
 
-	// Both branches run when both are configured: they exercise DIFFERENT
-	// request shapes (members vs invitees) and running only one has twice
-	// left the other unverified.
 	cases := []struct {
 		name string
 		skip bool
@@ -919,8 +720,7 @@ func TestLiveCreateDm(t *testing.T) {
 				default:
 					peers++
 				}
-				// Booleans, not the id itself: this repo is public and its
-				// test output gets pasted into issues.
+				// Booleans, not ids: test output gets pasted into public issues.
 				t.Logf("  membership: has_user_id=%v is_self=%v state=%v",
 					memberGaia != "", memberGaia == self, m.GetMembershipState())
 			}
@@ -944,9 +744,7 @@ func TestLiveCreateDm(t *testing.T) {
 		})
 	}
 
-	// Both shapes addressing the same person must land on the same DM --
-	// that find-existing behaviour is what stops ResolveIdentifier from
-	// creating a second conversation every time someone starts a chat.
+	// Both shapes must land on the same DM.
 	if len(ids) == 2 {
 		var seen []string
 		for _, id := range ids {
@@ -960,8 +758,7 @@ func TestLiveCreateDm(t *testing.T) {
 	}
 }
 
-// presence reports whether a live-test variable is set without ever echoing
-// its value into the log.
+// presence reports whether a variable is set without logging its value.
 func presence(v string) string {
 	if v == "" {
 		return "unset"
@@ -969,16 +766,7 @@ func presence(v string) string {
 	return "set"
 }
 
-// TestLiveCreateGroup verifies the create_group request shape.
-//
-// NOT SAFE TO REPEAT BLINDLY: this creates a REAL space every run, and there
-// is no delete_group RPC wired in this bridge, so each run leaves a space
-// behind for you to remove by hand. It is therefore gated on its own opt-in
-// variable rather than running with the rest of the live suite.
-//
-//	export GCHAT_LIVE_CREATE_SPACE_NAME='mautrix-go live test (delete me)'
-//	# optional: export GCHAT_LIVE_INVITE_GAIA='1234567890'
-//	go test -tags 'goolm live' -run TestLiveCreateGroup -v -count=1 ./pkg/gchatmeow/
+// TestLiveCreateGroup creates a REAL space every run (no delete RPC); opt in with GCHAT_LIVE_CREATE_SPACE_NAME.
 func TestLiveCreateGroup(t *testing.T) {
 	cookies := liveCookies(t)
 	name := os.Getenv("GCHAT_LIVE_CREATE_SPACE_NAME")
@@ -1017,27 +805,8 @@ func TestLiveCreateGroup(t *testing.T) {
 	}
 }
 
-// TestLiveCreateGroupShape finds the request shape create_group actually
-// accepts, by trying candidates in order and STOPPING at the first success --
-// so at most ONE real space is created, not one per candidate.
-//
-// The candidates come from purple-googlechat's working call
-// (googlechat_conversation.c:2362-2385), which differs from the obvious
-// guess in three ways worth testing separately:
-//
-//   - it sets should_find_existing_space EXPLICITLY to false rather than
-//     leaving it absent (proto2 presence is load-bearing on this wire);
-//   - it does NOT set a name, leaving the server to generate one;
-//   - it always sends exactly one invitee.
-//
-// GCHAT_LIVE_INVITE_GAIA must be a KNOWN-GOOD id -- take one from
-// TestLiveCreateDm's membership output. An id the account cannot reach
-// produces the same bare 400 as a malformed request, which is precisely the
-// confusion this test exists to avoid.
-//
-//	export GCHAT_LIVE_INVITE_GAIA='<from TestLiveCreateDm output>'
-//	export GCHAT_LIVE_CREATE_SPACE_NAME='mautrix live test (delete me)'
-//	go test -tags 'goolm live' -run TestLiveCreateGroupShape -v -count=1 ./pkg/gchatmeow/
+// TestLiveCreateGroupShape tries create_group candidate shapes, stopping at the first success.
+// GCHAT_LIVE_INVITE_GAIA must be a known-good id: an unreachable one gives the same bare 400.
 func TestLiveCreateGroupShape(t *testing.T) {
 	cookies := liveCookies(t)
 	name := os.Getenv("GCHAT_LIVE_CREATE_SPACE_NAME")
@@ -1119,20 +888,7 @@ func TestLiveCreateGroupShape(t *testing.T) {
 	t.Fatal("no candidate shape was accepted; see the per-candidate errors above")
 }
 
-// TestLiveSelfDm answers a question the bridge currently only assumes: does
-// create_dm refuse a DM with the acting account itself?
-//
-// It matters because connector.ResolveIdentifier refuses a self-DM locally for
-// a gaia id, on the strength of a 400 that was observed once and attributed to
-// self-addressing. Google Chat the product has a note-to-self conversation, so
-// the opposite answer is entirely plausible -- and if it is the right one, that
-// local refusal is blocking something that works.
-//
-// Opt-in and separate from TestLiveCreateDm because, if the server ACCEPTS it,
-// this creates a real (if harmless and idempotent) note-to-self DM.
-//
-//	export GCHAT_LIVE_SELF_DM=1
-//	go test -tags 'goolm live' -run TestLiveSelfDm -v -count=1 ./pkg/gchatmeow/
+// TestLiveSelfDm checks whether create_dm accepts a DM with yourself. Opt in with GCHAT_LIVE_SELF_DM=1.
 func TestLiveSelfDm(t *testing.T) {
 	cookies := liveCookies(t)
 	if os.Getenv("GCHAT_LIVE_SELF_DM") == "" {
@@ -1158,7 +914,7 @@ func TestLiveSelfDm(t *testing.T) {
 		t.Fatal("get_self_user_status returned no gaia id")
 	}
 
-	// Neither outcome is a failure -- the point is to record which one happens.
+	// Neither outcome is a failure.
 	resp, err := client.CreateDm(ctx, &pb.CreateDmRequest{Members: []*pb.UserId{UserID(self)}})
 	if err != nil {
 		var ue *UnexpectedStatusError
@@ -1178,18 +934,7 @@ func TestLiveSelfDm(t *testing.T) {
 		"become a classification of the server's answer, as the email path already is.")
 }
 
-// TestLiveGetMembersUnknownID answers the other open question: what does
-// get_members return for a gaia id that does not exist?
-//
-// connector.ResolveIdentifier answers "Found" for any run of digits, which is
-// wrong for a command whose stated job is to check whether an identifier is on
-// the network. Fixing that needs an existence check, and get_members is the
-// obvious candidate -- but only if a bogus id is distinguishable from a real
-// one that this account merely cannot see. Those must NOT be conflated: a
-// cross-domain colleague reported as "not found" is worse than the status quo.
-//
-//	export GCHAT_LIVE_BOGUS_GAIA='999999999999999999999'
-//	go test -tags 'goolm live' -run TestLiveGetMembersUnknownID -v -count=1 ./pkg/gchatmeow/
+// TestLiveGetMembersUnknownID checks what get_members returns for GCHAT_LIVE_BOGUS_GAIA.
 func TestLiveGetMembersUnknownID(t *testing.T) {
 	cookies := liveCookies(t)
 	bogus := strings.TrimSpace(os.Getenv("GCHAT_LIVE_BOGUS_GAIA"))
@@ -1238,24 +983,7 @@ func TestLiveGetMembersUnknownID(t *testing.T) {
 	}
 }
 
-// TestLiveDumpURLMediaAnnotations answers the four questions the inline-media
-// feature had to assume, in one run.
-//
-// pkg/connector's inlineableURLMedia decides what to fetch from three signals
-// -- annotation.type == IMAGE, url_metadata.mime_type, and image_url on an
-// annotation covering no text. Those were chosen from the reference clients'
-// behaviour and the proto, NOT from a capture, so if Google populates none of
-// them for a shared GIF the feature silently never fires. This prints exactly
-// the fields needed to confirm or widen that predicate.
-//
-// It also settles whether a GIF is a url_metadata annotation at all, rather
-// than a server-side upload_metadata, which would mean the existing attachment
-// path already handles it.
-//
-// Send yourself a GIF from Google Chat's own picker, then:
-//
-//	export GCHAT_LIVE_GROUP_ID='...'
-//	go test -tags 'goolm live' -run TestLiveDumpURLMediaAnnotations -v -count=1 ./pkg/gchatmeow/
+// TestLiveDumpURLMediaAnnotations dumps the annotation fields inline-media detection relies on (GCHAT_LIVE_GROUP_ID).
 func TestLiveDumpURLMediaAnnotations(t *testing.T) {
 	cookies := liveCookies(t)
 	groupID := os.Getenv("GCHAT_LIVE_GROUP_ID")
@@ -1293,9 +1021,7 @@ func TestLiveDumpURLMediaAnnotations(t *testing.T) {
 			for _, a := range msg.GetAnnotations() {
 				if u := a.GetUploadMetadata(); u != nil {
 					uploadAnns++
-					// If a picker GIF shows up HERE, the existing attachment
-					// path already covers it and the url_metadata work does
-					// not apply to GIFs at all.
+					// A GIF here means the attachment path already covers it.
 					t.Logf("upload_metadata: content_type=%q has_name=%v",
 						u.GetContentType(), u.GetContentName() != "")
 					continue
@@ -1305,15 +1031,13 @@ func TestLiveDumpURLMediaAnnotations(t *testing.T) {
 					continue
 				}
 				urlAnns++
-				// Hosts, never full URLs: this repo is public and live-test
-				// output gets pasted into issues. The host is what decides
-				// whether an allowlist would even be viable.
+				// Hosts, never full URLs: output gets pasted into public issues.
 				t.Logf("url_metadata: type=%v length=%d empty_text_body=%v", a.GetType(), a.GetLength(), msg.GetTextBody() == "")
 				t.Logf("    url_host=%s image_url_host=%s", urlHost(m.GetUrl().GetUrl()), urlHost(m.GetImageUrl()))
 				t.Logf("    mime_type=%q should_not_render=%v (present=%v) dims=%dx%d",
 					m.GetMimeType(), m.GetShouldNotRender(), m.ShouldNotRender != nil,
 					m.GetIntImageWidth(), m.GetIntImageHeight())
-				// The verdict, computed exactly as the connector would.
+				// The verdict, computed as the connector would.
 				wouldInline := !m.GetShouldNotRender() &&
 					(a.GetType() == pb.AnnotationType_IMAGE ||
 						strings.HasPrefix(m.GetMimeType(), "image/") ||
@@ -1331,8 +1055,7 @@ func TestLiveDumpURLMediaAnnotations(t *testing.T) {
 	}
 }
 
-// urlHost reduces a URL to its host so a probe can report where media comes
-// from without echoing a full, potentially identifying URL.
+// urlHost reduces a URL to its host, to avoid logging identifying URLs.
 func urlHost(rawURL string) string {
 	if rawURL == "" {
 		return "(unset)"

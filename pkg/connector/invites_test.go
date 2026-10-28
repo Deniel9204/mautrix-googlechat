@@ -1,10 +1,5 @@
 package connector
 
-// invites_test.go -- invited spaces (#32) and answering the invite from
-// Matrix (#36): sync keeps them and records them as pending, their portal
-// invites rather than joins the user, and only a pending invite's
-// accept/decline reaches Google Chat.
-
 import (
 	"context"
 	"errors"
@@ -21,8 +16,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// ownMembershipEvent is a standalone MembershipChangedEvent for one member of
-// a group, shaped like the one Google pushes to an invitee.
 func ownMembershipEvent(groupID *pb.GroupId, gaia string, state pb.MembershipState, category pb.InviteCategory) *pb.Event {
 	return &pb.Event{
 		Type: pb.Event_MEMBERSHIP_CHANGED.Enum(),
@@ -58,8 +51,6 @@ func newEventInviteClient(pending ...string) (*GChatClient, *[]*simplevent.ChatR
 	}
 	return gc, &resyncs
 }
-
-// --- MembershipChangedEvent: the user's own invite -------------------------
 
 func TestOwnInviteEventCreatesInvitedPortal(t *testing.T) {
 	gc, resyncs := newEventInviteClient()
@@ -126,13 +117,10 @@ func TestOwnMembershipAnsweredElsewhereClearsPending(t *testing.T) {
 	}
 }
 
-// --- invitedSpaceChatInfo --------------------------------------------------
-
 func TestInvitedSpaceChatInfoNeverJoinsTheUser(t *testing.T) {
 	gc, _ := newEventInviteClient()
 	gc.getGroupFn = func(context.Context, *pb.GetGroupRequest) (*pb.GetGroupResponse, error) {
-		// get_group may list the invitee among the members; it must not be
-		// what decides the user's membership.
+		// get_group may list the invitee; it must not decide the user's membership.
 		return &pb.GetGroupResponse{
 			Group: &pb.Group{Name: proto.String("MyTestSpace3")},
 			Memberships: []*pb.Membership{{Id: &pb.MembershipId{
@@ -176,8 +164,6 @@ func TestInvitedSpaceChatInfoSurvivesGetGroupFailure(t *testing.T) {
 	}
 }
 
-// --- syncChats: only ever removes pending invites --------------------------
-
 func TestSyncChatsDropsOnlyJoinedPendingInvites(t *testing.T) {
 	gc, _ := newEventInviteClient("accepted-elsewhere", "still-pending")
 	gc.Main = &GChatConnector{Config: *newTestConfig(t)}
@@ -192,8 +178,6 @@ func TestSyncChatsDropsOnlyJoinedPendingInvites(t *testing.T) {
 		t.Errorf("PendingInvites = %v, want [still-pending] (absence from the world means nothing)", got)
 	}
 }
-
-// --- HandleMatrixMembership: answering a pending invite --------------------
 
 func newInviteTestClient(pending ...string) (*GChatClient, chan *simplevent.ChatResync) {
 	resyncs := make(chan *simplevent.ChatResync, 1)
@@ -292,9 +276,7 @@ func TestAnswerPendingInviteFailureKeepsItPending(t *testing.T) {
 	}
 }
 
-// The bridge's own auto-accept of a joined space's portal is an AcceptInvite
-// too; with no pending invite for that space it must stay a no-op, even when
-// OTHER spaces have invites pending.
+// The bridge's own auto-accept must stay a no-op without a pending invite for that space.
 func TestAcceptWithoutPendingInviteSendsNothing(t *testing.T) {
 	gc, _ := newInviteTestClient("other-space")
 	gc.createMembershipFn = func(context.Context, *pb.CreateMembershipRequest) (*pb.CreateMembershipResponse, error) {
@@ -307,8 +289,6 @@ func TestAcceptWithoutPendingInviteSendsNothing(t *testing.T) {
 		t.Fatalf("HandleMatrixMembership(AcceptInvite) error = %v, want nil", err)
 	}
 }
-
-// --- SYSTEM_MESSAGE: answered in another Google Chat client ---------------
 
 func TestSystemMessageSelfJoinClearsPendingInvite(t *testing.T) {
 	gc, _ := newEventTestClient("112233")

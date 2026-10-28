@@ -1,14 +1,6 @@
 package connector
 
-// createspace.go -- creating a Google Chat space from Matrix
-// (GroupCreatingNetworkAPI, driven by the create-group command).
-//
-// The request copies what the Google Chat web client sends (captured and
-// live-verified 2026-09-29): the space is created EMPTY -- name plus the room
-// type attribute_checker_group_type=FLAT_ROOM, a client local_id and
-// should_find_existing_space=false -- and people are invited afterwards with
-// create_membership, the same call Matrix invites already use. Every shape
-// tried before sent no room type at all and was refused with a bare 400.
+// create_group must carry attribute_checker_group_type=FLAT_ROOM or it fails with a bare 400.
 import (
 	"context"
 	"crypto/rand"
@@ -30,8 +22,7 @@ import (
 
 var _ bridgev2.GroupCreatingNetworkAPI = (*GChatClient)(nil)
 
-// spaceGroupType is the single group type advertised in
-// NetworkGeneralCapabilities.Provisioning.GroupCreation.
+// spaceGroupType is the single group type advertised for group creation.
 const spaceGroupType = "space"
 
 func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCreateParams) (*bridgev2.CreateChatResponse, error) {
@@ -40,8 +31,7 @@ func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCre
 		return nil, errors.New("googlechat: a space needs a name -- set the Matrix room's name first")
 	}
 
-	// Give the bridge bot the power it needs in the command's room before
-	// anything exists on Google Chat, so a refusal here creates nothing.
+	// Promote the bot before anything exists on Google Chat, so a refusal creates nothing.
 	if params.RoomID != "" {
 		ensure := c.ensureBotPowerFn
 		if ensure == nil {
@@ -64,11 +54,7 @@ func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCre
 	group := gcid.GroupID{ID: id}
 	portalKey := gcid.MakePortalKey(group, c.UserLogin.ID)
 
-	// The command runs in an existing Matrix room, and that room must become
-	// the space's portal: provisionutil only ever creates a NEW room for a
-	// portal without one. Bound before inviting anyone, so the window in which
-	// the space's own events can create a room is as short as possible; a
-	// room they did create meanwhile is tombstoned and deleted.
+	// Bind the command's room as the portal before inviting, or provisionutil creates a second room.
 	var portal *bridgev2.Portal
 	if params.RoomID != "" {
 		bind := c.bindCreatedSpaceRoomFn
@@ -80,8 +66,7 @@ func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCre
 		}
 	}
 
-	// Invited one by one, like the web client, so one refused invitee (an
-	// address outside what the account may reach) does not undo the space.
+	// Invite one by one so one refused invitee doesn't undo the space.
 	var failed map[networkid.UserID]*bridgev2.CreateChatFailedParticipant
 	for _, participant := range params.Participants {
 		err := c.createMembership(ctx, &pb.CreateMembershipRequest{
@@ -102,8 +87,7 @@ func (c *GChatClient) CreateGroup(ctx context.Context, params *bridgev2.GroupCre
 	}, nil
 }
 
-// bindCreatedSpaceRoom makes params.RoomID the new space's portal room and
-// syncs the space's info (members, power levels) into it.
+// bindCreatedSpaceRoom makes params.RoomID the new space's portal room and syncs its info.
 func (c *GChatClient) bindCreatedSpaceRoom(ctx context.Context, key networkid.PortalKey, params *bridgev2.GroupCreateParams) (*bridgev2.Portal, error) {
 	portal, err := c.UserLogin.Bridge.GetPortalByKey(ctx, key)
 	if err != nil {
@@ -127,8 +111,7 @@ func (c *GChatClient) bindCreatedSpaceRoom(ctx context.Context, key networkid.Po
 	})
 }
 
-// createSpace sends create_group in the web client's shape. It is never
-// retried: after a 5xx or a transport error the space may already exist.
+// createSpace sends create_group. Never retried: after a 5xx the space may already exist.
 func (c *GChatClient) createSpace(ctx context.Context, name string) (*pb.CreateGroupResponse, error) {
 	send := c.createGroupChatFn
 	if send == nil {
@@ -152,14 +135,10 @@ func (c *GChatClient) createSpace(ctx context.Context, name string) (*pb.CreateG
 	return resp, nil
 }
 
-// botPowerLevel is what the bridge bot needs in a room it did not create to
-// run it as a portal (room name, topic, power levels, member sync). 100 is
-// the most a room creator can grant; rooms the bridge creates give it 9001.
+// botPowerLevel is the most a room creator can grant; bridge-created rooms give the bot 9001.
 const botPowerLevel = 100
 
-// ensureBotPower raises the bridge bot to botPowerLevel in roomID if needed,
-// acting as the user through their double puppet -- the user asked for this
-// room to be bridged, and only they can grant power in it.
+// ensureBotPower raises the bot to botPowerLevel via the user's double puppet.
 func (c *GChatClient) ensureBotPower(ctx context.Context, roomID id.RoomID) error {
 	br := c.UserLogin.Bridge
 	pl, err := br.Matrix.GetPowerLevels(ctx, roomID)
@@ -178,10 +157,7 @@ func (c *GChatClient) ensureBotPower(ctx context.Context, roomID id.RoomID) erro
 	return nil
 }
 
-// promoteBot decides whether pl must change for the bot to reach
-// botPowerLevel, and applies the change when the user can make it: they need
-// a double puppet to act through, and at least botPowerLevel themselves
-// (Matrix never lets anyone grant more than their own level).
+// promoteBot raises the bot's level in pl if the user has a double puppet and at least botPowerLevel.
 func promoteBot(pl *event.PowerLevelsEventContent, bot, user id.UserID, hasDoublePuppet bool) (bool, error) {
 	if pl.GetUserLevel(bot) >= botPowerLevel {
 		return false, nil
@@ -196,8 +172,7 @@ func promoteBot(pl *event.PowerLevelsEventContent, bot, user id.UserID, hasDoubl
 	return true, nil
 }
 
-// newSpaceLocalID mimics the web client's create_group local_id: 11
-// characters from the URL-safe base64 alphabet.
+// newSpaceLocalID mimics the web client's local_id: 11 URL-safe base64 characters.
 func newSpaceLocalID() string {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 	b := make([]byte, 11)

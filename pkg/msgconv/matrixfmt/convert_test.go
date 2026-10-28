@@ -14,10 +14,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/matrixfmt"
 )
 
-// htmlContent builds an HTML-formatted MessageEventContent the way a real
-// Matrix client would (body is a plain-text fallback rendition; tests only
-// assert on the HTML path's output so the body value itself is arbitrary
-// but non-empty, matching real traffic).
 func htmlContent(formattedBody string) *event.MessageEventContent {
 	return &event.MessageEventContent{
 		MsgType:       event.MsgText,
@@ -27,11 +23,7 @@ func htmlContent(formattedBody string) *event.MessageEventContent {
 	}
 }
 
-// assertAnnotations compares two annotation slices for equal content,
-// ignoring order -- BodyRangeList construction order (outermost entity
-// first, per EntityString.Format prepending) is an implementation detail
-// this package's tests should not be pinned to; Google Chat's wire format
-// has no ordering requirement on the annotations array either.
+// assertAnnotations compares annotation slices ignoring order.
 func assertAnnotations(t *testing.T, got, want []*pb.Annotation) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -70,9 +62,6 @@ func formatAnnotations(anns []*pb.Annotation) string {
 	return s + "]"
 }
 
-// TestParse is the table-driven core of the behavior inventory: one case
-// per mandatory M3 Task 2 behavior. See html.go/convert.go's doc comments
-// for the behavior each case exercises.
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -212,10 +201,7 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			// The specific case megabridge silently dropped entirely: a
-			// "bare" link where the display text equals the href (the most
-			// common form -- Matrix clients auto-linkify plain URLs this
-			// way). Regression test for the fix.
+			// Display text equals href: still needs a URL annotation.
 			name:     "bare URL (text equals href) still gets a URL annotation",
 			content:  htmlContent(`<a href="https://example.com">https://example.com</a>`),
 			wantText: "https://example.com",
@@ -245,12 +231,7 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			// Anchor text that already starts with "@" (the shape gchatfmt
-			// produces for a bridged GC mention -- entityText is "@Bob")
-			// must NOT double the sigil to "@@Bob" when it re-enters this
-			// package (forwarding a bridged message, etc). Regression test
-			// for the cross-package round-trip defect the M3 whole-branch
-			// review found.
+			// Anchor text already starting with "@" must not become "@@Bob".
 			name: "mention pill whose anchor text already has @ -- single @, not doubled",
 			content: htmlContent(
 				`Hi <a href="https://matrix.to/#/@bob:example.com">@Bob</a>!`,
@@ -267,9 +248,7 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			// The classic UTF-16 trap: an astral-plane emoji (2 UTF-16 code
-			// units) sits before the mention. If offsets were computed in
-			// runes instead of UTF-16 code units, this would be off by one.
+			// Astral emoji before the mention: offsets must be UTF-16 code units, not runes.
 			name:     "mention placeholder-locator offset accounts for an astral char before it",
 			content:  htmlContent(`🎆 <a href="https://matrix.to/#/@alice:example.com">Alice</a>`),
 			mention:  func(id.UserID) (string, bool) { return "123", true },
@@ -300,9 +279,7 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			// Plain-text @room escape hatch: a message with NO
-			// formatted_body at all still gets a MENTION_ALL annotation if
-			// its plain body contains "@room".
+			// No formatted_body, but "@room" in the plain body still gets MENTION_ALL.
 			name: "@room in a PLAIN body (no formatted_body) still becomes MENTION_ALL",
 			content: &event.MessageEventContent{
 				MsgType: event.MsgText,
@@ -339,19 +316,7 @@ func TestParse(t *testing.T) {
 			wantText: "> line one\n> line two",
 		},
 		{
-			// Regression test (gchat-port-auditor finding): JoinEntityString
-			// used to leave a dangling trailing separator, and
-			// nodeToTagAwareString used to unconditionally prepend a
-			// leading "\n" before every block-tag sibling instead of only
-			// the first -- both bugs were invisible whenever the affected
-			// block was the ONLY/LAST content in the message, because
-			// Parse's outer TrimSpace happened to eat the extra newlines
-			// off the very end. Trailing content after the list exposes
-			// both: without the fixes this produced text
-			// "one\ntwo\n\n\nafter" (spurious blank lines) and a
-			// BULLETED_LIST annotation of length 8 (one UTF-16 code unit
-			// past "one\ntwo", into a stray "\n" that isn't part of any
-			// list item).
+			// Trailing content after a list exposes a dangling separator or extra leading newline.
 			name:     "unordered list followed by a paragraph -- no dangling separator, LIST span stays exact",
 			content:  htmlContent("<ul><li>one</li><li>two</li></ul><p>after</p>"),
 			wantText: "one\ntwo\nafter",
@@ -367,13 +332,7 @@ func TestParse(t *testing.T) {
 			wantText: "1. one\n2. two\nafter",
 		},
 		{
-			// Regression test (gchat-port-auditor re-audit finding): an
-			// empty <li></li> must not vanish from JoinEntityString's
-			// output -- its blank line must survive between its
-			// neighbors, even though (deliberately, see JoinEntityString's
-			// doc comment) it contributes no zero-length LIST_ITEM entity
-			// of its own. Before the fix, the empty middle item was
-			// dropped entirely and "foo"/"bar" were merged onto one line.
+			// An empty <li></li> must keep its blank line.
 			name:     "unordered list with an empty <li> -- blank line survives, item not merged away",
 			content:  htmlContent("<ul><li>foo</li><li></li><li>bar</li></ul>"),
 			wantText: "foo\n\nbar",
@@ -389,14 +348,7 @@ func TestParse(t *testing.T) {
 			wantText: "> quoted\nmore text",
 		},
 		{
-			// Regression test (gchat-port-auditor finding): a second <p>
-			// sibling must not get its OWN leading blank line on top of
-			// the first paragraph's trailing one -- the prev_was_block
-			// latch never resets, so only the very first block-tag child in
-			// a run of siblings gets a leading newline prepended. Matrix
-			// clients commonly
-			// emit exactly this shape (<p>...</p><p>...</p>) for a
-			// blank-line-separated multi-paragraph plain-text message.
+			// Adjacent <p>s must be separated by exactly one blank line.
 			name:     "two consecutive paragraphs -- exactly one blank line, not two",
 			content:  htmlContent("<p>a</p><p>b</p>"),
 			wantText: "a\n\nb",
@@ -414,20 +366,8 @@ func TestParse(t *testing.T) {
 	}
 }
 
-// --- AllowedMentions (content.Mentions / m.mentions) coverage -------------
-// M7 Task 3 item 2: every TestParse case above leaves content.Mentions nil,
-// so ctx.AllowedMentions is always nil ("no restriction") in every existing
-// test -- both the individual-mention gate (linkToString's
-// `ctx.AllowedMentions == nil || ctx.AllowedMentions.Has(mxid)`) and the
-// @room gate (textToEntityString's newly-added identical-shaped check) were
-// completely unexercised with a real *event.Mentions value. These tests
-// close that gap and pin the @room behavioral fix: "@room" must respect
-// AllowedMentions.Room instead of unconditionally becoming MENTION_ALL.
+// AllowedMentions (m.mentions) gating.
 
-// TestParse_RoomMention_AllowedByMentions: an explicit Mentions.Room=true
-// (the sender's client intentionally included the room-wide ping in
-// m.mentions) still converts "@room" to MENTION_ALL, same as the nil
-// (unrestricted) case.
 func TestParse_RoomMention_AllowedByMentions(t *testing.T) {
 	content := htmlContent("hey @room check this out")
 	content.Mentions = &event.Mentions{Room: true}
@@ -441,10 +381,7 @@ func TestParse_RoomMention_AllowedByMentions(t *testing.T) {
 	})
 }
 
-// TestParse_RoomMention_NotAllowedByMentions is the headline regression test
-// for the fix: an explicit Mentions block that does NOT set Room must NOT
-// let a literal "@room" in the body broadcast a room-wide ping -- the text
-// stays literal, with no MENTION_ALL annotation at all.
+// A Mentions block without Room must leave "@room" literal.
 func TestParse_RoomMention_NotAllowedByMentions(t *testing.T) {
 	content := htmlContent("hey @room check this out")
 	content.Mentions = &event.Mentions{Room: false}
@@ -458,10 +395,6 @@ func TestParse_RoomMention_NotAllowedByMentions(t *testing.T) {
 	}
 }
 
-// TestParse_RoomMention_NotAllowedByMentions_PlainBody is the same
-// not-allowed case through the plain-body @room escape hatch (Parse's own
-// "synthesize an HTML body just so @room can fire" branch) -- proving the
-// gate applies uniformly however the message reaches textToEntityString.
 func TestParse_RoomMention_NotAllowedByMentions_PlainBody(t *testing.T) {
 	content := &event.MessageEventContent{
 		MsgType:  event.MsgText,
@@ -478,9 +411,6 @@ func TestParse_RoomMention_NotAllowedByMentions_PlainBody(t *testing.T) {
 	}
 }
 
-// TestParse_MentionPill_AllowedByMentions covers the individual-mention
-// AllowedMentions branch with a real, non-nil *event.Mentions that DOES
-// include the pill's MXID -- the pill must still resolve normally.
 func TestParse_MentionPill_AllowedByMentions(t *testing.T) {
 	content := htmlContent(`Hi <a href="https://matrix.to/#/@alice:example.com">Alice</a>!`)
 	content.Mentions = &event.Mentions{UserIDs: []id.UserID{"@alice:example.com"}}
@@ -500,10 +430,6 @@ func TestParse_MentionPill_AllowedByMentions(t *testing.T) {
 	})
 }
 
-// TestParse_MentionPill_NotAllowedByMentions covers the individual-mention
-// AllowedMentions branch's negative case: a non-nil *event.Mentions that
-// does NOT list the pill's MXID must fall back to plain text, exactly like
-// an unresolvable gaia id -- no MENTION annotation, nothing dropped.
 func TestParse_MentionPill_NotAllowedByMentions(t *testing.T) {
 	content := htmlContent(`Hi <a href="https://matrix.to/#/@alice:example.com">Alice</a>!`)
 	content.Mentions = &event.Mentions{} // present but empty -- alice is not in it
@@ -521,11 +447,7 @@ func TestParse_MentionPill_NotAllowedByMentions(t *testing.T) {
 	}
 }
 
-// TestParse_PlainBodyReturnsNilAnnotationsSlice pins the exact M2-compatible
-// contract: a plain message (no formatting) must get a literal nil
-// annotations slice, not an empty-but-non-nil one, matching the task
-// interface's documented "text only, no annotations" contract and letting
-// callers use `if annotations != nil` as a cheap "was this formatted" check.
+// Plain messages must return a nil (not empty) annotations slice.
 func TestParse_PlainBodyReturnsNilAnnotationsSlice(t *testing.T) {
 	text, annotations := matrixfmt.Parse(context.Background(), &event.MessageEventContent{
 		MsgType: event.MsgText,
@@ -539,19 +461,7 @@ func TestParse_PlainBodyReturnsNilAnnotationsSlice(t *testing.T) {
 	}
 }
 
-// TestEntityString_TrimSpace_KeepsEntityOffsetsCorrect is a direct
-// regression test for a bug found while self-reviewing this port: the
-// initial port of TrimSpace (following megabridge's own TrimSpace exactly)
-// shifted an entity's Start by -cutStart BEFORE clamping it into the kept
-// [cutStart, cutEnd) window, instead of clamping first (in the pre-trim
-// coordinate space) and shifting last -- the order Split's doSplit uses
-// correctly. For any entity that actually extends into the whitespace
-// being trimmed away, that produces a negative Start and/or an
-// out-of-bounds Length instead of a correctly clamped span. In the current
-// parser's recursion shape this is hard to trigger end-to-end (every
-// Format() call wraps content a nested TrimSpace already cleaned), so it's
-// pinned here directly against the primitive rather than relying on an
-// HTML fixture to happen to exercise it.
+// Entities extending into trimmed whitespace must be clamped before shifting.
 func TestEntityString_TrimSpace_KeepsEntityOffsetsCorrect(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -621,10 +531,7 @@ func TestEntityString_TrimSpace_KeepsEntityOffsetsCorrect(t *testing.T) {
 	}
 }
 
-// --- Round-trip sanity: matrixfmt output fed back through gchatfmt should
-// reproduce (semantically equivalent) Matrix HTML. These exercise both M3
-// Task 1 and Task 2 together to prove the two directions agree on the wire
-// shape of every annotation type they share.
+// Round-trip: matrixfmt output fed back through gchatfmt.
 
 func TestRoundTrip_Bold(t *testing.T) {
 	text, annotations := matrixfmt.Parse(context.Background(), htmlContent("<strong>hi</strong>"), nil)
@@ -675,6 +582,7 @@ func TestRoundTrip_UserMention(t *testing.T) {
 		`<a href="https://matrix.to/#/@alice:example.com">Alice</a>`,
 	), toGaia)
 
+	// gchatfmt renders a GC MENTION over the text "@Bob" into pill HTML.
 	toMXID := func(gaiaID string) (id.UserID, string, bool) {
 		if gaiaID == "123" {
 			return "@alice:example.com", "Alice", true
@@ -688,14 +596,7 @@ func TestRoundTrip_UserMention(t *testing.T) {
 	}
 }
 
-// TestRoundTrip_MentionSigilNotDoubled is the regression test for the
-// cross-package round-trip defect the M3 whole-branch review found: a
-// bridged GC mention is rendered by gchatfmt as a pill whose anchor text
-// ALREADY starts with "@" (GC's entityText, e.g. "@Bob"). Feeding that
-// exact HTML back through matrixfmt (forwarding a bridged message) must
-// yield text with a SINGLE leading "@", not "@@Bob".
 func TestRoundTrip_MentionSigilNotDoubled(t *testing.T) {
-	// gchatfmt renders a GC MENTION over the text "@Bob" into pill HTML.
 	toMXID := func(gaiaID string) (id.UserID, string, bool) {
 		if gaiaID == "456" {
 			return "@bob:example.com", "@Bob", true
@@ -708,7 +609,6 @@ func TestRoundTrip_MentionSigilNotDoubled(t *testing.T) {
 		t.Fatalf("gchatfmt produced unexpected pill HTML: %q", pillHTML)
 	}
 
-	// Now that same HTML re-enters matrixfmt.
 	toGaia := func(mxid id.UserID) (string, bool) {
 		if mxid == "@bob:example.com" {
 			return "456", true

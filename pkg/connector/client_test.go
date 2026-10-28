@@ -34,14 +34,9 @@ func newTestUserLogin(meta *UserLoginMetadata) *bridgev2.UserLogin {
 			ID:       gcid.MakeUserLoginID("112233"),
 			Metadata: meta,
 		},
-		// BridgeState is deliberately left nil: (*bridgev2.BridgeStateQueue).Send
-		// guards a nil receiver ($REF/mautrix-go bridgev2/bridgestate.go:293-296),
-		// so tests can exercise the real Send call without a full bridgev2.Bridge
-		// + DB harness.
+		// BridgeState is left nil: BridgeStateQueue.Send tolerates a nil receiver.
 	}
 }
-
-// --- hasRequiredCookies -----------------------------------------------------
 
 func TestHasRequiredCookies(t *testing.T) {
 	if !hasRequiredCookies(fakeCookies()) {
@@ -62,8 +57,6 @@ func TestHasRequiredCookies(t *testing.T) {
 	}
 }
 
-// --- Connect: missing/invalid cookies -> BadCredentials ---------------------
-
 func TestConnectMissingCookiesSendsBadCredentials(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	gc := &GChatClient{UserLogin: login}
@@ -73,9 +66,7 @@ func TestConnectMissingCookiesSendsBadCredentials(t *testing.T) {
 	if got := gc.getLastState(); got != status.StateBadCredentials {
 		t.Errorf("lastState = %v, want StateBadCredentials", got)
 	}
-	// Its own code: nothing was rejected, there was nothing to reject. The
-	// advice to the user is identical, but conflating the two loses the
-	// diagnosis for whoever reads the log.
+	// Distinct code from a Google-rejected cookie set.
 	if got := gc.getLastErrorCode(); got != GChatCookiesMissing {
 		t.Errorf("lastError = %v, want %v", got, GChatCookiesMissing)
 	}
@@ -97,16 +88,12 @@ func TestConnectPartialCookiesSendsBadCredentials(t *testing.T) {
 	}
 }
 
-// --- Connect: happy path builds+installs a client and starts it -----------
-
 func TestConnectBuildsAndInstallsClient(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{Cookies: fakeCookies()})
 	gc := &GChatClient{UserLogin: login}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // pre-cancelled: the spawned supervision goroutine returns immediately,
-	// never attempting real network I/O (see gchatmeow.Client.Connect's first
-	// check, ctx.Err() != nil) and never invoking OnConnectionState/OnStreamEvent.
+	cancel() // pre-cancelled: the spawned supervision goroutine returns immediately
 
 	gc.Connect(ctx)
 
@@ -123,10 +110,6 @@ func TestConnectBuildsAndInstallsClient(t *testing.T) {
 	time.Sleep(20 * time.Millisecond) // let the background goroutine return
 }
 
-// --- Carry-over (a): reconnect/resubmit tears down the prior client -------
-
-// TestReplaceConnDisconnectsOldClient is the focused unit test for the
-// teardown primitive both Connect and LoadUserLogin rely on.
 func TestReplaceConnDisconnectsOldClient(t *testing.T) {
 	client1, err := gchatmeow.NewClient(gchatmeow.ClientOpts{})
 	if err != nil {
@@ -173,10 +156,6 @@ func TestReplaceConnNoPriorClientDoesNotDisconnect(t *testing.T) {
 	}
 }
 
-// TestConnectTearsDownPriorClientOnReconnect exercises the carry-over (a)
-// fix at the Connect level: calling Connect again on a *GChatClient that
-// already has a conn installed (e.g. a defensive double-Connect) must
-// disconnect the old one rather than orphaning its goroutine.
 func TestConnectTearsDownPriorClientOnReconnect(t *testing.T) {
 	oldClient, err := gchatmeow.NewClient(gchatmeow.ClientOpts{})
 	if err != nil {
@@ -208,8 +187,6 @@ func TestConnectTearsDownPriorClientOnReconnect(t *testing.T) {
 	}
 }
 
-// --- Disconnect idempotency -------------------------------------------------
-
 func TestGChatClientDisconnectNilConnIsNoop(t *testing.T) {
 	gc := &GChatClient{}
 	gc.Disconnect()
@@ -222,10 +199,7 @@ func TestGChatClientDisconnectIdempotentWithRealClient(t *testing.T) {
 		t.Fatalf("NewClient: %v", err)
 	}
 	gc := &GChatClient{conn: client}
-	// gchatmeow.Client.Disconnect is documented safe to call repeatedly and
-	// when never connected (client.go: "Safe to call concurrently and when
-	// not connected (no-op)"); this exercises that end-to-end through
-	// GChatClient.Disconnect without a disconnectFn override.
+
 	gc.Disconnect()
 	gc.Disconnect()
 }
@@ -244,8 +218,6 @@ func TestGChatClientDisconnectRoutesThroughDisconnectFn(t *testing.T) {
 	}
 }
 
-// --- Carry-over (c): cookie persistence after Connected --------------------
-
 func TestHandleConnStatePersistsCookiesOnConnected(t *testing.T) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
 	if err != nil {
@@ -261,11 +233,7 @@ func TestHandleConnStatePersistsCookiesOnConnected(t *testing.T) {
 		saveFn:    func(context.Context) error { saveCount++; return nil },
 	}
 
-	// Pre-cancelled: handleConnState's Connected branch (Task 12) also spawns
-	// syncChats in its own goroutine, which would otherwise attempt a real
-	// paginated_world network round trip through this test-only, never-
-	// actually-connected gchatmeow.Client -- same rationale and pattern as
-	// TestConnectBuildsAndInstallsClient's pre-cancelled context.
+	// Pre-cancelled so the spawned syncChats returns immediately.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -289,8 +257,6 @@ func TestHandleConnStatePersistsCookiesOnConnected(t *testing.T) {
 	}
 	time.Sleep(20 * time.Millisecond) // let the spawned syncChats goroutine return
 }
-
-// --- shouldSyncOnConnect: sync once per conn, not on every reconnect ------
 
 func TestShouldSyncOnConnectTrueOnceThenFalse(t *testing.T) {
 	gc := &GChatClient{}
@@ -324,16 +290,7 @@ func TestWireAndStartResetsInitialSyncDone(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 }
 
-// TestHandleConnStateDoesNotResyncOnSecondConnected pins the actual bug the
-// gchat-port-auditor caught end-to-end through handleConnState (rather than
-// shouldSyncOnConnect in isolation): a second ConnStateConnected transition
-// on the SAME conn (e.g. an internal webchannel reconnect) must not spawn
-// another syncChats goroutine. Since syncChats itself always makes a real
-// RPC call when given a live (if never-actually-connected) *gchatmeow.Client,
-// this only asserts indirectly -- via shouldSyncOnConnect's own state -- that
-// handleConnState's gate consumed the "may sync" slot exactly once for the
-// two Connected transitions below, which is what actually prevents the
-// second goroutine spawn in handleConnState's real code path.
+// TestHandleConnStateDoesNotResyncOnSecondConnected: a reconnect on the same conn must not resync.
 func TestHandleConnStateDoesNotResyncOnSecondConnected(t *testing.T) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
 	if err != nil {
@@ -341,15 +298,7 @@ func TestHandleConnStateDoesNotResyncOnSecondConnected(t *testing.T) {
 	}
 	login := newTestUserLogin(&UserLoginMetadata{})
 
-	// Pin the sync goroutine inside its RPC for the duration of the test.
-	//
-	// Without this the assertion below is a RACE, and one this test loses on
-	// a loaded machine: handleConnState spawns syncChats, which on giving up
-	// calls resetSyncLatch (sync.go) so a later reconnect can retry -- that
-	// reset is deliberate production behaviour, and it frees the very slot
-	// this test is checking was consumed. Blocking the RPC means syncChats
-	// never reaches the give-up path, so the latch state is settled when it
-	// is read. Same technique as backfill_test.go's blocked-RPC tests.
+	// Block the sync RPC: if syncChats gave up it would reset the latch this test checks.
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 
@@ -403,8 +352,6 @@ func TestHandleConnStateDoesNotPersistOnTransient(t *testing.T) {
 	}
 }
 
-// --- IsLoggedIn / IsThisUser -------------------------------------------------
-
 func TestIsLoggedInDefaultsFalse(t *testing.T) {
 	gc := &GChatClient{}
 	if gc.IsLoggedIn() {
@@ -423,8 +370,6 @@ func TestIsThisUser(t *testing.T) {
 		t.Error("IsThisUser(other id) = true, want false")
 	}
 }
-
-// --- LogoutRemote ------------------------------------------------------------
 
 func TestLogoutRemoteClearsCookiesAndDisconnects(t *testing.T) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
@@ -455,20 +400,7 @@ func TestLogoutRemoteClearsCookiesAndDisconnects(t *testing.T) {
 	}
 }
 
-// --- Metadata race: logout vs. cookie persistence ---------------------------
-
-// TestMetadataRaceLogoutVsPersist is the regression test for the metadata
-// race the metaMu fix closes: persistCookies (simulating a Connected
-// callback running on conn's own OnConnectionState goroutine) and
-// LogoutRemote (simulating a concurrent bridgev2-side logout) used to mutate
-// the same *UserLoginMetadata with no synchronization at all. Run under
-// `-race`, this both proves no data race is reported and pins the required
-// outcome: because updateMetadata serializes the two critical sections and
-// LogoutRemote unconditionally nils Cookies + sets loggedOut (which
-// persistCookies checks before writing), the final state is logged out
-// (Cookies == nil) no matter which goroutine's critical section runs last --
-// a live cookie set can never be resurrected over a logout. Looped so a
-// single lucky ordering can't hide a real bug.
+// TestMetadataRaceLogoutVsPersist: run under -race; logout must always win over a concurrent persist.
 func TestMetadataRaceLogoutVsPersist(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
@@ -501,12 +433,7 @@ func TestMetadataRaceLogoutVsPersist(t *testing.T) {
 	}
 }
 
-// TestPersistSkippedAfterLogout pins the loggedOut latch itself (as opposed
-// to TestMetadataRaceLogoutVsPersist's concurrent-race framing): once
-// LogoutRemote has already completed, a later persistCookies call (e.g. a
-// slow Connected callback that lands well after the logout finished) must
-// not write the live cookies back -- including not calling save() at all,
-// not just leaving the field unmutated.
+// TestPersistSkippedAfterLogout: persistCookies after logout must not write or save.
 func TestPersistSkippedAfterLogout(t *testing.T) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
 	if err != nil {

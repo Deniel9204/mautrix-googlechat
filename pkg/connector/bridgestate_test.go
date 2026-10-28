@@ -10,8 +10,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow"
 )
 
-// TestConnStateToBridgeState pins the connection-state -> bridge-state
-// mapping table.
 func TestConnStateToBridgeState(t *testing.T) {
 	boom := errors.New("boom")
 	tests := []struct {
@@ -38,8 +36,7 @@ func TestConnStateToBridgeState(t *testing.T) {
 			if got.Error != tt.wantError {
 				t.Errorf("Error = %v, want %v", got.Error, tt.wantError)
 			}
-			// Pasting fresh cookies is the only recovery this login model
-			// has, so every failing state must say so in the payload.
+			// Relogin is the only recovery, so every failing state must say so.
 			if got.UserAction != tt.wantAction {
 				t.Errorf("UserAction = %v, want %v", got.UserAction, tt.wantAction)
 			}
@@ -47,9 +44,6 @@ func TestConnStateToBridgeState(t *testing.T) {
 	}
 }
 
-// TestConnStateToBridgeStateUnknown pins the fallback for any future/unknown
-// ConnState value: it must not panic, and must map to an error state rather
-// than silently reporting CONNECTED.
 func TestConnStateToBridgeStateUnknown(t *testing.T) {
 	got := connStateToBridgeState(gchatmeow.ConnState(99), nil)
 	if got.StateEvent != status.StateUnknownError {
@@ -60,11 +54,6 @@ func TestConnStateToBridgeStateUnknown(t *testing.T) {
 	}
 }
 
-// TestBridgeStateHumanErrorsRegistered mirrors meta's
-// handlemeta.go init() registration pattern: every error code this connector
-// defines must have a human-readable message registered, since
-// status.BridgeState.Fill only fills Message when the code is present in the
-// registry.
 func TestBridgeStateHumanErrorsRegistered(t *testing.T) {
 	codes := []status.BridgeStateErrorCode{
 		GChatBadCredentials,
@@ -80,9 +69,6 @@ func TestBridgeStateHumanErrorsRegistered(t *testing.T) {
 	}
 }
 
-// TestHumanErrorMessagesAreActionable: a bridge state the user sees is only
-// useful if it says what to DO. Every failure this connector reports has the
-// same remedy -- paste fresh cookies -- so every message must name it.
 func TestHumanErrorMessagesAreActionable(t *testing.T) {
 	for _, code := range []status.BridgeStateErrorCode{GChatBadCredentials, GChatCookiesMissing, GChatFatalError} {
 		msg := status.BridgeStateHumanErrors[code]
@@ -95,11 +81,7 @@ func TestHumanErrorMessagesAreActionable(t *testing.T) {
 	}
 }
 
-// TestHumanErrorMessagesAreMarkdownFree pins a constraint that is invisible at
-// the call site: these strings have two surfaces. bridgev2 renders them as
-// MARKDOWN in the management room, but emits them as RAW PLAIN TEXT in portal
-// rooms on every failed send. Anything needing a renderer is therefore wrong
-// on one of the two.
+// TestHumanErrorMessagesAreMarkdownFree: the strings are also sent as plain text into portal rooms.
 func TestHumanErrorMessagesAreMarkdownFree(t *testing.T) {
 	for _, code := range []status.BridgeStateErrorCode{
 		GChatBadCredentials, GChatCookiesMissing, GChatTransientDisconnect, GChatFatalError,
@@ -112,12 +94,7 @@ func TestHumanErrorMessagesAreMarkdownFree(t *testing.T) {
 	}
 }
 
-// TestFatalMapsToUnknownErrorNotBadCredentials guards the one remapping a
-// future contributor is most likely to make. StateBadCredentials would look
-// better -- bridgev2 substitutes the human message into portal send failures
-// for it -- but StateUnknownError is the only state for which bridgev2
-// schedules a reconnect, so the swap silently removes the fatal path's only
-// route back to a working connection.
+// TestFatalMapsToUnknownErrorNotBadCredentials: only StateUnknownError gets bridgev2's reconnect.
 func TestFatalMapsToUnknownErrorNotBadCredentials(t *testing.T) {
 	got := connStateToBridgeState(gchatmeow.ConnStateFatal, errors.New("boom"))
 	if got.StateEvent != status.StateUnknownError {
@@ -125,8 +102,6 @@ func TestFatalMapsToUnknownErrorNotBadCredentials(t *testing.T) {
 	}
 }
 
-// TestMissingCookiesBridgeState: a login with nothing stored is a different
-// diagnosis from one Google rejected, even though the advice is identical.
 func TestMissingCookiesBridgeState(t *testing.T) {
 	got := missingCookiesBridgeState()
 	if got.StateEvent != status.StateBadCredentials {

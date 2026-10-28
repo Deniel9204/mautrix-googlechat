@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-// testServerHost returns the bare hostname (no port) of an httptest server's
-// URL, for injecting into Session.allowedHostSuffixes in tests.
 func testServerHost(t *testing.T, rawURL string) string {
 	t.Helper()
 	u, err := url.Parse(rawURL)
@@ -25,10 +23,7 @@ func testServerHost(t *testing.T, rawURL string) string {
 	return u.Hostname()
 }
 
-// newLoopbackServer starts an httptest server bound to a specific loopback
-// address (not the usual 127.0.0.1) so a test can create two servers that
-// are distinguishable by host, without relying on real DNS. Used to prove
-// cookies are withheld from a host outside the allowlist.
+// newLoopbackServer binds a distinct loopback address so two servers differ by host.
 func newLoopbackServer(t *testing.T, ip string, handler http.Handler) *httptest.Server {
 	t.Helper()
 	ln, err := net.Listen("tcp", ip+":0")
@@ -42,11 +37,7 @@ func newLoopbackServer(t *testing.T, ip string, handler http.Handler) *httptest.
 	return srv
 }
 
-// TestCookiesSentUnquoted verifies a cookie value containing a space and a
-// comma is sent to the server VERBATIM, unquoted -- Go's default
-// http.Client.Jar machinery double-quotes such values (net/http's
-// sanitizeCookieValue), which the Google Chat server does not accept, so
-// the cookie header is hand-built unquoted instead.
+// TestCookiesSentUnquoted: Go's cookie jar would quote values with spaces/commas, which Google rejects.
 func TestCookiesSentUnquoted(t *testing.T) {
 	var gotCookie string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,9 +69,6 @@ func TestCookiesSentUnquoted(t *testing.T) {
 	}
 }
 
-// TestCookieRotationReadback verifies a rotated Set-Cookie from the server
-// is absorbed into the jar and visible via Cookies() -- the Go bridge must
-// round-trip rotated cookie values to the DB or sessions die early.
 func TestCookieRotationReadback(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "rotated2", Path: "/"})
@@ -104,18 +92,11 @@ func TestCookieRotationReadback(t *testing.T) {
 	if got["SID"] != "rotated2" {
 		t.Errorf(`Cookies()["SID"] = %q, want "rotated2"`, got["SID"])
 	}
-	// Un-rotated cookies must survive untouched.
 	if got["COMPASS"] != "c0" {
 		t.Errorf(`Cookies()["COMPASS"] = %q, want "c0"`, got["COMPASS"])
 	}
 }
 
-// TestCookiesNotSentCrossDomain verifies cookies are attached only to
-// requests whose host matches Session.allowedHostSuffixes -- a second
-// server outside the allowlist must receive no Cookie header at all (the
-// "don't accidentally send the auth cookie to a non-Google domain" safety
-// rail, implemented here as conditional attachment rather than a hard
-// request rejection).
 func TestCookiesNotSentCrossDomain(t *testing.T) {
 	var allowedCookie, outsideCookie string
 	var allowedSeen, outsideSeen bool
@@ -158,10 +139,6 @@ func TestCookiesNotSentCrossDomain(t *testing.T) {
 	}
 }
 
-// TestFetchRetries verifies Fetch retries transient (5xx) failures up to
-// maxRetries=3 total attempts with exponential backoff, succeeding once the
-// server recovers (the exponential backoff is this port's own addition, see
-// retryBackoffBase's doc comment).
 func TestFetchRetries(t *testing.T) {
 	var mu sync.Mutex
 	requests := 0
@@ -200,8 +177,6 @@ func TestFetchRetries(t *testing.T) {
 	}
 }
 
-// TestFetchRetriesExhaustedReturnsNetworkError verifies that once all
-// maxRetries attempts fail, Fetch surfaces a *NetworkError after exhaustion.
 func TestFetchRetriesExhaustedReturnsNetworkError(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -224,8 +199,6 @@ func TestFetchRetriesExhaustedReturnsNetworkError(t *testing.T) {
 	if got := atomic.LoadInt32(&requests); got != maxRetries {
 		t.Errorf("requests = %d, want %d", got, maxRetries)
 	}
-	// The wrapped cause should still be recoverable with its status code, so
-	// a caller can tell a 502 exhaustion apart from a bare transport error.
 	var use *UnexpectedStatusError
 	if !errors.As(err, &use) {
 		t.Fatalf("err = %v, want it to unwrap to an *UnexpectedStatusError", err)
@@ -235,12 +208,6 @@ func TestFetchRetriesExhaustedReturnsNetworkError(t *testing.T) {
 	}
 }
 
-// TestFetchNonRetryableStatusReturnsUnexpectedStatusError verifies a
-// non-5xx, non-200 status (e.g. 401) is surfaced immediately as
-// *UnexpectedStatusError with the status code AND parsed error code
-// preserved, and is NOT retried -- unlike googlechat-megabridge's
-// session.go, which retries every non-200 status and hammers a dead
-// session 3x while losing the status code.
 func TestFetchNonRetryableStatusReturnsUnexpectedStatusError(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -272,8 +239,6 @@ func TestFetchNonRetryableStatusReturnsUnexpectedStatusError(t *testing.T) {
 	}
 }
 
-// TestConnectionKeepAliveForced verifies Connection: Keep-Alive is forced
-// on every request, overriding any caller-supplied value.
 func TestConnectionKeepAliveForced(t *testing.T) {
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -297,8 +262,6 @@ func TestConnectionKeepAliveForced(t *testing.T) {
 	}
 }
 
-// TestTLSVerificationEnabled verifies TLS certificate verification stays
-// ON: a Go port must NOT disable certificate verification.
 func TestTLSVerificationEnabled(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -311,8 +274,6 @@ func TestTLSVerificationEnabled(t *testing.T) {
 	}
 	sess.allowedHostSuffixes = []string{testServerHost(t, srv.URL)}
 
-	// srv's certificate is self-signed and not installed in sess's client;
-	// with real verification a request against it must fail.
 	_, err = sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil)
 	if err == nil {
 		t.Fatal("Fetch against an untrusted TLS server unexpectedly succeeded -- TLS verification appears disabled")
@@ -323,13 +284,7 @@ func TestTLSVerificationEnabled(t *testing.T) {
 	}
 }
 
-// TestNoClientTimeout guards against megabridge's fatal defect: a blanket
-// http.Client.Timeout on the client used for long-polling, which covers
-// the entire request including body read and kills every poll after a
-// fixed duration regardless of heartbeats (a shared http.Client with
-// Timeout: 90 * time.Second aborts every long poll after 90 seconds).
-// pollClient.Timeout must stay the zero value: FetchRaw callers own
-// cancellation via ctx instead.
+// TestNoClientTimeout: a client Timeout would kill every long poll after a fixed duration.
 func TestNoClientTimeout(t *testing.T) {
 	sess, err := NewSession(nil, "")
 	if err != nil {
@@ -340,10 +295,6 @@ func TestNoClientTimeout(t *testing.T) {
 	}
 }
 
-// TestFetchRawReturnsRawResponseNoRetry verifies FetchRaw performs exactly
-// one attempt and returns the raw, unread *http.Response regardless of
-// status -- no retry loop and no status-code mapping, which are Fetch-only
-// behaviors. The channel does its own status/error mapping on top of this.
 func TestFetchRawReturnsRawResponseNoRetry(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -371,15 +322,11 @@ func TestFetchRawReturnsRawResponseNoRetry(t *testing.T) {
 	}
 }
 
-// TestUserAgentVersionRewrite verifies a caller-supplied User-Agent has its
-// Chrome/Firefox version pinned to the latest known-good values.
 func TestUserAgentVersionRewrite(t *testing.T) {
 	sess, err := NewSession(nil, "Mozilla/5.0 Chrome/100.0.4321.10 Safari/537.36")
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	// Against the constant, not a literal: the pinned version is meant to be
-	// bumped; what this test protects is that the rewrite HAPPENS.
 	if !strings.Contains(sess.userAgent, "Chrome/"+latestChromeVersion+".0.0.0") {
 		t.Errorf("userAgent = %q, want Chrome version rewritten to %s.0.0.0", sess.userAgent, latestChromeVersion)
 	}
@@ -388,8 +335,6 @@ func TestUserAgentVersionRewrite(t *testing.T) {
 	}
 }
 
-// TestDefaultUserAgent verifies an empty User-Agent falls back to the
-// default Windows/Chrome UA.
 func TestDefaultUserAgent(t *testing.T) {
 	sess, err := NewSession(nil, "")
 	if err != nil {
@@ -400,8 +345,6 @@ func TestDefaultUserAgent(t *testing.T) {
 	}
 }
 
-// TestRequiredCookies pins the exact set of cookies the login UI must
-// collect (uppercased).
 func TestRequiredCookies(t *testing.T) {
 	want := []string{"COMPASS", "SSID", "SID", "OSID", "HSID"}
 	if len(RequiredCookies) != len(want) {
@@ -414,13 +357,7 @@ func TestRequiredCookies(t *testing.T) {
 	}
 }
 
-// TestDefaultAllowedHostSuffixes pins the actual default allowlist content.
-// Every other test in this file overrides allowedHostSuffixes to point at
-// an httptest server, so without this test a typo/regression in
-// defaultAllowedHostSuffixes itself would go undetected. The allowlist is
-// google.com ONLY: googleusercontent.com is deliberately NOT allowlisted --
-// googleusercontent.com hops must be cookie-less so auth cookies never
-// reach them.
+// TestDefaultAllowedHostSuffixes pins the real default; other tests override it.
 func TestDefaultAllowedHostSuffixes(t *testing.T) {
 	sess, err := NewSession(nil, "")
 	if err != nil {
@@ -449,16 +386,7 @@ func TestDefaultAllowedHostSuffixes(t *testing.T) {
 	}
 }
 
-// TestRedirectSetCookieNotAbsorbed verifies cookie absorption is gated on
-// the FINAL, post-redirect response origin, not the URL originally
-// requested: an allowlisted host that 302-redirects to a non-allowlisted
-// host must not cause that host's Set-Cookie to be absorbed into the jar.
-// Go's http.Client follows redirects internally and returns only the final
-// response (with resp.Request set to the final request), so gating on the
-// pre-redirect URL would absorb the attacker's cookie. An RFC 6265
-// domain-scoped jar would be immune without an explicit check; this port's
-// flat jar needs the explicit origin gate in absorbCookies. Covers both
-// Fetch (apiClient) and FetchRaw (pollClient).
+// TestRedirectSetCookieNotAbsorbed: absorption is gated on the post-redirect origin.
 func TestRedirectSetCookieNotAbsorbed(t *testing.T) {
 	var evilCookieHeader string
 	var evilHits int32
@@ -480,7 +408,6 @@ func TestRedirectSetCookieNotAbsorbed(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSession: %v", err)
 		}
-		// Only the redirect SOURCE is allowlisted; the target is not.
 		sess.allowedHostSuffixes = []string{testServerHost(t, allowedSrv.URL)}
 
 		if err := do(sess); err != nil {
@@ -492,9 +419,6 @@ func TestRedirectSetCookieNotAbsorbed(t *testing.T) {
 		if got := sess.Cookies()["SID"]; got != "secret" {
 			t.Errorf(`Cookies()["SID"] = %q, want "secret" (Set-Cookie from post-redirect non-allowlisted host must not be absorbed)`, got)
 		}
-		// Defense in depth: Go's http.Client also strips the Cookie header
-		// on the cross-host redirect hop (net/http shouldCopyHeaderOnRedirect),
-		// so the attacker host must not see the auth cookies either.
 		if evilCookieHeader != "" {
 			t.Errorf("redirect target received Cookie = %q, want none", evilCookieHeader)
 		}
@@ -528,21 +452,13 @@ func TestRedirectSetCookieNotAbsorbed(t *testing.T) {
 	})
 }
 
-// TestGoogleusercontentGetsNoCookies drives a real HTTP request to a
-// literal googleusercontent.com URL (dial redirected to a local httptest
-// server, DEFAULT allowlist untouched) and asserts both directions of the
-// cookie gate: no Cookie header is sent, and a Set-Cookie in the response
-// is NOT absorbed into Cookies(). googleusercontent.com hops must be
-// fetched cookie-less precisely so auth cookies never leak there; the
-// download flow relies on this Session withholding cookies from
-// non-allowlisted hosts.
+// TestGoogleusercontentGetsNoCookies exercises the real default allowlist against googleusercontent.com.
 func TestGoogleusercontentGetsNoCookies(t *testing.T) {
 	var gotCookie string
 	var seen bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotCookie = r.Header.Get("Cookie")
 		seen = true
-		// A rotation attempt from a non-allowlisted host must be ignored.
 		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "poisoned", Path: "/"})
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -552,10 +468,6 @@ func TestGoogleusercontentGetsNoCookies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSession: %v", err)
 	}
-	// Deliberately do NOT override sess.allowedHostSuffixes -- this test
-	// exercises the real default allowlist against a real
-	// googleusercontent.com hostname. Only the dial is redirected to the
-	// local test server, so no DNS/network access is needed.
 	srvAddr := srv.Listener.Addr().String()
 	dialer := &net.Dialer{}
 	sess.apiClient.Transport = &http.Transport{
@@ -581,8 +493,6 @@ func TestGoogleusercontentGetsNoCookies(t *testing.T) {
 		t.Errorf(`Cookies()["SID"] = %q, want "secret" (Set-Cookie from a non-allowlisted host must not be absorbed)`, got)
 	}
 }
-
-// --- retry policy: 429 and non-idempotent sends --------------------------
 
 func TestParseRetryAfter(t *testing.T) {
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
@@ -610,9 +520,6 @@ func TestParseRetryAfter(t *testing.T) {
 	}
 }
 
-// TestFetchRetriesOn429 -- a 429 means the request was REJECTED, not
-// processed, so it is always safe to retry. Previously only 5xx was
-// retryable, so a rate-limited call failed outright with no backoff.
 func TestFetchRetriesOn429(t *testing.T) {
 	var mu sync.Mutex
 	requests := 0
@@ -650,8 +557,6 @@ func TestFetchRetriesOn429(t *testing.T) {
 	}
 }
 
-// TestFetchWaitsForRetryAfter proves the header is actually wired into the
-// backoff, not merely parsed.
 func TestFetchWaitsForRetryAfter(t *testing.T) {
 	var mu sync.Mutex
 	requests := 0
@@ -679,17 +584,13 @@ func TestFetchWaitsForRetryAfter(t *testing.T) {
 	if _, err := sess.Fetch(context.Background(), http.MethodGet, srv.URL, nil, nil); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	// The default backoff for the first retry is tens of milliseconds, so
-	// only honouring Retry-After can produce a wait near a second.
+	// Only honouring Retry-After can produce a wait near a second.
 	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
 		t.Errorf("retried after %v, want >= ~1s: Retry-After was ignored", elapsed)
 	}
 }
 
-// TestFetchNonIdempotentDoesNotRetry5xx is the double-send guard. A 5xx can
-// be returned AFTER the origin already processed the request, so retrying a
-// message-create risks posting it twice -- a duplicate the user cannot undo.
-// Surfacing the error instead lets them decide.
+// TestFetchNonIdempotentDoesNotRetry5xx: retrying a create after a 5xx risks a double send.
 func TestFetchNonIdempotentDoesNotRetry5xx(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -717,8 +618,6 @@ func TestFetchNonIdempotentDoesNotRetry5xx(t *testing.T) {
 	}
 }
 
-// TestFetchNonIdempotentStillRetries429: rate limiting is a rejection, so
-// even a create is safe to retry.
 func TestFetchNonIdempotentStillRetries429(t *testing.T) {
 	var mu sync.Mutex
 	requests := 0
@@ -751,11 +650,6 @@ func TestFetchNonIdempotentStillRetries429(t *testing.T) {
 	}
 }
 
-// TestFetchPopulatesUnexpectedStatusErrorBody: the error type has always had
-// a Body field, but nothing verified that fetch actually fills it -- setting
-// it to "" passed the whole suite. Now that Error() renders the body, the
-// capture and the rendering are pinned together, since either half alone is
-// useless.
 func TestFetchPopulatesUnexpectedStatusErrorBody(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -770,9 +664,7 @@ func TestFetchPopulatesUnexpectedStatusErrorBody(t *testing.T) {
 			wantShow: "invitee not found",
 		},
 		{
-			// 512 is maxErrorBodyBytes, the cap on what the STRUCT retains --
-			// independent of maxErrorBodyMessageBytes, the cap on what
-			// Error() renders.
+			// maxErrorBodyBytes caps the struct; Error() has its own cap.
 			name:    "long body is cut to maxErrorBodyBytes on the struct",
 			body:    strings.Repeat("z", 700),
 			wantLen: maxErrorBodyBytes,
@@ -812,11 +704,6 @@ func TestFetchPopulatesUnexpectedStatusErrorBody(t *testing.T) {
 	}
 }
 
-// TestCookiesPersistsTheFullJar: the jar sends every cookie it holds on every
-// request, so persistence must keep everything too. Google issues extras
-// (SIDCC and friends) via Set-Cookie after login; snapshotting only the named
-// login five meant every bridge restart silently discarded them and replayed
-// a session Google had already moved past.
 func TestCookiesPersistsTheFullJar(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "SIDCC", Value: "issued-after-login", Path: "/"})

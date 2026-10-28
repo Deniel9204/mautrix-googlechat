@@ -1,9 +1,5 @@
 package connector
 
-// msgconv_adapter_test.go -- convertMessageToMatrix's own bookkeeping
-// (MessageMetadata stamping, already covered implicitly by every M2 test
-// that reaches it) plus, as of M3 Task 3, the content.Mentions ("m.mentions")
-// wiring fix for B2 (mentions.go, msgconv_adapter.go).
 import (
 	"context"
 	"errors"
@@ -94,9 +90,7 @@ func TestConvertMessageToMatrix_NilPortalDoesNotPanic(t *testing.T) {
 	}
 }
 
-// ghostPortal builds a portal whose bridge resolves a gaia id to a
-// deterministic ghost MXID, so convertMessageToMatrix's real
-// newInboundMentionResolver produces a resolvable pill.
+// ghostPortal builds a portal whose bridge resolves gaia ids to ghost MXIDs.
 func ghostPortal() *bridgev2.Portal {
 	matrix := &fakeMatrixConnector{
 		ghostIntent: func(gaiaID networkid.UserID) id.UserID {
@@ -109,17 +103,13 @@ func ghostPortal() *bridgev2.Portal {
 	}
 }
 
-// TestConvertMessageToMatrix_MalformedMentionNoPhantomPing is the headline
-// phantom-ping regression at the connector level: a message whose ONLY
-// mention annotation is out of bounds (no corresponding body text) must
-// leave content.Mentions unset -- the removed independent inboundMentions
-// walk would have pinged the user here (no bounds gate); deriving from
-// gchatfmt's ParsedMentions does not.
+// TestConvertMessageToMatrix_MalformedMentionNoPhantomPing: an out-of-bounds
+// mention must leave content.Mentions unset.
 func TestConvertMessageToMatrix_MalformedMentionNoPhantomPing(t *testing.T) {
 	msg := &pb.Message{
 		TextBody:   proto.String("hi"), // 2 UTF-16 units
 		CreateTime: proto.Int64(1),
-		// Mention claims [0,50): out of bounds, resolves fine but renders no pill.
+		// Out of bounds: resolves, but renders no pill.
 		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 50, "200")},
 	}
 
@@ -136,8 +126,6 @@ func TestConvertMessageToMatrix_MalformedMentionNoPhantomPing(t *testing.T) {
 	}
 }
 
-// TestConvertMessageToMatrix_MentionAllSetsRoom: a valid MENTION_ALL sets
-// content.Mentions.Room.
 func TestConvertMessageToMatrix_MentionAllSetsRoom(t *testing.T) {
 	msg := &pb.Message{
 		TextBody:    proto.String("@all hi"),
@@ -155,11 +143,8 @@ func TestConvertMessageToMatrix_MentionAllSetsRoom(t *testing.T) {
 	}
 }
 
-// TestConvertMessageToMatrix_ValidMentionPingsDespiteMalformedFormatAnnotation
-// pins the subtle case at the connector level: a valid mention alongside an
-// unrelated malformed FORMAT annotation. The whole message falls back to
-// plain text (no HTML), but the plain body still shows "@Bob", so content.
-// Mentions still pings the user AND the body still contains the @name text.
+// TestConvertMessageToMatrix_ValidMentionPingsDespiteMalformedFormatAnnotation:
+// the body falls back to plain text but still contains "@Bob", so Bob is pinged.
 func TestConvertMessageToMatrix_ValidMentionPingsDespiteMalformedFormatAnnotation(t *testing.T) {
 	msg := &pb.Message{
 		TextBody:   proto.String("hi @Bob"), // "@Bob" is [3,7)
@@ -187,11 +172,6 @@ func TestConvertMessageToMatrix_ValidMentionPingsDespiteMalformedFormatAnnotatio
 	}
 }
 
-// --- ThreadRoot / topic_id stamping (M3 Task 6) -----------------------------
-
-// topicMsg builds a *pb.Message carrying an Id/ParentId.TopicId, mirroring
-// pkg/msgconv/from-gchat_test.go's topicMessage helper (kept separate since
-// that one lives in msgconv_test and is unexported).
 func topicMsg(messageID, topicID, text string) *pb.Message {
 	msg := &pb.Message{
 		TextBody:   proto.String(text),
@@ -222,10 +202,8 @@ func threadsOnlyPortal() *bridgev2.Portal {
 	}
 }
 
-// TestConvertMessageToMatrix_StampsTopicIDMetadata pins the STORE half of
-// the task: MessageMetadata.TopicID must be stamped from
-// msg.id.parent_id.topic_id.topic_id on every converted part, regardless of
-// whether this particular message ends up with a ThreadRoot set.
+// TestConvertMessageToMatrix_StampsTopicIDMetadata: TopicID is stamped on every
+// part, whether or not ThreadRoot is set.
 func TestConvertMessageToMatrix_StampsTopicIDMetadata(t *testing.T) {
 	msg := topicMsg("reply1", "topic1", "a reply")
 
@@ -246,10 +224,8 @@ func TestConvertMessageToMatrix_StampsTopicIDMetadata(t *testing.T) {
 	}
 }
 
-// TestConvertMessageToMatrix_ReplyMessageSetsThreadRootInFlatPortal: a
-// genuine reply (message_id != topic_id) must get ThreadRoot set even in a
-// non-threads-only portal -- the "message_id != topic_id" rule is
-// unconditional (see ToMatrix's own doc comment, pkg/msgconv/from-gchat.go).
+// TestConvertMessageToMatrix_ReplyMessageSetsThreadRootInFlatPortal: message_id
+// != topic_id always sets ThreadRoot.
 func TestConvertMessageToMatrix_ReplyMessageSetsThreadRootInFlatPortal(t *testing.T) {
 	msg := topicMsg("reply1", "topic1", "a reply")
 
@@ -263,9 +239,6 @@ func TestConvertMessageToMatrix_ReplyMessageSetsThreadRootInFlatPortal(t *testin
 	}
 }
 
-// TestConvertMessageToMatrix_HeadMessageFlatPortalNoThreadRoot: the head of
-// a brand new topic (message_id == topic_id) in a non-threads-only portal
-// must NOT get a self-referencing ThreadRoot.
 func TestConvertMessageToMatrix_HeadMessageFlatPortalNoThreadRoot(t *testing.T) {
 	msg := topicMsg("topic1", "topic1", "hello")
 
@@ -279,10 +252,8 @@ func TestConvertMessageToMatrix_HeadMessageFlatPortalNoThreadRoot(t *testing.T) 
 	}
 }
 
-// TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot: the
-// same head message in a PortalMetadata.ThreadsOnly portal DOES get a
-// self-referencing ThreadRoot, so a later Matrix reply to it auto-converts
-// into a Google Chat thread (bridgev2 portal.go:1259-1268).
+// TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot: a
+// self-referencing ThreadRoot makes Matrix replies become GC threads.
 func TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot(t *testing.T) {
 	msg := topicMsg("topic1", "topic1", "hello")
 
@@ -296,17 +267,7 @@ func TestConvertMessageToMatrix_HeadMessageThreadsOnlyPortalSelfThreadRoot(t *te
 	}
 }
 
-// TestConvertMessageToMatrix_NilPortalMetadataTreatedAsFlat: a portal whose
-// Metadata isn't yet a *PortalMetadata (e.g. a brand new portal before its
-// first chat_info sync) must be treated as flat/non-threads-only, matching
-// roomFeatures' own nil-safe default (capabilities.go).
-// --- convertEditToMatrix (M4 Task 1: inbound MESSAGE_UPDATED) ---------------
-//
-// These cover convertEditToMatrix's dedup + re-conversion.
-
-// editMsg builds a *pb.Message shaped like a MESSAGE_UPDATED body's payload:
-// the same message id as the original (edits never change the id), a new
-// text_body, and last_edit_time/last_update_time for the dedup gate.
+// editMsg builds a MESSAGE_UPDATED payload with edit timestamps for the dedup gate.
 func editMsg(messageID, topicID, text string, lastEditTime, lastUpdateTime int64) *pb.Message {
 	msg := topicMsg(messageID, topicID, text)
 	if lastEditTime != 0 {
@@ -336,8 +297,7 @@ func TestConvertEditToMatrix_ReconvertsBody(t *testing.T) {
 		t.Fatalf("len(ModifiedParts) = %d, want 1", len(converted.ModifiedParts))
 	}
 	part := converted.ModifiedParts[0]
-	// The edit must target the "" text part, found by PartID -- never any
-	// attachment part (see TestConvertEditToMatrix_TargetsTextPartNotFirstPart).
+
 	if part.Part != textPart {
 		t.Error("ModifiedParts[0].Part is not the text part -- the edit must target the \"\"-PartID part")
 	}
@@ -346,14 +306,8 @@ func TestConvertEditToMatrix_ReconvertsBody(t *testing.T) {
 	}
 }
 
-// TestConvertEditToMatrix_AttachmentOnlyMessageIgnored is the headline M5
-// Critical fix: an ATTACHMENT-ONLY Google Chat message persists ONLY its
-// att_0 part (ToMatrix emits no text part for an empty text_body), so
-// existing[0] is the m.image row. A MESSAGE_UPDATED that now carries text
-// (e.g. an added caption or a Drive/Meet/YouTube link annotation surfaced as
-// text) must NOT m.replace the image event with m.text -- it must be dropped
-// entirely, per the non-text guard (multipart message edits are hard, don't
-// even try).
+// TestConvertEditToMatrix_AttachmentOnlyMessageIgnored: an edit adding text to an
+// attachment-only message must not m.replace the image.
 func TestConvertEditToMatrix_AttachmentOnlyMessageIgnored(t *testing.T) {
 	attPart := &database.Message{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -361,8 +315,7 @@ func TestConvertEditToMatrix_AttachmentOnlyMessageIgnored(t *testing.T) {
 		Metadata: &MessageMetadata{LastEditTime: 0},
 	}
 	existing := []*database.Message{attPart}
-	// A MESSAGE_UPDATED with non-empty text: exactly the payload that WOULD
-	// have corrupted the image before this fix.
+
 	msg := editMsg("msg1", "msg1", "a link https://drive.google.com/x", 5000, 0)
 
 	convert := convertEditToMatrix(msgconv.New())
@@ -370,19 +323,14 @@ func TestConvertEditToMatrix_AttachmentOnlyMessageIgnored(t *testing.T) {
 	if !errors.Is(err, bridgev2.ErrIgnoringRemoteEvent) {
 		t.Errorf("error = %v, want wrapping bridgev2.ErrIgnoringRemoteEvent (attachment-only edits must be ignored, not applied to the image part)", err)
 	}
-	// The att_0 part must be left completely untouched -- no LastEditTime
-	// bump, no metadata corruption.
+
 	if attPart.Metadata.(*MessageMetadata).LastEditTime != 0 {
 		t.Errorf("att_0 LastEditTime = %d, want unchanged 0 (the image part must never be touched by an edit)", attPart.Metadata.(*MessageMetadata).LastEditTime)
 	}
 }
 
-// TestConvertEditToMatrix_TargetsTextPartNotFirstPart pins that the edit is
-// applied to the "" text part by PartID lookup, NOT by slice position: even
-// when the text part comes SECOND (att_0 first -- exactly what Postgres can
-// return after the first edit relocates the heap tuple, since
-// getAllMessagePartsByIDQuery has no ORDER BY), the edit must target the
-// text part and read dedup off IT, never off att_0's zero LastEditTime.
+// TestConvertEditToMatrix_TargetsTextPartNotFirstPart: the edit targets the ""
+// part by PartID even when att_0 comes first (no ORDER BY on Postgres).
 func TestConvertEditToMatrix_TargetsTextPartNotFirstPart(t *testing.T) {
 	attPart := &database.Message{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -394,7 +342,7 @@ func TestConvertEditToMatrix_TargetsTextPartNotFirstPart(t *testing.T) {
 		PartID:   gcid.TextPartID,
 		Metadata: &MessageMetadata{TimestampMicro: 111, TopicID: "msg1", LastEditTime: 3000},
 	}
-	// att_0 FIRST, text part SECOND -- the Postgres-after-first-edit order.
+	// att_0 first: the Postgres-after-first-edit order.
 	existing := []*database.Message{attPart, textPart}
 	msg := editMsg("msg1", "msg1", "edited caption", 5000, 0)
 
@@ -412,7 +360,7 @@ func TestConvertEditToMatrix_TargetsTextPartNotFirstPart(t *testing.T) {
 	if got := converted.ModifiedParts[0].Content.Body; got != "edited caption" {
 		t.Errorf("Content.Body = %q, want %q", got, "edited caption")
 	}
-	// Dedup + LastEditTime bump must land on the text part, never att_0.
+
 	if textPart.Metadata.(*MessageMetadata).LastEditTime != 5000 {
 		t.Errorf("text part LastEditTime = %d, want 5000", textPart.Metadata.(*MessageMetadata).LastEditTime)
 	}
@@ -421,11 +369,8 @@ func TestConvertEditToMatrix_TargetsTextPartNotFirstPart(t *testing.T) {
 	}
 }
 
-// TestConvertEditToMatrix_DedupReadsFromTextPartNotFirstPart guards the
-// second half of the Postgres hazard: with att_0 first (LastEditTime 0) and
-// the text part second carrying an already-applied LastEditTime, a duplicate
-// edit must be deduped off the TEXT part (5000 >= 5000 -> skip), not off
-// att_0's zero (which would bypass the dedup gate and re-apply/corrupt).
+// TestConvertEditToMatrix_DedupReadsFromTextPartNotFirstPart: dedup reads the
+// text part's LastEditTime, not att_0's zero.
 func TestConvertEditToMatrix_DedupReadsFromTextPartNotFirstPart(t *testing.T) {
 	attPart := &database.Message{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -447,10 +392,7 @@ func TestConvertEditToMatrix_DedupReadsFromTextPartNotFirstPart(t *testing.T) {
 	}
 }
 
-// TestConvertEditToMatrix_DedupSkipsStaleEdit pins the dedup gate (skip when
-// stored_last_edit_time >= edit_ts) -- an edit whose last_edit_time is EQUAL
-// to the stored value is a duplicate and must be ignored via
-// bridgev2.ErrIgnoringRemoteEvent, leaving the stored metadata untouched.
+// TestConvertEditToMatrix_DedupSkipsStaleEdit: an equal edit_ts is a duplicate.
 func TestConvertEditToMatrix_DedupSkipsStaleEdit(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -468,8 +410,6 @@ func TestConvertEditToMatrix_DedupSkipsStaleEdit(t *testing.T) {
 	}
 }
 
-// TestConvertEditToMatrix_DedupSkipsOlderEdit: an edit_ts strictly OLDER
-// than the stored value (an out-of-order redelivery) must also be ignored.
 func TestConvertEditToMatrix_DedupSkipsOlderEdit(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -484,9 +424,6 @@ func TestConvertEditToMatrix_DedupSkipsOlderEdit(t *testing.T) {
 	}
 }
 
-// TestConvertEditToMatrix_AppliesNewerEditAndUpdatesLastEditTime is the
-// converse: a genuinely newer edit_ts must apply AND bump the stored
-// LastEditTime so a later duplicate of THIS edit dedups correctly.
 func TestConvertEditToMatrix_AppliesNewerEditAndUpdatesLastEditTime(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -506,8 +443,7 @@ func TestConvertEditToMatrix_AppliesNewerEditAndUpdatesLastEditTime(t *testing.T
 	if meta.LastEditTime != 5000 {
 		t.Errorf("LastEditTime = %d, want 5000", meta.LastEditTime)
 	}
-	// TimestampMicro/TopicID must survive untouched -- an edit never
-	// changes a message's original create_time or the topic it belongs to.
+	// An edit never changes the original create_time or topic.
 	if meta.TimestampMicro != 111 {
 		t.Errorf("TimestampMicro = %d, want unchanged 111", meta.TimestampMicro)
 	}
@@ -516,8 +452,8 @@ func TestConvertEditToMatrix_AppliesNewerEditAndUpdatesLastEditTime(t *testing.T
 	}
 }
 
-// TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset
-// pins the `edit_ts = last_edit_time or last_update_time` fallback.
+// TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset pins
+// the last_edit_time-or-last_update_time fallback.
 func TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -538,10 +474,6 @@ func TestConvertEditToMatrix_FallsBackToLastUpdateTimeWhenLastEditTimeUnset(t *t
 	}
 }
 
-// TestConvertEditToMatrix_EmptyTextBodyIgnored pins the non-text guard's
-// no-text-body half -- an edit with no text_body at all (msgconv.ToMatrix's
-// empty-text early return, from-gchat.go) must be dropped via
-// ErrIgnoringRemoteEvent, not applied as an empty-body edit.
 func TestConvertEditToMatrix_EmptyTextBodyIgnored(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -556,10 +488,8 @@ func TestConvertEditToMatrix_EmptyTextBodyIgnored(t *testing.T) {
 	}
 }
 
-// TestConvertEditToMatrix_NoExistingMetadataStillWorks covers a target with
-// no prior MessageMetadata at all: LastEditTime dedup must treat that as "no
-// edit ever applied" (0), apply the edit, and create a fresh *MessageMetadata
-// rather than panicking on the type assertion.
+// TestConvertEditToMatrix_NoExistingMetadataStillWorks: nil metadata counts as
+// LastEditTime 0 and must not panic.
 func TestConvertEditToMatrix_NoExistingMetadataStillWorks(t *testing.T) {
 	existing := []*database.Message{{ID: gcid.MakeMessageID("msg1")}} // Metadata is nil
 	msg := editMsg("msg1", "msg1", "first edit", 5000, 0)
@@ -581,9 +511,6 @@ func TestConvertEditToMatrix_NoExistingMetadataStillWorks(t *testing.T) {
 	}
 }
 
-// TestConvertEditToMatrix_FormattingRoundTrips proves an edit's new
-// annotations still drive gchatfmt.Parse (M3 composition: formatting works
-// on edits too, both directions).
 func TestConvertEditToMatrix_FormattingRoundTrips(t *testing.T) {
 	existing := []*database.Message{{
 		ID:       gcid.MakeMessageID("msg1"),
@@ -603,6 +530,8 @@ func TestConvertEditToMatrix_FormattingRoundTrips(t *testing.T) {
 	}
 }
 
+// TestConvertMessageToMatrix_NilPortalMetadataTreatedAsFlat: a portal without
+// PortalMetadata is treated as non-threads-only.
 func TestConvertMessageToMatrix_NilPortalMetadataTreatedAsFlat(t *testing.T) {
 	portal := &bridgev2.Portal{
 		Portal: &database.Portal{},
