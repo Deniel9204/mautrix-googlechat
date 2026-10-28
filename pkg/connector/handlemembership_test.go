@@ -1,10 +1,5 @@
 package connector
 
-// handlemembership_test.go -- HandleMatrixMembership -> create_membership /
-// remove_memberships RPCs. Asserts each membership-change type routes to the
-// right endpoint with the right target, mirroring the request-construction
-// test shape of the other outbound handlers.
-
 import (
 	"context"
 	"errors"
@@ -96,7 +91,6 @@ func TestHandleMatrixMembershipKickSendsRemoveMemberships(t *testing.T) {
 }
 
 func TestHandleMatrixMembershipLeaveRemovesOwnID(t *testing.T) {
-	// newTestUserLogin's own gaia id is 112233.
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.RemoveMembershipsRequest
 	gc := &GChatClient{
@@ -107,8 +101,6 @@ func TestHandleMatrixMembershipLeaveRemovesOwnID(t *testing.T) {
 		},
 	}
 
-	// For a self-leave the target is the user themselves; the handler uses its
-	// own login id regardless.
 	_, err := gc.HandleMatrixMembership(context.Background(), membershipChange(spacePortal("space1"), ghostTarget("112233"), bridgev2.Leave))
 	if err != nil {
 		t.Fatalf("HandleMatrixMembership(Leave) error = %v, want nil", err)
@@ -176,7 +168,6 @@ func TestHandleMatrixMembershipUnsupportedTypeErrors(t *testing.T) {
 		},
 	}
 
-	// BanJoined has no Google Chat equivalent.
 	_, err := gc.HandleMatrixMembership(context.Background(), membershipChange(spacePortal("space1"), ghostTarget("999888"), bridgev2.BanJoined))
 	if err == nil {
 		t.Error("HandleMatrixMembership(BanJoined) error = nil, want unsupported error")
@@ -198,26 +189,13 @@ func TestHandleMatrixMembershipRPCFailurePropagates(t *testing.T) {
 	}
 }
 
-// --- self-membership echoes -------------------------------------------------
-
-// TestHandleMatrixMembershipSelfChangesAreNoOps: creating a portal invites the
-// logged-in user and then accepts on their behalf, and that join is not tagged
-// as a double-puppet event, so it arrives here as a genuine AcceptInvite. It
-// used to fall through to the default case and be reported as a FAILED
-// membership change, once per portal created.
-//
-// No RPC may be sent for any of these: the user is already a Google Chat
-// member of the conversation -- that is why the portal exists -- and a
-// ProfileChange is a Matrix-side displayname or avatar edit with no Google
-// Chat counterpart.
+// TestHandleMatrixMembershipSelfChangesAreNoOps: the bridge's own portal-creation join must not send an RPC.
 func TestHandleMatrixMembershipSelfChangesAreNoOps(t *testing.T) {
 	types := map[string]bridgev2.MembershipChangeType{
 		"AcceptInvite":  bridgev2.AcceptInvite,
 		"Join":          bridgev2.Join,
 		"ProfileChange": bridgev2.ProfileChange,
 	}
-	// A DM portal too: its own join is just as much a no-op, and the DM guard
-	// used to answer it with "membership changes are not supported in DMs".
 	portals := map[string]*bridgev2.Portal{
 		"space": spacePortal("space1"),
 		"dm":    dmPortal("dm1"),
@@ -249,11 +227,7 @@ func TestHandleMatrixMembershipSelfChangesAreNoOps(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixMembershipStillRejectsRealActions is the other half: the
-// no-op case must not turn into a blanket "say yes to everything". A decision
-// that WOULD need an RPC has to keep failing loudly rather than being silently
-// swallowed -- answering success for a declined invite would tell Matrix the
-// user left while Google still has them invited.
+// TestHandleMatrixMembershipStillRejectsRealActions: decisions that would need an RPC must still fail.
 func TestHandleMatrixMembershipStillRejectsRealActions(t *testing.T) {
 	for name, typ := range map[string]bridgev2.MembershipChangeType{
 		"RejectInvite": bridgev2.RejectInvite,

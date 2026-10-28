@@ -1,29 +1,5 @@
 package connector
 
-// handlemembership.go -- Matrix -> Google Chat outbound membership actions
-// (HandleMatrixMembership): invite/add, kick/remove, leave, and answering a
-// pending space invite.
-//
-// Endpoint routing (verified against the maintained purple-googlechat client):
-//   - Invite (leave->invite): create_membership, carrying the target in
-//     invitee_member_infos (how purple invites OTHER users).
-//   - Kick (join->leave, not self): remove_memberships, member_ids = target.
-//   - Leave (join->leave, self): remove_memberships, member_ids = own gaia id
-//     (a leave is a self-removal; there is no distinct "leave" endpoint).
-//   - Accept a pending invite (invite->join, self): create_membership,
-//     member_ids = own gaia id -- purple's join path.
-//   - Decline a pending invite (invite->leave, self): as Leave.
-//     Both only for spaces Google Chat reported as invited (invites.go).
-//
-// Spaces only: these actions are meaningless in a DM, and the request GroupId
-// only ever carries the space. A membership change in a DM portal is rejected
-// without an RPC. Ban/Knock membership types have no Google Chat equivalent
-// and are rejected as unsupported.
-//
-// The framework echoes the Matrix-side state itself; on success we return an
-// empty *MatrixMembershipResult (RedirectTo is only used by the framework's
-// invite-redirect path, which does not apply here). On RPC failure we return
-// the error so the framework reports the action as failed.
 import (
 	"context"
 	"errors"
@@ -39,10 +15,7 @@ import (
 
 var _ bridgev2.MembershipHandlingNetworkAPI = (*GChatClient)(nil)
 
-// targetGaiaID extracts the Google Chat gaia id of a membership change's
-// target. Both a ghost's and a user login's networkid id ARE the gaia id
-// (gcid.MakeUserID / MakeUserLoginID are identity mappings), so this is a
-// plain type switch over the two GhostOrUserLogin implementations.
+// targetGaiaID returns the target's gaia id (ghost and login ids are both the gaia id).
 func targetGaiaID(target bridgev2.GhostOrUserLogin) (string, bool) {
 	switch t := target.(type) {
 	case *bridgev2.Ghost:
@@ -55,32 +28,8 @@ func targetGaiaID(target bridgev2.GhostOrUserLogin) (string, bool) {
 }
 
 func (c *GChatClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.MatrixMembershipChange) (*bridgev2.MatrixMembershipResult, error) {
-	// Self-membership changes that need nothing done on Google Chat, handled
-	// before anything else -- including the DM guard below, since a DM portal's
-	// own join is just as much a no-op as a space portal's.
-	//
-	// These are mostly the bridge's OWN echo. Creating a portal invites the
-	// logged-in user and then accepts on their behalf with their double
-	// puppet; that join is not tagged as a double-puppet event
-	// (ASIntent.SendState does not add the marker, and nothing in
-	// bridgev2/matrix adds it to outgoing state), so it is not suppressed and
-	// arrives back here as a genuine AcceptInvite. Without this case it fell
-	// through to the default below and was reported as a failed membership
-	// change, once per portal created -- and in a DM as the flatly wrong
-	// "membership changes are not supported in DMs", about the user joining
-	// their own portal.
-	//
-	// Answering success is not a shortcut, it is the correct answer: there is
-	// nothing to send. The user is already a Google Chat member of the
-	// conversation -- that is why the portal exists at all -- and
-	// ProfileChange is a Matrix displayname or avatar edit with no Google Chat
-	// counterpart.
-	//
-	// The exception is a space Google Chat reported as a pending invite
-	// (invites.go): there the user's accept or decline is a real decision and
-	// is sent on. Only that path can produce a RejectInvite worth sending;
-	// any other RejectInvite, and Knock, still errors rather than being
-	// silently swallowed.
+	// Self-membership echoes (e.g. the bridge's own portal-creation join) need no RPC, except
+	// answering a pending space invite (invites.go).
 	if msg.Type == bridgev2.AcceptInvite || msg.Type == bridgev2.RejectInvite {
 		if group, err := gcid.ParsePortalID(msg.Portal.ID); err == nil && !group.IsDM && c.hasPendingInvite(group.ID) {
 			return c.answerInvite(ctx, group, msg.Type == bridgev2.AcceptInvite)
@@ -122,7 +71,6 @@ func (c *GChatClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.
 			return nil, err
 		}
 	case bridgev2.Leave:
-		// A leave is a self-removal; the target is the logged-in user.
 		if err := c.removeMember(ctx, groupID, string(c.UserLogin.ID)); err != nil {
 			return nil, err
 		}
@@ -132,12 +80,7 @@ func (c *GChatClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.
 	return &bridgev2.MatrixMembershipResult{}, nil
 }
 
-// answerInvite sends the user's Matrix answer to a pending Google Chat space
-// invite. Accept is purple-googlechat's join: create_membership with the
-// user's own gaia id in member_ids (no invitee_member_infos). Decline is a
-// self-removal, the same request as Leave. Either way the invite is no longer
-// pending; an accept additionally resyncs the space, whose members and
-// history were unreadable until now.
+// answerInvite accepts (create_membership with own id) or declines (self-removal) a pending space invite.
 func (c *GChatClient) answerInvite(ctx context.Context, group gcid.GroupID, accept bool) (*bridgev2.MatrixMembershipResult, error) {
 	groupID := gchatmeow.PartsToGroupID(group.ID, false)
 	own := string(c.UserLogin.ID)
@@ -162,9 +105,7 @@ func (c *GChatClient) answerInvite(ctx context.Context, group gcid.GroupID, acce
 	return &bridgev2.MatrixMembershipResult{}, nil
 }
 
-// removeMember issues remove_memberships for one gaia id in a space. Used for
-// Kick (another user), and for Leave and declining an invite (own id). membership_state is
-// MEMBER_INVITED, matching what purple-googlechat sends on removals.
+// removeMember issues remove_memberships for one gaia id; membership_state is MEMBER_INVITED.
 func (c *GChatClient) removeMember(ctx context.Context, groupID *pb.GroupId, gaia string) error {
 	req := &pb.RemoveMembershipsRequest{
 		GroupId:         groupID,

@@ -1,15 +1,5 @@
 package connector
 
-// createchat_httpstatus_test.go -- the deliberate rejections in createchat.go
-// must reach a provisioning-API client as 4xx with their own message, not as
-// 500 "Internal error resolving identifier", which is indistinguishable from a
-// genuine bug.
-//
-// These tests render each error through the REAL framework function rather
-// than a replica, so they pin the actual errors.As(WritableError) behaviour --
-// including its descent through selfDMError's Unwrap() []error. Test files are
-// exempt from the connector-imports-no-HTTP rule the CI grep enforces.
-
 import (
 	"context"
 	"encoding/json"
@@ -26,8 +16,6 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// renderError puts err through the framework's own error responder and reports
-// the status and errcode a provisioning client would see.
 func renderError(t *testing.T, err error) (status int, errcode string, message string) {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -42,8 +30,7 @@ func renderError(t *testing.T, err error) (status int, errcode string, message s
 	return rec.Code, body.ErrCode, body.Error
 }
 
-// clientRejectingEverything is a client whose create_dm would succeed, so any
-// error a test sees came from validation rather than from the RPC.
+// clientRejectingEverything's create_dm would succeed, so any error comes from validation.
 func clientRejectingEverything(t *testing.T) *GChatClient {
 	t.Helper()
 	return &GChatClient{
@@ -92,9 +79,6 @@ func TestResolveIdentifierRejectionsRenderAsClientErrors(t *testing.T) {
 	}
 }
 
-// TestCreateChatWithGhostUnidentifiedRendersAsClientError covers the rejection
-// on the other entry point. The existing TestCreateChatWithGhostRejectsUnidentified
-// only asserts err != nil, which passes either way.
 func TestCreateChatWithGhostUnidentifiedRendersAsClientError(t *testing.T) {
 	gc := clientRejectingEverything(t)
 	_, err := gc.CreateChatWithGhost(context.Background(), nil)
@@ -107,10 +91,7 @@ func TestCreateChatWithGhostUnidentifiedRendersAsClientError(t *testing.T) {
 	}
 }
 
-// TestGenuineFailuresStillRenderAs500 is what makes the 4xx mean anything: a
-// blanket "wrap everything in a 400" would satisfy the tests above while
-// destroying the signal they exist to create. An upstream RPC failure is a
-// bridge/network problem and must keep saying so.
+// TestGenuineFailuresStillRenderAs500: an upstream RPC failure must not be reported as a 4xx.
 func TestGenuineFailuresStillRenderAs500(t *testing.T) {
 	gc := &GChatClient{
 		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
@@ -128,11 +109,7 @@ func TestGenuineFailuresStillRenderAs500(t *testing.T) {
 	}
 }
 
-// TestSelfDMErrorTextCarriesNoErrCode pins the bot-command path, which is the
-// one the user actually types. bridgev2.RespError.Error() returns only the
-// message; its mautrix.RespError namesake prepends the errcode. That
-// substitution compiles, still renders 400, and still satisfies every
-// errors.Is assertion -- this is the only test that catches it.
+// TestSelfDMErrorTextCarriesNoErrCode: mautrix.RespError.Error() would prepend the errcode.
 func TestSelfDMErrorTextCarriesNoErrCode(t *testing.T) {
 	err := selfDMError()
 	text := err.Error()
@@ -152,10 +129,6 @@ func TestSelfDMErrorTextCarriesNoErrCode(t *testing.T) {
 	}
 }
 
-// TestValidationSentinelsAreNotConflated guards the string-comparison
-// semantics of bridgev2.RespError.Is. It goes red both for a duplicated
-// message and for a switch to pointer sentinels, which would fall back to
-// comparing errcodes.
 func TestValidationSentinelsAreNotConflated(t *testing.T) {
 	sentinels := map[string]error{
 		"ErrCannotResolveEmailWithoutCreating": ErrCannotResolveEmailWithoutCreating,
@@ -166,12 +139,7 @@ func TestValidationSentinelsAreNotConflated(t *testing.T) {
 		"ErrGhostUnidentified":                 ErrGhostUnidentified,
 	}
 	for nameA, a := range sentinels {
-		// Value, not pointer. As a pointer, errors.As inside
-		// bridgev2.RespError.Is stops matching and the comparison silently
-		// falls through to mautrix.RespError.Is, which compares ERRCODES --
-		// so distinct sentinels sharing a code would conflate, and `err == Err`
-		// would stop being a compile error. Asserting the errcodes are
-		// distinct does not catch that; asserting the type does.
+		// Pointer sentinels would make RespError.Is compare errcodes.
 		if _, isValue := a.(bridgev2.RespError); !isValue {
 			t.Errorf("%s is %T, want a bridgev2.RespError VALUE", nameA, a)
 		}
@@ -189,11 +157,7 @@ func TestValidationSentinelsAreNotConflated(t *testing.T) {
 	}
 }
 
-// TestSelfDMByEmailKeepsTheServersAnswer: relabelling a 400 as a self-DM is a
-// DEDUCTION -- Google's response does not say "self-DM" -- so the server's own
-// body has to survive into the log and the provisioning JSON. Otherwise a
-// wrong deduction is undiagnosable, and the whole point of rendering the body
-// is lost exactly where it is needed most.
+// TestSelfDMByEmailKeepsTheServersAnswer: the self-DM relabel is a deduction, so the server's body must survive.
 func TestSelfDMByEmailKeepsTheServersAnswer(t *testing.T) {
 	gc := &GChatClient{
 		UserLogin: newLoginWithOwnEmail("ada@example.com"),
@@ -208,18 +172,14 @@ func TestSelfDMByEmailKeepsTheServersAnswer(t *testing.T) {
 	if !strings.Contains(err.Error(), "POLICY_DENIED: external chat disabled") {
 		t.Errorf("error = %v, want the server's own reason to survive the relabel", err)
 	}
-	// The relabel must still drive the HTTP rendering: ErrCannotDMYourself is
-	// what a client should see, not the wrapped transport error.
+	// The HTTP rendering must use ErrCannotDMYourself.
 	status, errcode, _ := renderError(t, err)
 	if status != http.StatusBadRequest || errcode != "FI.MAU.GOOGLECHAT.CANNOT_DM_SELF" {
 		t.Errorf("status/errcode = %d/%q, want 400/FI.MAU.GOOGLECHAT.CANNOT_DM_SELF", status, errcode)
 	}
 }
 
-// TestHasOtherLoginsDefaultsToTrueWhenTheUserIsUnknown documents the one state
-// a unit test can reach. A bare UserLogin has no User attached; assuming a
-// sibling there is what keeps every other test in this file exercising the
-// try-next classification rather than silently skipping it.
+// TestHasOtherLoginsDefaultsToTrueWhenTheUserIsUnknown: a bare UserLogin has no User.
 func TestHasOtherLoginsDefaultsToTrueWhenTheUserIsUnknown(t *testing.T) {
 	if !(&GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}).hasOtherLogins() {
 		t.Error("hasOtherLogins() = false for a login with no User; the deferral would go untested everywhere")

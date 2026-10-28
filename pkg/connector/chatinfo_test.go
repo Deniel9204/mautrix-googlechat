@@ -27,8 +27,6 @@ func spaceGroupID(id string) *pb.GroupId {
 	return &pb.GroupId{Id: &pb.GroupId_SpaceId{SpaceId: &pb.SpaceId{SpaceId: proto.String(id)}}}
 }
 
-// --- chatInfoFromWorldItem ---------------------------------------------
-
 func TestChatInfoFromWorldItemDMSetsOtherUserID(t *testing.T) {
 	item := &pb.WorldItemLite{
 		GroupId: dmGroupID("dm1"),
@@ -122,9 +120,7 @@ func TestChatInfoFromWorldItemSpaceSetsNameNoMembers(t *testing.T) {
 
 	info := chatInfoFromWorldItem(item, ownID)
 
-	// A Google Chat "Space" (non-DM group) is an ordinary room --
-	// RoomTypeDefault, not bridgev2's m.space-container RoomTypeSpace (M6 Task
-	// 1 fix; see chatinfo.go's roomType doc comment for the naming collision).
+	// A Google Chat "Space" is RoomTypeDefault, not an m.space container.
 	if info.Type == nil || *info.Type != database.RoomTypeDefault {
 		t.Fatalf("Type = %v, want RoomTypeDefault", info.Type)
 	}
@@ -137,7 +133,7 @@ func TestChatInfoFromWorldItemSpaceSetsNameNoMembers(t *testing.T) {
 }
 
 func TestChatInfoFromWorldItemNoRoomNameFieldLeavesNameNil(t *testing.T) {
-	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")} // room_name entirely absent
+	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")}
 
 	info := chatInfoFromWorldItem(item, ownID)
 
@@ -157,7 +153,7 @@ func TestChatInfoFromWorldItemExplicitEmptyRoomNameClearsName(t *testing.T) {
 }
 
 func TestChatInfoFromWorldItemTopicAlwaysSetEvenWhenAbsent(t *testing.T) {
-	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")} // group_lite/group_details entirely absent
+	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")}
 
 	info := chatInfoFromWorldItem(item, ownID)
 
@@ -216,8 +212,6 @@ func TestChatInfoFromWorldItemThreadingFlags(t *testing.T) {
 	}
 }
 
-// --- chatInfoFromGetGroupResponse ---------------------------------------
-
 func membership(userID string) *pb.Membership {
 	return &pb.Membership{
 		Id: &pb.MembershipId{
@@ -248,12 +242,7 @@ func TestChatInfoFromGetGroupResponseDM(t *testing.T) {
 	}
 }
 
-// TestChatInfoFromGetGroupResponseSetsCanBackfill and
-// TestChatInfoFromWorldItemSetsCanBackfill (below) pin M6 Task 1's
-// CanBackfill wiring independently of any other ChatInfo field, across BOTH
-// entry points (the live GetChatInfo RPC path and the chat-list-sync/
-// ChatResync path) -- see chatinfo.go's doc comments on each CanBackfill
-// field for why both must set it.
+// CanBackfill must be set on both entry points.
 func TestChatInfoFromGetGroupResponseSetsCanBackfill(t *testing.T) {
 	resp := &pb.GetGroupResponse{Group: &pb.Group{}}
 	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
@@ -269,15 +258,8 @@ func TestChatInfoFromWorldItemSetsCanBackfill(t *testing.T) {
 	}
 }
 
-// TestNonDMRoomTypeIsDefaultNotSpace is the explicit regression guard for the
-// M6 Task 1 P0: a non-DM Google Chat "Space" must be RoomTypeDefault, because
-// mautrix-go gates ALL backfill triggering on
-// `portal.RoomType != database.RoomTypeSpace` (bridgev2/portal.go:3870, 5362,
-// 5400-5404). If a future change flips this back to RoomTypeSpace (an easy
-// mistake given Google's own "Space" terminology), CanBackfill goes silently
-// inert and this milestone's entire flat-room history feature stops firing in
-// production -- which unit-testing ChatInfo fields in isolation would not
-// otherwise catch. Covers both ChatInfo-building entry points.
+// TestNonDMRoomTypeIsDefaultNotSpace: RoomTypeSpace silently disables all
+// backfill in mautrix-go, so non-DM chats must be RoomTypeDefault.
 func TestNonDMRoomTypeIsDefaultNotSpace(t *testing.T) {
 	fromGroup := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, &pb.GetGroupResponse{Group: &pb.Group{}}, ownID)
 	if fromGroup.Type == nil || *fromGroup.Type == database.RoomTypeSpace {
@@ -287,8 +269,7 @@ func TestNonDMRoomTypeIsDefaultNotSpace(t *testing.T) {
 	if fromWorld.Type == nil || *fromWorld.Type == database.RoomTypeSpace {
 		t.Errorf("WorldItem path: Type = %v, must not be RoomTypeSpace (defeats the backfill gate)", fromWorld.Type)
 	}
-	// Both entry points must agree, or the same conversation resolves to
-	// different room types depending on which path created it.
+
 	if *fromGroup.Type != *fromWorld.Type {
 		t.Errorf("room type mismatch between entry points: GetGroupResponse=%v, WorldItem=%v", *fromGroup.Type, *fromWorld.Type)
 	}
@@ -305,8 +286,6 @@ func TestChatInfoFromGetGroupResponseSpace(t *testing.T) {
 
 	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
 
-	// RoomTypeDefault, not RoomTypeSpace -- a GChat group is an ordinary room,
-	// not a Matrix m.space container (M6 Task 1 fix; see chatinfo.go).
 	if info.Type == nil || *info.Type != database.RoomTypeDefault {
 		t.Fatalf("Type = %v, want RoomTypeDefault", info.Type)
 	}
@@ -325,7 +304,7 @@ func TestChatInfoFromGetGroupResponseSpace(t *testing.T) {
 }
 
 func TestChatInfoFromGetGroupResponseNoNameFieldLeavesNameNil(t *testing.T) {
-	resp := &pb.GetGroupResponse{Group: &pb.Group{}} // name entirely absent
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}}
 
 	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
 
@@ -345,7 +324,7 @@ func TestChatInfoFromGetGroupResponseExplicitEmptyNameClears(t *testing.T) {
 }
 
 func TestChatInfoFromGetGroupResponseTopicAlwaysSetEvenWhenAbsent(t *testing.T) {
-	resp := &pb.GetGroupResponse{Group: &pb.Group{}} // group_details entirely absent
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}}
 
 	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
 
@@ -353,8 +332,6 @@ func TestChatInfoFromGetGroupResponseTopicAlwaysSetEvenWhenAbsent(t *testing.T) 
 		t.Errorf("Topic = %v, want a non-nil pointer to \"\"", info.Topic)
 	}
 }
-
-// --- deriveOtherUserID (direct table test of the shared helper) ----------
 
 func TestDeriveOtherUserID(t *testing.T) {
 	cases := []struct {
@@ -378,8 +355,6 @@ func TestDeriveOtherUserID(t *testing.T) {
 	}
 }
 
-// --- GetChatInfo: no-conn error path (RPC itself covered at Task 13) ----
-
 func TestGetChatInfoNoConnIsError(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	gc := &GChatClient{UserLogin: login}
@@ -402,9 +377,6 @@ func TestGetChatInfoInvalidPortalIDIsError(t *testing.T) {
 	}
 }
 
-// A space manager (ROLE_OWNER) is a Matrix moderator -- enough for name,
-// topic and kick, which only managers may change on Google Chat -- and
-// everyone else gets an explicit 0 so a demotion is reflected.
 func TestChatInfoFromGetGroupResponseSpaceRolesBecomePowerLevels(t *testing.T) {
 	owner := membership(string(ownID))
 	owner.MembershipRole = pb.MembershipRole_ROLE_OWNER.Enum()

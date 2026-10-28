@@ -45,9 +45,6 @@ func buttonWidget(label, href string) *pb.JAddOnsWidget {
 	}
 }
 
-// TestRenderCards_HeaderSectionsAndButton is the core case: a bot card whose
-// content lives entirely in widgets. Before this, such a message reached
-// Matrix completely empty.
 func TestRenderCards_HeaderSectionsAndButton(t *testing.T) {
 	att := cardAttachment(&pb.JAddOnsContextualAddOn_Card{
 		Header: &pb.JAddOnsContextualAddOn_Card_CardHeader{
@@ -78,9 +75,7 @@ func TestRenderCards_HeaderSectionsAndButton(t *testing.T) {
 	}
 }
 
-// TestRenderCards_EscapesHostileContent: card text and button hrefs are
-// remote, bot-controlled input, so they get the same treatment as annotation
-// content -- escaped, and never linkified for a script-bearing scheme.
+// Card content is bot-controlled: escaped, and never linkified for a script-bearing scheme.
 func TestRenderCards_EscapesHostileContent(t *testing.T) {
 	att := cardAttachment(&pb.JAddOnsContextualAddOn_Card{
 		Sections: []*pb.JAddOnsContextualAddOn_Card_Section{{
@@ -105,16 +100,14 @@ func TestRenderCards_EscapesHostileContent(t *testing.T) {
 	}
 }
 
-// TestRenderCards_SkipsUnsupportedWidgets: the widget oneof has ~14 arms and
-// only the text-bearing ones are rendered. An unsupported one must cost only
-// itself, not the widgets beside it.
+// An unsupported widget must cost only itself, not its neighbours.
 func TestRenderCards_SkipsUnsupportedWidgets(t *testing.T) {
 	att := cardAttachment(&pb.JAddOnsContextualAddOn_Card{
 		Sections: []*pb.JAddOnsContextualAddOn_Card_Section{{
 			Widgets: []*pb.JAddOnsWidget{
 				textParagraph("before"),
 				{Data: &pb.JAddOnsWidget_DateTimePicker_{DateTimePicker: &pb.JAddOnsWidget_DateTimePicker{}}},
-				{}, // no arm set at all
+				{},
 				textParagraph("after"),
 			},
 		}},
@@ -131,7 +124,7 @@ func TestRenderCards_NothingToRender(t *testing.T) {
 	if body, html := gchatfmt.RenderCards(nil); body != "" || html != "" {
 		t.Errorf("RenderCards(nil) = (%q, %q), want empty", body, html)
 	}
-	// An attachment carrying no card data at all (the html arm of the oneof).
+	// The html arm of the oneof: no card data.
 	att := &pb.Attachment{Type: &pb.Attachment_Html{Html: &pb.HtmlAttachment{}}}
 	if body, html := gchatfmt.RenderCards([]*pb.Attachment{att}); body != "" || html != "" {
 		t.Errorf("RenderCards(non-card attachment) = (%q, %q), want empty", body, html)

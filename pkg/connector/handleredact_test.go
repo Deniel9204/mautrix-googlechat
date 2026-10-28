@@ -1,11 +1,5 @@
 package connector
 
-// handleredact_test.go -- HandleMatrixMessageRemove (M4 Task 2): outbound
-// Matrix redaction -> delete_message RPC. Mirrors handleedit_test.go's
-// request-construction / error-path test shape for HandleMatrixEdit, since
-// delete_message builds its MessageId the exact same "thread_id or
-// message_id" way edit_message does.
-
 import (
 	"context"
 	"errors"
@@ -20,13 +14,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// matrixMessageRemove builds a *bridgev2.MatrixMessageRemove targeting
-// target, matching what bridgev2's own handleMatrixRedaction hands
-// RedactionHandlingNetworkAPI.HandleMatrixMessageRemove (mautrix-go
-// bridgev2/portal.go:2510-2519) after already resolving the redaction's
-// target row from the DB by its Matrix event id (content.Redacts) -- so
-// TargetMessage is always non-nil here, exactly like handleedit_test.go's
-// EditTarget.
 func matrixMessageRemove(portal *bridgev2.Portal, target *database.Message) *bridgev2.MatrixMessageRemove {
 	return &bridgev2.MatrixMessageRemove{
 		MatrixEventBase: bridgev2.MatrixEventBase[*event.RedactionEventContent]{
@@ -36,8 +23,6 @@ func matrixMessageRemove(portal *bridgev2.Portal, target *database.Message) *bri
 		TargetMessage: target,
 	}
 }
-
-// --- HandleMatrixMessageRemove: request construction -------------------
 
 func TestHandleMatrixMessageRemoveSpacePortalBuildsDeleteMessageRequest(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
@@ -103,10 +88,6 @@ func TestHandleMatrixMessageRemoveDMPortalBuildsDmGroupID(t *testing.T) {
 	}
 }
 
-// TestHandleMatrixMessageRemoveUsesStoredTopicIDForThreadReply covers a
-// reply-in-thread target: the target's own stored MessageMetadata.TopicID
-// (the thread's topic, distinct from the target's own message id) must be
-// used as the delete_message topic_id, not the target's own message id.
 func TestHandleMatrixMessageRemoveUsesStoredTopicIDForThreadReply(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.DeleteMessageRequest
@@ -135,11 +116,6 @@ func TestHandleMatrixMessageRemoveUsesStoredTopicIDForThreadReply(t *testing.T) 
 	}
 }
 
-// TestHandleMatrixMessageRemoveFallsBackToOwnIDWhenTopicIDMissing pins the
-// `thread_id or message_id` fallback: a target with no stored TopicID (e.g.
-// a pre-M3-Task-6 legacy row, or any head-of-topic message) must fall back
-// to its own message id, exactly like threadRootTopicID (handlematrix.go),
-// which this method reuses.
 func TestHandleMatrixMessageRemoveFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.DeleteMessageRequest
@@ -151,7 +127,7 @@ func TestHandleMatrixMessageRemoveFallsBackToOwnIDWhenTopicIDMissing(t *testing.
 		},
 	}
 
-	target := &database.Message{ID: gcid.MakeMessageID("headmsg1")} // no Metadata at all
+	target := &database.Message{ID: gcid.MakeMessageID("headmsg1")}
 	remove := matrixMessageRemove(spacePortal("space1"), target)
 
 	if err := gc.HandleMatrixMessageRemove(context.Background(), remove); err != nil {
@@ -164,8 +140,6 @@ func TestHandleMatrixMessageRemoveFallsBackToOwnIDWhenTopicIDMissing(t *testing.
 		t.Errorf("MessageId.MessageId = %q, want %q", got, "headmsg1")
 	}
 }
-
-// --- HandleMatrixMessageRemove: error paths -----------------------------
 
 func TestHandleMatrixMessageRemoveInvalidPortalIDErrors(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})

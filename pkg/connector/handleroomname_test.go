@@ -1,8 +1,5 @@
 package connector
 
-// handleroomname_test.go -- HandleMatrixRoomName -> update_group RPC.
-// Mirrors handlereceipt_test.go's request-construction / error-path shape.
-
 import (
 	"context"
 	"errors"
@@ -55,7 +52,6 @@ func TestHandleMatrixRoomNameSpaceSendsUpdateGroup(t *testing.T) {
 	if len(masks) != 1 || masks[0] != pb.UpdateGroupRequest_NAME {
 		t.Errorf("update_masks = %v, want [NAME]", masks)
 	}
-	// On success the handler must stamp the portal fields.
 	if portal.Name != "New Name" || !portal.NameSet {
 		t.Errorf("portal Name=%q NameSet=%v, want %q true", portal.Name, portal.NameSet, "New Name")
 	}
@@ -101,7 +97,6 @@ func TestHandleMatrixRoomNameFailureLeavesFieldsUntouched(t *testing.T) {
 	if ok {
 		t.Error("HandleMatrixRoomName() = true on RPC failure, want false")
 	}
-	// Critical: a failed rename must NOT stamp Name/NameSet.
 	if portal.Name != "" || portal.NameSet {
 		t.Errorf("portal Name=%q NameSet=%v after failure, want \"\" false", portal.Name, portal.NameSet)
 	}

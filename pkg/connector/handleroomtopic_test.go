@@ -1,8 +1,5 @@
 package connector
 
-// handleroomtopic_test.go -- HandleMatrixRoomTopic -> get_group + update_group
-// (SPACE_DETAILS). Mirrors handleroomname_test.go.
-
 import (
 	"context"
 	"errors"

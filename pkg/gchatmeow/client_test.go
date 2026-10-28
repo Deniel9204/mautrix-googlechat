@@ -19,14 +19,7 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// ---------------------------------------------------------------------------
-// splitEventBodies
-// ---------------------------------------------------------------------------
-
-// TestSplitEventBodies verifies the flattening semantics: an Event carrying
-// a top-level body (field 4) plus two embedded bodies (field 8) flattens to
-// three Events, in order -- parent first, then one per embedded body -- with
-// the parent's fields copied and each copy's type taken from the body.
+// TestSplitEventBodies: body + two embedded bodies flatten to three events, parent first, parent fields copied.
 func TestSplitEventBodies(t *testing.T) {
 	parent := &pb.Event{
 		GroupId: &pb.GroupId{
@@ -48,7 +41,6 @@ func TestSplitEventBodies(t *testing.T) {
 		t.Fatalf("splitEventBodies returned %d events, want 3", len(got))
 	}
 
-	// Parent must have its bodies cleared.
 	if len(got[0].Bodies) != 0 {
 		t.Errorf("parent event still has %d bodies, want 0 (ClearField)", len(got[0].Bodies))
 	}
@@ -66,15 +58,13 @@ func TestSplitEventBodies(t *testing.T) {
 		if ev.GetType() != wantType[i] {
 			t.Errorf("event[%d] type = %v, want %v", i, ev.GetType(), wantType[i])
 		}
-		// Parent fields (group_id) must be copied onto every flattened event.
+		// Parent fields must be copied onto every flattened event.
 		if ev.GetGroupId().GetSpaceId().GetSpaceId() != "space-42" {
 			t.Errorf("event[%d] lost parent group_id: %v", i, ev.GetGroupId())
 		}
 	}
 }
 
-// TestSplitEventBodiesOnlyTopLevel verifies that an Event with a body but no
-// embedded bodies yields exactly one event (itself).
 func TestSplitEventBodiesOnlyTopLevel(t *testing.T) {
 	evt := &pb.Event{
 		Type: pb.Event_MESSAGE_POSTED.Enum(),
@@ -86,8 +76,7 @@ func TestSplitEventBodiesOnlyTopLevel(t *testing.T) {
 	}
 }
 
-// TestSplitEventBodiesNoBody verifies that an Event with NO top-level body but
-// two embedded bodies yields exactly two events (the parent is not yielded).
+// TestSplitEventBodiesNoBody: without a top-level body the parent is not yielded.
 func TestSplitEventBodiesNoBody(t *testing.T) {
 	evt := &pb.Event{
 		Bodies: []*pb.Event_EventBody{
@@ -101,9 +90,6 @@ func TestSplitEventBodiesNoBody(t *testing.T) {
 	}
 }
 
-// TestOnReceiveArrayDispatch drives the full inbound path: a webchannel
-// data_array whose element[0] is a StreamEventsResponse pblite array holding
-// an Event with 1 body + 2 bodies must produce 3 ordered OnStreamEvent calls.
 func TestOnReceiveArrayDispatch(t *testing.T) {
 	ser := &pb.StreamEventsResponse{
 		Event: &pb.Event{
@@ -122,7 +108,7 @@ func TestOnReceiveArrayDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pblite.Marshal: %v", err)
 	}
-	// data_array = [ <StreamEventsResponse pblite array>, ... ].
+
 	dataArray, err := json.Marshal([]json.RawMessage{json.RawMessage(serBytes)})
 	if err != nil {
 		t.Fatalf("marshal data array: %v", err)
@@ -154,8 +140,6 @@ func TestOnReceiveArrayDispatch(t *testing.T) {
 	}
 }
 
-// TestOnReceiveArrayNoop verifies the "noop" keep-alive is dropped silently
-// and never reaches OnStreamEvent.
 func TestOnReceiveArrayNoop(t *testing.T) {
 	called := false
 	c := &Client{OnStreamEvent: func(ctx context.Context, ev *pb.Event) { called = true }}
@@ -167,14 +151,7 @@ func TestOnReceiveArrayNoop(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Supervision ladder (research 07 §6)
-// ---------------------------------------------------------------------------
-
-// scriptedChannel is a fake channelListener whose Listen returns a scripted
-// sequence of errors, one per call, so the supervision ladder can be exercised
-// deterministically. Steps may invoke the captured callbacks to simulate the
-// channel connecting/reconnecting/disconnecting.
+// scriptedChannel is a fake channelListener whose Listen returns scripted results, one per call.
 type scriptedChannel struct {
 	steps []func(f *scriptedChannel, ctx context.Context) error
 
@@ -244,9 +221,7 @@ func (r *stateRecorder) snapshot() []ConnState {
 	return append([]ConnState(nil), r.states...)
 }
 
-// ladderClient builds a Client wired to fake and rec, with the XSRF token
-// pre-seeded fresh (so the connect loop never hits the network) and all
-// timers/backoffs shrunk so the test runs instantly.
+// ladderClient builds a Client with a fresh XSRF token and tiny backoffs, so tests never hit the network or sleep.
 func ladderClient(t *testing.T, fake channelListener, rec *stateRecorder) *Client {
 	t.Helper()
 	sess, err := NewSession(map[string]string{}, "")
@@ -317,10 +292,7 @@ func TestSupervisionLadder(t *testing.T) {
 			wantCalls:  2,
 		},
 		{
-			// A fatal is REPORTED but is no longer the end of the account:
-			// the loop waits on its own slower tier and starts over. The
-			// fifth step is the terminator that proves it came back -- without
-			// the retry the script would never reach it and this hangs.
+			// A fatal is reported, then the loop retries; the fifth step only runs if it came back.
 			name: "four sid-invalid in a row -> fatal, then retry",
 			steps: []func(*scriptedChannel, context.Context) error{
 				ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid),
@@ -384,9 +356,6 @@ func TestSupervisionLadder(t *testing.T) {
 	}
 }
 
-// TestSupervisionCleanCancel verifies that cancelling the context (via
-// Disconnect) while the channel is blocked returns cleanly with no error and
-// no state change.
 func TestSupervisionCleanCancel(t *testing.T) {
 	fake := newScriptedChannel() // no steps -> Listen blocks on ctx.Done()
 	rec := &stateRecorder{}
@@ -416,31 +385,13 @@ func TestSupervisionCleanCancel(t *testing.T) {
 }
 
 // hasCancel reports whether Connect has installed its cancel func yet.
-// Test-only observability (defined here, not in client.go, since it exists
-// solely to pin down the timing guarantee below) proving c.cancel is stored
-// under mu before Connect does anything else -- ensureToken, newChannel,
-// Listen, or spawning the xsrf refresh goroutine.
 func (c *Client) hasCancel() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.cancel != nil
 }
 
-// TestConnectInstallsCancelBeforeChannelSetup proves there is no lost-cancel
-// window: Connect must store c.cancel (guarded by mu) before it ever creates
-// a channel or calls Listen, i.e. before any blocking or async work. It
-// blocks Connect inside newChannel (the first hook Connect calls after
-// installing cancel) and, while Connect is paused there, asserts hasCancel()
-// is already true and that Disconnect() takes effect immediately.
-//
-// The connector's wireAndStart does `go conn.Connect(ctx)`, so anything that
-// deferred installing cancel until inside a nested goroutine (e.g. spawning
-// the supervision loop and setting c.cancel from within it) would leave a
-// window where a racing Disconnect() is silently dropped. This test would
-// fail against that structuring: entered would still close (newChannel is
-// called eventually), but hasCancel() would very likely still be false at
-// that point, or -- pushed further -- Disconnect() would have no cancel to
-// call and Connect would hang past the 2s deadline.
+// TestConnectInstallsCancelBeforeChannelSetup: cancel must be installed before any async work, or a racing Disconnect is lost.
 func TestConnectInstallsCancelBeforeChannelSetup(t *testing.T) {
 	fake := newScriptedChannel() // no steps -> Listen blocks on ctx.Done()
 	rec := &stateRecorder{}
@@ -479,19 +430,7 @@ func TestConnectInstallsCancelBeforeChannelSetup(t *testing.T) {
 	}
 }
 
-// TestDisconnectImmediatelyAfterConnectStops is an end-to-end regression
-// guard proving that a Disconnect() racing the `go conn.Connect(ctx)` call in
-// the connector's wireAndStart is never PERMANENTLY lost. It spawns Connect
-// and, with NO synchronization barrier at all, races a second goroutine that
-// hammers Disconnect() in a tight retry loop against Connect's own goroutine
-// start -- the hammering continues until Connect actually returns (not just
-// for a fixed number of iterations), so this only catches a cancel that is
-// never installed (or a Disconnect()/mu bug) within the 2s deadline; it does
-// NOT by itself prove cancel is installed before any particular point in
-// Connect's own sequence (any finite scheduling delay is absorbed by the
-// retry). TestConnectInstallsCancelBeforeChannelSetup above is the
-// deterministic test for that install-ordering guarantee. Repeated across
-// many iterations under `-race` to make the race window meaningful.
+// TestDisconnectImmediatelyAfterConnectStops: a Disconnect racing `go Connect` must never be lost. Run with -race.
 func TestDisconnectImmediatelyAfterConnectStops(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		fake := newScriptedChannel() // no steps -> Listen blocks on ctx.Done()
@@ -501,9 +440,7 @@ func TestDisconnectImmediatelyAfterConnectStops(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- c.Connect(context.Background()) }()
 
-		// No barrier: race Disconnect against Connect's goroutine start,
-		// retrying until it lands (Connect returns) or the deadline below
-		// fires.
+		// No barrier: retry Disconnect until Connect returns.
 		stop := make(chan struct{})
 		go func() {
 			for {
@@ -529,26 +466,20 @@ func TestDisconnectImmediatelyAfterConnectStops(t *testing.T) {
 	}
 }
 
-// TestSIDInvalidResyncPaced verifies that consecutive SID-invalid resyncs are
-// paced with a growing backoff (not fired back-to-back in milliseconds), so a
-// brief transient "Unknown SID" storm backs off before the fatal cap instead of
-// killing a recoverable connection. It injects sleepFn to observe the backoff
-// durations deterministically without real sleeps.
+// TestSIDInvalidResyncPaced: SID-invalid resyncs back off with growing delays before the fatal cap.
 func TestSIDInvalidResyncPaced(t *testing.T) {
 	authErr := &UnexpectedStatusError{Status: http.StatusUnauthorized}
 	fake := newScriptedChannel(
 		ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid), ret(ErrSIDInvalid),
-		// Terminator. Without the post-fatal retry the loop would return
-		// before reaching this, so its absence would hang rather than fail.
+		// Terminator; without the post-fatal retry this would hang.
 		ret(authErr),
 	)
 	rec := &stateRecorder{}
 	c := ladderClient(t, fake, rec)
-	// Spread min/max so growth is observable (ladderClient pins both to 1ms).
+	// Spread min/max so growth is observable.
 	c.reconnectBackoffMin = 10 * time.Millisecond
 	c.reconnectBackoffMax = 100 * time.Millisecond
-	// Far above the ladder's ceiling, so the assertion below distinguishes the
-	// two tiers rather than just observing "some sleep happened".
+	// Far above the ladder's ceiling, to tell the two tiers apart.
 	c.sidFatalRetryFloor = 5 * time.Second
 	c.sidFatalRetryCap = time.Minute
 
@@ -558,7 +489,7 @@ func TestSIDInvalidResyncPaced(t *testing.T) {
 		mu.Lock()
 		slept = append(slept, d)
 		mu.Unlock()
-		return nil // don't actually sleep
+		return nil
 	}
 
 	c.Connect(context.Background())
@@ -568,8 +499,7 @@ func TestSIDInvalidResyncPaced(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	// resyncCount 1,2,3 each pace on the ladder; the 4th exceeds the cap, goes
-	// fatal, and paces on the SLOWER tier -- so one more sleep than before.
+	// Resyncs 1-3 pace on the ladder; the 4th goes fatal and waits on the slower tier.
 	if len(slept) != maxSIDInvalidResyncs+1 {
 		t.Fatalf("paced %d times (%v), want %d", len(slept), slept, maxSIDInvalidResyncs+1)
 	}
@@ -580,23 +510,18 @@ func TestSIDInvalidResyncPaced(t *testing.T) {
 				i, ladder[i], i-1, ladder[i-1], slept)
 		}
 	}
-	// THE point of this test now: the post-fatal wait is its own tier. If it
-	// rejoined the ladder, a storm would be retried seconds later -- which is
-	// the storm the resync cap exists to stop.
+	// The post-fatal wait must be its own tier.
 	if fatalWait := slept[maxSIDInvalidResyncs]; fatalWait != c.sidFatalRetryFloor {
 		t.Errorf("post-fatal wait = %v, want the fatal floor %v (not the ladder's %v)",
 			fatalWait, c.sidFatalRetryFloor, c.reconnectBackoffMax)
 	}
 }
 
-// TestSIDInvalidResyncCancelDuringBackoff verifies that cancelling the context
-// while a resync backoff is pending returns cleanly (nil), with no Fatal state.
 func TestSIDInvalidResyncCancelDuringBackoff(t *testing.T) {
 	fake := newScriptedChannel(ret(ErrSIDInvalid), ret(ErrSIDInvalid))
 	rec := &stateRecorder{}
 	c := ladderClient(t, fake, rec)
-	// sleepFn reports ctx-done on the first resync backoff, as sleepOrDone would
-	// when Disconnect cancels mid-wait.
+	// Report ctx-done on the first backoff, as when Disconnect cancels mid-wait.
 	c.sleepFn = func(_ context.Context, _ time.Duration) error {
 		return context.Canceled
 	}
@@ -611,12 +536,6 @@ func TestSIDInvalidResyncCancelDuringBackoff(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// XSRF refresh on 401 (brief's 401-retry mandate)
-// ---------------------------------------------------------------------------
-
-// TestXSRFRefreshOn401 verifies that a 401 from an /api/* RPC triggers a token
-// re-fetch via /mole/world and a single retry with the fresh token.
 func TestXSRFRefreshOn401(t *testing.T) {
 	const oldToken = "stale-token"
 	const newToken = "fresh-token"
@@ -635,7 +554,6 @@ func TestXSRFRefreshOn401(t *testing.T) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			// Fresh token accepted: return an (empty) valid proto response.
 			body, _ := proto.Marshal(&pb.GetSelfUserStatusResponse{})
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(body)
@@ -685,16 +603,6 @@ func TestXSRFRefreshOn401(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Client.FetchXSRFToken / Client.UserAgent (Task 10: exported so the
-// connector's login flow -- a different package -- can validate submitted
-// cookies and persist the resolved cookie/UA fingerprint without reaching
-// into Client's unexported session field.)
-// ---------------------------------------------------------------------------
-
-// TestClientFetchXSRFTokenSuccess mirrors TestFetchXSRFToken_Success
-// (auth_test.go) but through the exported Client wrapper: a valid /mole/world
-// response stores the scraped token on the Client.
 func TestClientFetchXSRFTokenSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -716,10 +624,7 @@ func TestClientFetchXSRFTokenSuccess(t *testing.T) {
 	}
 }
 
-// TestClientFetchXSRFTokenNotLoggedIn mirrors TestFetchXSRFToken_NotLoggedIn:
-// the AccountsSignInUi signal must surface as ErrNotLoggedIn through the
-// Client wrapper too, unmodified, so the connector's login flow can detect
-// rejected cookies via errors.Is.
+// TestClientFetchXSRFTokenNotLoggedIn: ErrNotLoggedIn must pass through unwrapped.
 func TestClientFetchXSRFTokenNotLoggedIn(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -742,12 +647,7 @@ func TestClientFetchXSRFTokenNotLoggedIn(t *testing.T) {
 	}
 }
 
-// TestClientUserAgent verifies the exported UserAgent() getter reflects the
-// NORMALIZED value Session actually applies (default fallback, or a pinned
-// Chrome/Firefox version on a caller-supplied UA) -- see
-// normalizeUserAgent/TestUserAgentVersionRewrite. Needed so the connector can
-// persist the exact fingerprint used for the validated session (doc 01 §1.1:
-// "The user's real browser user-agent is stored per-user and reused").
+// TestClientUserAgent: UserAgent returns the normalized UA Session actually sends.
 func TestClientUserAgent(t *testing.T) {
 	c, err := NewClient(ClientOpts{})
 	if err != nil {
@@ -766,10 +666,7 @@ func TestClientUserAgent(t *testing.T) {
 	}
 }
 
-// --- xsrfRefreshLoop: noticing a Google-side logout -------------------------
-
-// newXSRFLoopClient builds a Client whose /mole/world points at srv and whose
-// refresh ticker fires immediately, so the loop can be driven synchronously.
+// newXSRFLoopClient builds a Client whose refresh ticker fires immediately.
 func newXSRFLoopClient(t *testing.T, srvURL string, rec *stateRecorder) *Client {
 	t.Helper()
 	c, err := NewClient(ClientOpts{Cookies: map[string]string{}})
@@ -782,11 +679,7 @@ func newXSRFLoopClient(t *testing.T, srvURL string, rec *stateRecorder) *Client 
 	return c
 }
 
-// TestXSRFRefreshLoopReportsAConfirmedLogout: Google answering /mole/world
-// with the sign-in page means the cookies are dead -- it is the same signal
-// login uses to validate them. Without this the bridge only finds out when the
-// webchannel next happens to fail, which on an idle account can be a long
-// time, and the user meanwhile believes they are connected.
+// TestXSRFRefreshLoopReportsAConfirmedLogout: a sign-in page from /mole/world means the cookies are dead.
 func TestXSRFRefreshLoopReportsAConfirmedLogout(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -814,19 +707,16 @@ func TestXSRFRefreshLoopReportsAConfirmedLogout(t *testing.T) {
 	}
 }
 
-// TestXSRFRefreshLoopToleratesOneAuthFailure is the false-alarm guard, and the
-// reason the threshold is two. A single spurious sign-in page must not flip
-// the bridge to logged-out on a healthy session -- that would start rejecting
-// the user's outbound messages for no reason.
+// TestXSRFRefreshLoopToleratesOneAuthFailure: one spurious sign-in page must not log the user out.
 func TestXSRFRefreshLoopToleratesOneAuthFailure(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if atomic.AddInt32(&calls, 1) == 1 {
-			_, _ = w.Write([]byte(signInWizHTML)) // one bad answer...
+			_, _ = w.Write([]byte(signInWizHTML))
 			return
 		}
-		_, _ = w.Write([]byte(loggedInWizHTML)) // ...then healthy again
+		_, _ = w.Write([]byte(loggedInWizHTML))
 	}))
 	defer srv.Close()
 
@@ -847,9 +737,7 @@ func TestXSRFRefreshLoopToleratesOneAuthFailure(t *testing.T) {
 	}
 }
 
-// TestXSRFRefreshLoopIgnoresOrdinaryFailures: a network blip or a 500 must not
-// tear anything down, however many times it repeats. Only an authentication
-// failure is a verdict.
+// TestXSRFRefreshLoopIgnoresOrdinaryFailures: only auth failures are a verdict.
 func TestXSRFRefreshLoopIgnoresOrdinaryFailures(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -870,9 +758,6 @@ func TestXSRFRefreshLoopIgnoresOrdinaryFailures(t *testing.T) {
 	}
 }
 
-// --- post-fatal retry tier --------------------------------------------------
-
-// sleepLog records what the loop waited for without waiting.
 type sleepLog struct {
 	mu    sync.Mutex
 	slept []time.Duration
@@ -891,8 +776,7 @@ func (s *sleepLog) snapshot() []time.Duration {
 	return append([]time.Duration(nil), s.slept...)
 }
 
-// fatalStorm returns steps that drive the ladder to a fatal n times over,
-// followed by a terminator so the loop exits rather than parking.
+// fatalStorm drives the ladder to a fatal rounds times, then returns terminator.
 func fatalStorm(rounds int, terminator error) []func(*scriptedChannel, context.Context) error {
 	var steps []func(*scriptedChannel, context.Context) error
 	for i := 0; i < rounds; i++ {
@@ -903,9 +787,7 @@ func fatalStorm(rounds int, terminator error) []func(*scriptedChannel, context.C
 	return append(steps, ret(terminator))
 }
 
-// TestPostFatalRetryEscalates: a fatal that keeps repeating means the server is
-// rejecting SIDs it has just minted, so trying again at the same rate is
-// pointless. The wait has to grow, and it has to stop growing.
+// TestPostFatalRetryEscalates: the post-fatal wait grows and is capped.
 func TestPostFatalRetryEscalates(t *testing.T) {
 	authErr := &UnexpectedStatusError{Status: http.StatusUnauthorized}
 	fake := newScriptedChannel(fatalStorm(4, authErr)...)
@@ -918,8 +800,7 @@ func TestPostFatalRetryEscalates(t *testing.T) {
 
 	c.Connect(context.Background())
 
-	// Every sleep at or above the floor is a post-fatal wait; the ladder's own
-	// pacing is pinned to 1ms by ladderClient.
+	// Sleeps at or above the floor are post-fatal waits; ladder pacing is 1ms.
 	var fatalWaits []time.Duration
 	for _, d := range log.snapshot() {
 		if d >= c.sidFatalRetryFloor {
@@ -937,9 +818,7 @@ func TestPostFatalRetryEscalates(t *testing.T) {
 	}
 }
 
-// TestPostFatalRetryResetsAfterAHealthyChannel: an account that hits a storm
-// once a month must not inherit last month's escalation. A channel that
-// reached its full lifetime is the ladder's only unambiguous proof of health.
+// TestPostFatalRetryResetsAfterAHealthyChannel: a full-lifetime channel resets the escalation.
 func TestPostFatalRetryResetsAfterAHealthyChannel(t *testing.T) {
 	authErr := &UnexpectedStatusError{Status: http.StatusUnauthorized}
 	var steps []func(*scriptedChannel, context.Context) error
@@ -967,7 +846,7 @@ func TestPostFatalRetryResetsAfterAHealthyChannel(t *testing.T) {
 			fatalWaits = append(fatalWaits, d)
 		}
 	}
-	// 4s, 8s (escalating), then the healthy channel resets it back to 4s.
+	// 4s, 8s, then reset to 4s.
 	want := []time.Duration{4 * time.Second, 8 * time.Second, 4 * time.Second}
 	if len(fatalWaits) != len(want) {
 		t.Fatalf("post-fatal waits = %v, want %v", fatalWaits, want)
@@ -979,9 +858,7 @@ func TestPostFatalRetryResetsAfterAHealthyChannel(t *testing.T) {
 	}
 }
 
-// TestPostFatalRetryStopsOnDisconnect is the classic bug in this shape of
-// code: a long wait that ignores cancellation. Disconnect must break out
-// promptly, not after the floor -- which in production is minutes.
+// TestPostFatalRetryStopsOnDisconnect: Disconnect must break out of the post-fatal wait promptly.
 func TestPostFatalRetryStopsOnDisconnect(t *testing.T) {
 	var steps []func(*scriptedChannel, context.Context) error
 	for j := 0; j <= maxSIDInvalidResyncs; j++ {
@@ -990,14 +867,14 @@ func TestPostFatalRetryStopsOnDisconnect(t *testing.T) {
 	fake := newScriptedChannel(steps...)
 	rec := &stateRecorder{}
 	c := ladderClient(t, fake, rec)
-	// A wait far longer than the test's patience: only cancellation can end it.
+	// Only cancellation can end this wait.
 	c.sidFatalRetryFloor = time.Hour
 	c.sidFatalRetryCap = time.Hour
 
 	done := make(chan error, 1)
 	go func() { done <- c.Connect(context.Background()) }()
 
-	// Wait until the fatal has been reported, i.e. the loop is in the wait.
+	// Wait until the loop is in the post-fatal wait.
 	deadline := time.After(5 * time.Second)
 	for {
 		if states := rec.snapshot(); len(states) > 0 && states[len(states)-1] == ConnStateFatal {
@@ -1019,9 +896,7 @@ func TestPostFatalRetryStopsOnDisconnect(t *testing.T) {
 	}
 }
 
-// TestPostFatalRetryDoesNotRetryADeadSession: retrying forever is right for a
-// SID storm and wrong for a logged-out session. An auth error must still end
-// the loop immediately.
+// TestPostFatalRetryDoesNotRetryADeadSession: an auth error still ends the loop.
 func TestPostFatalRetryDoesNotRetryADeadSession(t *testing.T) {
 	authErr := &UnexpectedStatusError{Status: http.StatusUnauthorized}
 	fake := newScriptedChannel(ret(authErr), ret(ErrSIDInvalid))
@@ -1040,10 +915,7 @@ func TestPostFatalRetryDoesNotRetryADeadSession(t *testing.T) {
 	}
 }
 
-// TestFatalRetryFloorDefaultsWhenUnset: a Client built by hand rather than by
-// NewClient has a zero floor, and a zero wait would turn the post-fatal retry
-// into a busy loop hammering register -- the exact storm the resync cap exists
-// to prevent. The clamp is the only thing standing between the two.
+// TestFatalRetryFloorDefaultsWhenUnset: a zero floor would busy-loop register.
 func TestFatalRetryFloorDefaultsWhenUnset(t *testing.T) {
 	if got := (&Client{}).fatalRetryFloor(); got != defaultSIDFatalRetryFloor {
 		t.Errorf("fatalRetryFloor() = %v for an unset field, want %v", got, defaultSIDFatalRetryFloor)
@@ -1053,8 +925,7 @@ func TestFatalRetryFloorDefaultsWhenUnset(t *testing.T) {
 	}
 }
 
-// TestGrowFatalBackoffCaps pins the ceiling, including for a hand-built Client
-// whose cap is unset: without the fallback the doubling would run away.
+// TestGrowFatalBackoffCaps: the cap applies even when unset.
 func TestGrowFatalBackoffCaps(t *testing.T) {
 	c := &Client{sidFatalRetryFloor: 4 * time.Second, sidFatalRetryCap: 16 * time.Second}
 	got := []time.Duration{}

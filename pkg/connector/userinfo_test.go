@@ -29,13 +29,11 @@ func newTestConfig(t *testing.T) *Config {
 	return cfg
 }
 
-// --- displaynameParams fallback chain ------------------------------------
-
 func TestDisplaynameParamsFallbackChain(t *testing.T) {
 	cases := []struct {
 		name  string
 		user  *pb.User
-		want  string // the .Name field FormatDisplayname's template sees
+		want  string
 		first string
 	}{
 		{
@@ -48,7 +46,7 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 			name:  "first+last joined when no full name",
 			user:  &pb.User{FirstName: proto.String("Grace"), LastName: proto.String("Hopper"), Email: proto.String("grace@example.com")},
 			want:  "Grace Hopper",
-			first: "Grace", // FirstName passes through unchanged; only Name is derived here
+			first: "Grace",
 		},
 		{
 			name:  "first only, no last",
@@ -63,18 +61,14 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 			first: "",
 		},
 		{
-			// full name given, but no explicit first_name -> derive FirstName
-			// from the full name, stripping a trailing last_name suffix.
+			// No first_name: derive it from the full name minus the last_name suffix.
 			name:  "first name derived from full name, stripping last name suffix",
 			user:  &pb.User{Name: proto.String("Ada Lovelace"), LastName: proto.String("Lovelace"), Email: proto.String("ada@example.com")},
 			want:  "Ada Lovelace",
 			first: "Ada",
 		},
 		{
-			// Same derivation, but last_name is NOT a suffix of the full
-			// name (e.g. a nickname/full name mismatch) -- first falls back
-			// to the whole full name (the suffix is only stripped when it is
-			// actually a suffix).
+			// last_name isn't a suffix, so FirstName is the whole full name.
 			name:  "first name derivation skips stripping when last name isn't a suffix",
 			user:  &pb.User{Name: proto.String("Ada L."), LastName: proto.String("Lovelace"), Email: proto.String("ada@example.com")},
 			want:  "Ada L.",
@@ -97,11 +91,8 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 	}
 }
 
-// TestDisplaynameParamsThroughFormatDisplayname exercises the FULL chain
-// (name -> first+last -> email -> "Unknown user") through the real
-// Config.FormatDisplayname template, matching the task's stated test:
-// "displayname fallback chain test (name -> first+last -> email -> default
-// via FormatDisplayname)".
+// TestDisplaynameParamsThroughFormatDisplayname runs the full fallback chain
+// through the real template.
 func TestDisplaynameParamsThroughFormatDisplayname(t *testing.T) {
 	cfg := newTestConfig(t)
 
@@ -141,14 +132,8 @@ func TestDisplaynameParamsThroughFormatDisplayname(t *testing.T) {
 	}
 }
 
-// TestFormatDisplayname_TemplateExecutionErrorIsLogged is the M7 Task 3 item
-// 8 regression test: a displayname_template that PARSES fine (PostProcess
-// succeeds) but fails at EXECUTE time -- e.g. it references a field that
-// doesn't exist on DisplaynameParams, which text/template only catches when
-// actually rendering a value, not at Parse time -- must be logged, not
-// silently discarded. FormatDisplayname still returns whatever (partial)
-// text Execute produced before failing; only the "nothing was logged at
-// all" behavior is being fixed here.
+// TestFormatDisplayname_TemplateExecutionErrorIsLogged: a template that parses but
+// fails at Execute time must be logged.
 func TestFormatDisplayname_TemplateExecutionErrorIsLogged(t *testing.T) {
 	cfg := &Config{DisplaynameTemplate: `{{ .NoSuchField }}`}
 	if err := cfg.PostProcess(); err != nil {
@@ -169,9 +154,6 @@ func TestFormatDisplayname_TemplateExecutionErrorIsLogged(t *testing.T) {
 	}
 }
 
-// TestFormatDisplayname_WorkingTemplateLogsNothing is a control case
-// proving the fix doesn't spuriously log on every call -- only an actual
-// Execute error should produce a log line.
 func TestFormatDisplayname_WorkingTemplateLogsNothing(t *testing.T) {
 	cfg := newTestConfig(t)
 
@@ -187,8 +169,6 @@ func TestFormatDisplayname_WorkingTemplateLogsNothing(t *testing.T) {
 		t.Errorf("log output = %q, want none for a successfully executed template", buf.String())
 	}
 }
-
-// --- wrapAvatar -----------------------------------------------------------
 
 func TestWrapAvatarEmptyURLMeansRemove(t *testing.T) {
 	a := wrapAvatar("")
@@ -209,8 +189,6 @@ func TestWrapAvatarNonEmptyURLSetsIDAndGet(t *testing.T) {
 		t.Error("Get = nil, want a download function")
 	}
 }
-
-// --- userInfoFromUser ------------------------------------------------------
 
 func TestUserInfoFromUserIsBot(t *testing.T) {
 	gc := &GChatClient{Main: &GChatConnector{Config: *newTestConfig(t)}}
@@ -273,13 +251,10 @@ func TestUserInfoFromUserExtraUpdatesStoresEmail(t *testing.T) {
 		t.Errorf("GhostMetadata.Email = %q, want \"ada@example.com\"", meta.Email)
 	}
 
-	// Second call with the same email should report no change.
 	if changed := info.ExtraUpdates(context.Background(), ghost); changed {
 		t.Error("ExtraUpdates() = true on second call with the same email, want false")
 	}
 }
-
-// --- GetUserInfo: no-conn error path (RPC itself covered at Task 13) -----
 
 func TestGetUserInfoNoConnIsError(t *testing.T) {
 	gc := &GChatClient{Main: &GChatConnector{Config: *newTestConfig(t)}}
@@ -291,13 +266,9 @@ func TestGetUserInfoNoConnIsError(t *testing.T) {
 	}
 }
 
-// TestUpdateOwnLoginProfile_SetsRemoteName pins the fix for the empty
-// per-login "personal filtering space" name ("Google Chat ()"):
-// updateOwnLoginProfile must resolve the logged-in account's OWN name via
-// get_members on the login's own gaia, then write it (RAW, no template) to
-// UserLogin.RemoteName + RemoteProfile.Name and save.
+// TestUpdateOwnLoginProfile_SetsRemoteName: the login's own raw name is saved as RemoteName.
 func TestUpdateOwnLoginProfile_SetsRemoteName(t *testing.T) {
-	login := newTestUserLogin(&UserLoginMetadata{}) // ID "112233", RemoteName ""
+	login := newTestUserLogin(&UserLoginMetadata{})
 	var saved bool
 	var gotMemberID string
 	c := &GChatClient{
@@ -315,8 +286,7 @@ func TestUpdateOwnLoginProfile_SetsRemoteName(t *testing.T) {
 	if gotMemberID != "112233" {
 		t.Errorf("get_members targeted %q, want the login's own gaia 112233", gotMemberID)
 	}
-	// RAW name, NOT "Ada Lovelace (Google Chat)": bridgev2 wraps it as
-	// "Google Chat (<RemoteName>)", so a formatted name would double-wrap.
+	// Raw name; bridgev2 already wraps it as "Google Chat (<RemoteName>)".
 	const want = "Ada Lovelace"
 	if login.RemoteName != want {
 		t.Errorf("RemoteName = %q, want %q", login.RemoteName, want)
@@ -329,8 +299,6 @@ func TestUpdateOwnLoginProfile_SetsRemoteName(t *testing.T) {
 	}
 }
 
-// TestUpdateOwnLoginProfile_NoChangeNoSave: when RemoteName already matches the
-// resolved name, no write/save happens (avoids a redundant Save every connect).
 func TestUpdateOwnLoginProfile_NoChangeNoSave(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.RemoteName = "Ada Lovelace"
@@ -349,17 +317,8 @@ func TestUpdateOwnLoginProfile_NoChangeNoSave(t *testing.T) {
 	}
 }
 
-// TestUpdateOwnLoginProfileRaceWithConcurrentCookiePersist is the regression
-// test for the profile write racing a metadata write. Both land in the SAME
-// user_login row -- c.save marshals remote_profile and metadata in one UPDATE
-// -- so updateOwnLoginProfile must take metaMu just as every metadata writer
-// does. The two goroutines here are the real pair: handleConnState persists
-// rotated cookies on conn's supervision goroutine while the first Connected
-// transition's syncChats goroutine is still running.
-//
-// Run under `-race` (CI does, for this package). Looped so a single lucky
-// ordering cannot hide the bug, and both outcomes are pinned so the fix
-// cannot be "drop one of the writes".
+// TestUpdateOwnLoginProfileRaceWithConcurrentCookiePersist: the profile write and
+// cookie persist share one row, so both must hold metaMu. Run under -race.
 func TestUpdateOwnLoginProfileRaceWithConcurrentCookiePersist(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: fakeCookies()})
@@ -371,11 +330,7 @@ func TestUpdateOwnLoginProfileRaceWithConcurrentCookiePersist(t *testing.T) {
 		gc := &GChatClient{
 			UserLogin: login,
 			conn:      client,
-			// The stand-in for UserLogin.Save must actually READ what the real
-			// one marshals -- remote_profile and metadata, in one statement.
-			// A no-op saveFn touches neither, so the race the lock exists to
-			// prevent would never be observed and this test would pass with
-			// or without metaMu.
+			// Must read what the real Save marshals, or the race is never observed.
 			saveFn: func(context.Context) error {
 				if _, err := json.Marshal(login.Metadata); err != nil {
 					return err
@@ -411,11 +366,8 @@ func TestUpdateOwnLoginProfileRaceWithConcurrentCookiePersist(t *testing.T) {
 	}
 }
 
-// TestUpdateOwnLoginProfileLearnsEmailForAnAlreadyNamedLogin is the trap-guard
-// for this feature. Every login that has connected before already has the
-// right RemoteName, so a single combined "nothing changed, return" guard would
-// leave the address unlearned on exactly the logins that matter -- while a
-// fresh-login test passed. The two checks must be independent.
+// TestUpdateOwnLoginProfileLearnsEmailForAnAlreadyNamedLogin: the name and email
+// checks must be independent.
 func TestUpdateOwnLoginProfileLearnsEmailForAnAlreadyNamedLogin(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.RemoteName = "Ada Lovelace"
@@ -427,7 +379,7 @@ func TestUpdateOwnLoginProfileLearnsEmailForAnAlreadyNamedLogin(t *testing.T) {
 		UserLogin: login,
 		getMembersFn: func(context.Context, *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
 			return &pb.GetMembersResponse{Members: []*pb.Member{{Profile: &pb.Member_User{User: &pb.User{
-				Name:  proto.String("Ada Lovelace"), // unchanged
+				Name:  proto.String("Ada Lovelace"),
 				Email: proto.String("ada@example.com"),
 			}}}}}, nil
 		},
@@ -443,10 +395,7 @@ func TestUpdateOwnLoginProfileLearnsEmailForAnAlreadyNamedLogin(t *testing.T) {
 	}
 }
 
-// TestUpdateOwnLoginProfileKeepsAKnownEmail: a response that omits the email
-// must not erase one already learned. get_members has several ways to return
-// a User with no email, and losing the address would silently disable the
-// self-DM explanation.
+// TestUpdateOwnLoginProfileKeepsAKnownEmail: a response without email must not erase one.
 func TestUpdateOwnLoginProfileKeepsAKnownEmail(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.RemoteProfile.Email = "ada@example.com"

@@ -1,26 +1,7 @@
 package connector
 
-// leave.go -- leaving a Google Chat conversation from Matrix on purpose: the
-// `leave` command, and DeleteChatHandlingNetworkAPI (bridgev2's built-in
-// delete-chat command, and a client's "delete chat" action). Issue #66.
-//
-// A plain Matrix leave is not enough: bridgev2 drops it unless
-// bridge.bridge_matrix_leave is on, and even then sends it through ONE login,
-// so a Matrix user with several logins in a space stays a member and the next
-// chat-list sync brings the room back. Here the intent is explicit, so the
-// leave is thorough:
-//
-//   - a space is left with EVERY one of the Matrix user's logins that has it
-//     (remove_memberships with the login's own id -- the Leave request);
-//   - a DM, which Google Chat cannot leave, is hidden (hide_group) by the
-//     login that owns it; Google Chat brings it back on a new message.
-//
-// Only when every login succeeded is the user removed from the Matrix room,
-// and by the bridge BOT: the bridge ignores its bot's events, whereas a leave
-// sent through the user's double puppet carries no marker and would come back
-// as a Matrix leave (ARCHITECTURE §7). On any failure the Matrix side is left
-// alone and the reply names the account that failed. The room itself is
-// never deleted.
+// Leaving from Matrix: spaces are left with every login that has them, DMs are hidden,
+// then the bridge bot (not the double puppet, whose leave would echo back) removes the user.
 import (
 	"context"
 	"errors"
@@ -58,8 +39,7 @@ func fnLeave(ce *commands.Event) {
 		ce.Reply("This bridge's network connector is not Google Chat.")
 		return
 	}
-	// Reply only substitutes $cmdprefix in its format string, and this text
-	// is an argument (it may contain '%' from a space name or an error).
+	// Not Reply's format string: the text may contain '%'.
 	reply := gc.runLeaveCommand(ce.Ctx, ce.Portal, ce.User, ce.Args)
 	ce.Reply("%s", strings.ReplaceAll(reply, "$cmdprefix", ce.Bridge.Config.CommandPrefix))
 }
@@ -70,8 +50,6 @@ type leaveResult struct {
 	Err   error
 }
 
-// runLeaveCommand is the leave command without the command plumbing: it
-// returns the reply to send.
 func (gc *GChatConnector) runLeaveCommand(ctx context.Context, portal *bridgev2.Portal, user *bridgev2.User, args []string) string {
 	group, err := gcid.ParsePortalID(portal.ID)
 	if err != nil {
@@ -92,9 +70,7 @@ func (gc *GChatConnector) runLeaveCommand(ctx context.Context, portal *bridgev2.
 	return leaveReport(group, portal, results, err)
 }
 
-// HandleMatrixDeleteChat backs the built-in delete-chat command and a
-// client's "delete chat" action: an explicit request, so no confirmation
-// step. Deleting a space for everyone has no known RPC.
+// HandleMatrixDeleteChat leaves without confirmation; deleting a space for everyone has no known RPC.
 func (c *GChatClient) HandleMatrixDeleteChat(ctx context.Context, msg *bridgev2.MatrixDeleteChat) error {
 	if msg.Content != nil && msg.Content.DeleteForEveryone {
 		return errors.New("googlechat: a space can only be deleted for everyone in Google Chat itself; this can leave it instead")
@@ -125,9 +101,7 @@ func (c *GChatClient) HandleMatrixDeleteChat(ctx context.Context, msg *bridgev2.
 	return nil
 }
 
-// leaveWith leaves on Google Chat with every login and, only if all of them
-// succeeded, removes the user from the Matrix room. The returned error is
-// that removal failing after a complete Google Chat leave.
+// leaveWith leaves with every login and removes the user from the Matrix room only if all succeeded.
 func (gc *GChatConnector) leaveWith(ctx context.Context, portal *bridgev2.Portal, user *bridgev2.User, group gcid.GroupID, logins []*GChatClient) ([]leaveResult, error) {
 	results := leaveLogins(ctx, group, logins)
 	for _, r := range results {
@@ -180,9 +154,6 @@ func (c *GChatClient) hideGroup(ctx context.Context, group gcid.GroupID) error {
 	return nil
 }
 
-// leavingLogins is the Matrix user's logins that have this chat: for a space
-// (one portal shared by everyone) each login with a user-portal row, for a
-// DM (a portal per login) the login that owns it.
 func (gc *GChatConnector) leavingLogins(ctx context.Context, portal *bridgev2.Portal, user *bridgev2.User) ([]*GChatClient, error) {
 	if gc.leavingLoginsFn != nil {
 		return gc.leavingLoginsFn(ctx, portal, user)
@@ -210,9 +181,7 @@ func (gc *GChatConnector) leavingLogins(ctx context.Context, portal *bridgev2.Po
 	return logins, nil
 }
 
-// removeFromPortal forgets the logins' user-portal rows (so they no longer
-// count as being in the chat) and has the bridge bot remove the user from
-// the Matrix room.
+// removeFromPortal forgets the logins' user-portal rows and has the bot remove the user from the room.
 func (gc *GChatConnector) removeFromPortal(ctx context.Context, portal *bridgev2.Portal, user *bridgev2.User, logins []*GChatClient) error {
 	for _, login := range logins {
 		row, err := gc.Bridge.DB.UserPortal.Get(ctx, login.UserLogin.UserLogin, portal.PortalKey)
@@ -232,8 +201,6 @@ func (gc *GChatConnector) removeFromPortal(ctx context.Context, portal *bridgev2
 	return err
 }
 
-// leaveAccountName names a login for the user: its Google Chat name when
-// known, else its id.
 func leaveAccountName(login *GChatClient) string {
 	if name := login.UserLogin.RemoteName; name != "" {
 		return name

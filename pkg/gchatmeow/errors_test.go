@@ -82,23 +82,12 @@ func TestNetworkErrorUnwrap(t *testing.T) {
 		t.Errorf("errors.Is(&NetworkError{Err: context.DeadlineExceeded}, context.DeadlineExceeded) = false, want true")
 	}
 
-	// Verify Unwrap returns the wrapped error
 	if ne.Unwrap() != originalErr {
 		t.Errorf("NetworkError.Unwrap() = %v, want %v", ne.Unwrap(), originalErr)
 	}
 }
 
-// --- UnexpectedStatusError.Error() ------------------------------------------
-//
-// Three controls are pinned below, all on data this client does not author:
-// the request URL's query string (noise at best, a capability token at worst),
-// and the server's response body (the only part that usually says WHY, but
-// arbitrary bytes that end up in a Matrix notice).
-
-// TestUnexpectedStatusErrorMessageOmitsQueryParams: the endpoint name is the
-// only informative part of the URL. The query carries the public web-client
-// `key`, a per-process request counter -- and, for an attachment download, an
-// `attachment_token` that is a real capability.
+// TestUnexpectedStatusErrorMessageOmitsQueryParams: the query can carry an attachment_token capability.
 func TestUnexpectedStatusErrorMessageOmitsQueryParams(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -119,8 +108,7 @@ func TestUnexpectedStatusErrorMessageOmitsQueryParams(t *testing.T) {
 			notSubstrs: []string{"attachment_token", "SECRETCAP"},
 		},
 		{
-			// url.Parse rejects this, so the "cut at the first ?" fallback is
-			// what has to hold the line.
+			// url.Parse rejects this, so the "cut at the first ?" fallback must hold.
 			name:       "unparseable URL still loses its query",
 			url:        "://nonsense?key=AIzaSyX",
 			wantSubstr: "://nonsense",
@@ -142,8 +130,6 @@ func TestUnexpectedStatusErrorMessageOmitsQueryParams(t *testing.T) {
 	}
 }
 
-// TestUnexpectedStatusErrorMessageIncludesBodyExcerpt: the server's own reason
-// is the thing the message used to throw away.
 func TestUnexpectedStatusErrorMessageIncludesBodyExcerpt(t *testing.T) {
 	msg := (&UnexpectedStatusError{
 		Status: 400,
@@ -154,18 +140,12 @@ func TestUnexpectedStatusErrorMessageIncludesBodyExcerpt(t *testing.T) {
 		t.Errorf("message %q dropped the server's error body", msg)
 	}
 
-	// A body that is only whitespace is not a reason; it must not produce a
-	// dangling `-- body ""`.
 	blank := (&UnexpectedStatusError{Status: 400, Body: "   \n\t  "}).Error()
 	if strings.Contains(blank, "body") {
 		t.Errorf("message %q rendered a whitespace-only body", blank)
 	}
 }
 
-// TestUnexpectedStatusErrorBodyExcerptIsCappedAndEscaped pins the two safety
-// controls on bytes Google chose: the excerpt is bounded, and it can never
-// break the message onto a second line or smuggle control characters into a
-// log or a Matrix notice.
 func TestUnexpectedStatusErrorBodyExcerptIsCappedAndEscaped(t *testing.T) {
 	t.Run("capped", func(t *testing.T) {
 		msg := (&UnexpectedStatusError{

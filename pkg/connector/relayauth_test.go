@@ -1,16 +1,5 @@
 package connector
 
-// relayauth_test.go -- relay-mode sender-ownership enforcement for the
-// outbound edit / delete / reaction-removal handlers.
-//
-// In relay mode every relayed Matrix user's action is dispatched through ONE
-// shared Google Chat account, so Google's own per-account authorization
-// cannot tell those users apart: it sees the relay account acting on content
-// the relay account genuinely authored. The only place the distinction still
-// exists is the bridge's own message/reaction rows, whose SenderMXID records
-// the real Matrix sender (bridgev2 fills it from the event sender). These
-// tests pin that the handlers consult it.
-
 import (
 	"context"
 	"errors"
@@ -29,8 +18,6 @@ const (
 	relayOtherOne = id.UserID("@bob:example.org")
 )
 
-// relayedBy marks an event as relayed on behalf of user, exactly as
-// bridgev2's own handleMatrixEvent does when no login owns the sender.
 func relayedBy(user id.UserID) *bridgev2.OrigSender {
 	return &bridgev2.OrigSender{UserID: user}
 }
@@ -42,8 +29,6 @@ func editTargetFrom(sender id.UserID) *database.Message {
 		Metadata:   &MessageMetadata{TopicID: "msg1", TimestampMicro: 1},
 	}
 }
-
-// --- edit ----------------------------------------------------------------
 
 func TestRelayEditRejectsAnotherUsersMessage(t *testing.T) {
 	called := false
@@ -86,9 +71,7 @@ func TestRelayEditAllowsOwnMessage(t *testing.T) {
 	}
 }
 
-// TestRelayEditRejectsUnknownOriginalSender fails closed: a row whose
-// SenderMXID is unset gives no basis to prove ownership, so a relayed edit of
-// it must be refused rather than assumed safe.
+// TestRelayEditRejectsUnknownOriginalSender: an unset SenderMXID must fail closed.
 func TestRelayEditRejectsUnknownOriginalSender(t *testing.T) {
 	called := false
 	gc := &GChatClient{
@@ -109,9 +92,6 @@ func TestRelayEditRejectsUnknownOriginalSender(t *testing.T) {
 	}
 }
 
-// TestNonRelayEditIsUnaffected: with no OrigSender the user acts as
-// themselves on Google Chat, which enforces its own authorization, so this
-// check must not interfere.
 func TestNonRelayEditIsUnaffected(t *testing.T) {
 	called := false
 	gc := &GChatClient{
@@ -131,8 +111,6 @@ func TestNonRelayEditIsUnaffected(t *testing.T) {
 		t.Error("edit_message was not sent for a non-relayed edit")
 	}
 }
-
-// --- delete --------------------------------------------------------------
 
 func TestRelayRedactRejectsAnotherUsersMessage(t *testing.T) {
 	called := false
@@ -173,8 +151,6 @@ func TestRelayRedactAllowsOwnMessage(t *testing.T) {
 		t.Error("delete_message was not sent for the relayed user's own message")
 	}
 }
-
-// --- reaction removal ----------------------------------------------------
 
 func reactionTargetFrom(sender id.UserID) *database.Reaction {
 	return &database.Reaction{

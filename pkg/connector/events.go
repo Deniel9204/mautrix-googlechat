@@ -1,39 +1,5 @@
 package connector
 
-// handleGChatEvent is the OnStreamEvent callback installed on every
-// gchatmeow.Client by GChatClient.wireAndStart (client.go). It runs
-// synchronously and in order on the client's Connect goroutine (see
-// pkg/gchatmeow/client.go's "Goroutine model" doc comment), and receives one
-// already-flattened *pb.Event per body -- gchatmeow's splitEventBodies has
-// already copied the parent frame's group_id/type onto each one (see
-// pkg/gchatmeow/client_test.go's TestSplitEventBodies), so evt.GetGroupId()
-// and evt.GetType() are always this specific event's own, never the parent
-// multi-body frame's.
-//
-// dispatchGChatEvent (below) is a type-switch over every event body type the
-// proto defines. MessagePosted handles new messages (new messages only --
-// see handleMessagePosted's doc comment for why edits share this same body
-// arm but are routed elsewhere); the remaining arms are either handled or
-// left as "not yet handled" debug logs.
-//
-// handleGChatEvent advances the revision watermark(s) ONLY AFTER a
-// successful dispatch, and only from the dispatch's result: the user
-// watermark advances from evt.user_revision on every event, but ORDERED so
-// the message is delivered first. Ordering matters: an earlier revision of
-// this handler advanced the watermark at the TOP, before dispatch, so if
-// QueueRemoteEvent FAILED the message was dropped yet the cursor moved past
-// it -> unrecoverable + invisible on the next catch_up (persist the
-// watermark only after successful handling). Now dispatch runs first; the
-// watermark advances only when dispatch reports Success (a real queue, or a
-// legitimate ignore/no-op), never after a Failed one -- so a dropped event
-// is re-fetched on the next reconnect's catch_up_user. user_revision feeds
-// the user watermark (advanceUserRevision) and group_revision the per-portal
-// one (advancePortalRevision); the two are separate revision spaces and must
-// not cross (see those functions' doc comments).
-//
-// Returns the dispatch result so backfill.go's catchUp drain can observe a
-// handling failure and stop before advancing past it; the live-stream
-// OnStreamEvent callback (wireAndStart, client.go) discards it.
 import (
 	"context"
 	"time"
@@ -49,10 +15,11 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// typingTimeout is the Matrix typing timeout sent for an ACTIVE typing
-// notification: 6000ms (0 is sent instead for a STOPPED notification).
+// typingTimeout is the Matrix typing timeout for TYPING (STOPPED sends 0).
 const typingTimeout = 6 * time.Second
 
+// handleGChatEvent dispatches evt and advances the revision watermarks only on success,
+// so a failed event is re-fetched by the next catch_up.
 func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	res := c.dispatchGChatEvent(ctx, evt)
 	if res.Success {
@@ -64,42 +31,23 @@ func (c *GChatClient) handleGChatEvent(ctx context.Context, evt *pb.Event) bridg
 	return res
 }
 
-// dispatchGChatEvent routes evt to its body-type handler and returns the
-// handling result. Non-message body arms are still unhandled and report
-// EventHandlingResultIgnored (Success, no-op) -- they carry nothing to
-// deliver, so treating them as successfully handled lets the watermark
-// advance past them (the watermark advances on any user_revision event),
-// while a genuine QueueRemoteEvent failure on the MessagePosted arm surfaces
-// as a non-Success result and blocks the advance.
+// dispatchGChatEvent routes evt by body type; unhandled arms report Ignored (Success).
 func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	switch evt.GetBody().GetType().(type) {
 	case *pb.Event_EventBody_GroupViewed:
 		return c.queueGroupViewed(ctx, evt)
 	case *pb.Event_EventBody_GroupUpdated:
-		// Intentionally unhandled: room renames and
-		// topic/description changes reach this bridge as a SYSTEM_MESSAGE
-		// with a ROOM_UPDATED annotation on the MessagePosted body instead
-		// (handleMessagePosted -> systemmessage.go's trySystemMessage ->
-		// tryRoomUpdated), never via this dedicated body. See
-		// systemmessage.go's own top-of-file doc comment for why this
-		// standalone GroupUpdatedEvent shape (a bare old/new *Group pair,
-		// with no rename-vs-topic split) cannot substitute for that path,
-		// and why megabridge's attempt to use it instead is a known,
-		// unverified-against-live-traffic defect this bridge does not repeat.
+		// Unhandled: renames and topic changes arrive as a SYSTEM_MESSAGE ROOM_UPDATED annotation
+		// (systemmessage.go); this body has no rename-vs-topic split.
 		log.Debug().Msg("googlechat: unhandled GroupUpdated event (handled via SYSTEM_MESSAGE instead, see systemmessage.go)")
 	case *pb.Event_EventBody_MessagePosted:
 		return c.handleMessagePosted(ctx, evt)
 	case *pb.Event_EventBody_WebPushNotification:
 		log.Debug().Msg("googlechat: unhandled WebPushNotification event (M2+)")
 	case *pb.Event_EventBody_MembershipChanged:
-		// Only the user's OWN invite state is read from this body -- it is
-		// the one place an invite to a space reaches the invitee
-		// (invites.go). Everyone else's membership changes still come from
-		// the SYSTEM_MESSAGE with a MEMBERSHIP_CHANGED annotation
-		// (systemmessage.go), which this standalone shape (a single
-		// member's new/prior state, no affected-members list or 9-value
-		// Type) cannot substitute for.
+		// Only the user's own invite state is read here (invites.go); other members' changes
+		// come from SYSTEM_MESSAGE MEMBERSHIP_CHANGED annotations.
 		return c.handleOwnMembershipChanged(ctx, evt)
 	case *pb.Event_EventBody_MessageDeleted:
 		return c.queueMessageDeleted(ctx, evt)
@@ -117,44 +65,8 @@ func (c *GChatClient) dispatchGChatEvent(ctx context.Context, evt *pb.Event) bri
 	return bridgev2.EventHandlingResultIgnored
 }
 
-// handleMessagePosted handles the MessagePosted event body (EventBody field
-// 6, "message_posted"). That one body shape is shared between brand new
-// messages (Event.type == MESSAGE_POSTED, plus every other non-edit type
-// that can carry this body -- see below) and edits of an existing message
-// (Event.type == MESSAGE_UPDATED); the body itself never says which, only
-// the OUTER Event.type does. The dispatch rule is:
-//
-//	if body is message_posted:
-//	    if Event.type == MESSAGE_UPDATED: handle as edit
-//	    else:                             handle as new message
-//
-// That else is unconditional: ANY Event.type other than the literal
-// MESSAGE_UPDATED, with a message_posted body, is treated as a new message
-// -- not just the literal MESSAGE_POSTED value. This is real, observed
-// behavior: ON_HOLD_MESSAGE_POSTED/_UPDATED/_PUBLISHED (Workspace DLP-held
-// messages) carry this same message_posted body and are bridged as ordinary
-// messages too, since none of them equal MESSAGE_UPDATED. An earlier
-// revision of this function used a three-way switch keyed on the literal
-// MESSAGE_POSTED value, which silently dropped every ON_HOLD_* event (and
-// any other future type Google adds to this same body arm) -- message loss.
-// The literal if/else here (instead of enumerating every type that isn't
-// MESSAGE_UPDATED) is what keeps this correct as Google adds new event types
-// to the enum.
-//
-// queueMessagePosted (below) builds a RemoteMessage for the new-message
-// case. The MESSAGE_UPDATED (RemoteEdit) arm is queueMessageEdit (below) --
-// see its own doc comment for the edit-specific extraction/dedup this shares
-// with, and differs from, queueMessagePosted. A third possibility for the
-// non-edit path: trySystemMessage (systemmessage.go) recognizes a
-// SYSTEM_MESSAGE
-// (membership change or room rename/topic change) on this same body and
-// queues a ChatInfoChange instead. The SYSTEM_MESSAGE check applies only in
-// the non-edit branch; the edit path has no equivalent check, since Google
-// Chat never lets a SYSTEM_MESSAGE be edited -- trySystemMessage's
-// handled=false return (an unrecognized/no-op annotation, or not a
-// SYSTEM_MESSAGE at all) falls through to queueMessagePosted, ordinary
-// message bridging. Returns the handling result so handleGChatEvent can gate
-// the watermark advance on it.
+// handleMessagePosted handles the message_posted body (EventBody field 6). Only
+// Event.type == MESSAGE_UPDATED is an edit; every other type (incl. ON_HOLD_*) is a new message.
 func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	if evt.GetType() == pb.Event_MESSAGE_UPDATED {
 		return c.queueMessageEdit(ctx, evt)
@@ -165,15 +77,7 @@ func (c *GChatClient) handleMessagePosted(ctx context.Context, evt *pb.Event) br
 	return c.queueMessagePosted(ctx, evt)
 }
 
-// extractPostedMessage pulls the (msg, group, gcMessageID) triple every
-// MessagePosted-bodied event needs, shared between queueMessagePosted (new
-// messages) and queueMessageEdit (MESSAGE_UPDATED) -- both read
-// off the exact same evt.GetBody().GetMessagePosted().GetMessage() /
-// evt.GetGroupId() shape (see handleMessagePosted's doc comment on why one
-// body arm covers both). ok is false (already logged, matching how
-// sync.go's syncChats skips a world item with no usable group id) for any of
-// three malformed-payload cases: no message payload, no message id, or a
-// group id neither GroupIDToParts oneof arm sets.
+// extractPostedMessage returns msg, group and message id; ok is false (logged) if malformed.
 func (c *GChatClient) extractPostedMessage(ctx context.Context, evt *pb.Event) (msg *pb.Message, group gcid.GroupID, gcMessageID string, ok bool) {
 	log := zerolog.Ctx(ctx)
 	msg = evt.GetBody().GetMessagePosted().GetMessage()
@@ -195,29 +99,8 @@ func (c *GChatClient) extractPostedMessage(ctx context.Context, evt *pb.Event) (
 	return msg, gcid.GroupID{ID: id, IsDM: isDM}, gcMessageID, true
 }
 
-// queueMessagePosted extracts the sender, group, and timestamp from evt's
-// MessagePosted body and queues a bridgev2.RemoteMessage for it:
-//
-//   - sender: evt.creator.user_id.id (the message's own creator gaia id,
-//     NOT the outer Event.user_id -- that field is the event's target/actor
-//     for other event kinds, e.g. group_viewed's viewer, and is left unused
-//     here);
-//   - group: the flattened Event's own group_id (already copied from the
-//     parent frame by gchatmeow's splitEventBodies -- see this file's
-//     top-of-file doc comment), NOT anything on Message/MessageId;
-//   - timestamp: evt.create_time, Google Chat's microsecond epoch time,
-//     converted to Matrix's millisecond convention via gchatmeow.MicrosToTime
-//     (EventMeta.Timestamp); separately, the raw microsecond value is
-//     preserved verbatim in MessageMetadata.TimestampMicro
-//     (msgconv_adapter.go) for quote-reply support, which needs the
-//     original Google Chat unit back, not Matrix's derived millisecond one.
-//
-// A missing/malformed payload is logged and dropped by extractPostedMessage
-// rather than queuing a broken RemoteMessage; these skips report Ignored
-// (Success): there is nothing deliverable, so the watermark should advance
-// past the garbage rather than re-fetch it on every reconnect. Only the
-// actual queue's result (which may be a genuine Failed) is returned as-is,
-// so a real delivery failure blocks the watermark advance (handleGChatEvent).
+// queueMessagePosted queues a RemoteMessage. Sender is evt.creator, not the outer Event.user_id.
+// Malformed payloads report Ignored so the watermark advances past them.
 func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	msg, group, gcMessageID, ok := c.extractPostedMessage(ctx, evt)
@@ -235,29 +118,11 @@ func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bri
 				Sender:   senderUserID,
 				IsFromMe: c.IsThisUser(ctx, senderUserID),
 			},
-			Timestamp: gchatmeow.MicrosToTime(msg.GetCreateTime()),
-			// StreamOrder: the create-time µs, matching backfill.go's
-			// identical `StreamOrder: msg.GetCreateTime()` on both of its
-			// own BackfillMessage constructions -- the live path previously
-			// left this at its zero value while backfill always set it, an
-			// inconsistency for the same underlying fact (harmless on its
-			// own, since bridgev2 treats StreamOrder==0 as "absent" rather
-			// than a real ordering value, but worth closing for
-			// consistency).
+			Timestamp:   gchatmeow.MicrosToTime(msg.GetCreateTime()),
 			StreamOrder: msg.GetCreateTime(),
 		},
 		ID: gcid.MakeMessageID(gcMessageID),
-		// TransactionID is the own-echo dedup half: msg.GetLocalId()
-		// (Message.LocalId, proto field 14) carries back whatever local_id
-		// the ORIGINAL send (if any) put on the wire in CreateTopicRequest
-		// (handlematrix.go). Empty for any message this login didn't just
-		// send itself (proto default when the field is absent -- another
-		// user's message, or the same account's own message from a
-		// different, non-bridged client/device), which is exactly what
-		// bridgev2.Portal.checkPendingMessage (portal.go) needs: it treats
-		// an empty transaction id as "not a pending echo" and bridges the
-		// message normally -- an empty/foreign local_id never matches a
-		// pending entry, so it is not dropped.
+		// TransactionID: Message.local_id (field 14) echoes our own send's local_id, for echo dedup.
 		TransactionID:      networkid.TransactionID(msg.GetLocalId()),
 		Data:               msg,
 		ConvertMessageFunc: convertMessageToMatrix(c.msgConverter(), c),
@@ -271,38 +136,8 @@ func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bri
 	return res
 }
 
-// queueMessageEdit extracts the same (msg, group, gcMessageID) triple
-// queueMessagePosted does (via extractPostedMessage) and queues a
-// bridgev2.RemoteEdit for it:
-//
-//   - sender: evt.creator.user_id.id -- SAME field/derivation as
-//     queueMessagePosted (an edit's creator is always the original
-//     message's own author; Google Chat itself only allows the original
-//     author to edit their own message, so this is never a different user
-//     in practice, but nothing here assumes that -- portal.handleRemoteEdit,
-//     mautrix-go bridgev2/portal.go:3151-3158, independently verifies the
-//     resolved intent's MXID matches the stored original sender before
-//     bridging the edit at all, and drops it otherwise).
-//   - ID/TargetMessage: BOTH gcid.MakeMessageID(gcMessageID) -- a Google
-//     Chat edit reuses the SAME message id as the original, never a new one,
-//     so this event's own ID and the message it targets are identical.
-//     TargetMessage is what bridgev2's handleRemoteEdit (mautrix-go
-//     bridgev2/portal.go:3121-3139) uses to fetch the target's existing DB
-//     rows.
-//   - Timestamp: gchatmeow.MicrosToTime(editTS), the EDIT's own time (NOT
-//     msg.create_time, which is the ORIGINAL message's unchanged creation
-//     time) -- editTS is last_edit_time, falling back to last_update_time
-//     (see below). The SAME editTS also drives convertEditToMatrix's
-//     dedup gate (msgconv_adapter.go) via msg itself (Data, below) --
-//     computed once here and left for ConvertEdit to re-derive from msg
-//     rather than threaded through as a separate field, since
-//     ConvertEditFunc's signature (simplevent.Message[T]) has no room for
-//     extra per-call data beyond T.
-//
-// Unlike queueMessagePosted, CreatePortal is left false (the zero value): an
-// edit target that doesn't already have a bridged portal has nothing to
-// attach the edit to (mirrors mautrix-meta's FBEditEvent, which likewise
-// does not implement RemoteEventThatMayCreatePortal).
+// queueMessageEdit queues a RemoteEdit. Edits reuse the original message id; the timestamp
+// is last_edit_time, falling back to last_update_time.
 func (c *GChatClient) queueMessageEdit(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	msg, group, gcMessageID, ok := c.extractPostedMessage(ctx, evt)
@@ -323,15 +158,7 @@ func (c *GChatClient) queueMessageEdit(ctx context.Context, evt *pb.Event) bridg
 				Sender:   senderUserID,
 				IsFromMe: c.IsThisUser(ctx, senderUserID),
 			},
-			Timestamp: gchatmeow.MicrosToTime(editTS),
-			// StreamOrder: the SAME editTS driving this event's own
-			// Timestamp just above (see queueMessagePosted's identical
-			// field for the full rationale). Unlike backfill (which never
-			// handles edits at all -- it only ever fetches a message's
-			// current/final state), there is no existing edit-side
-			// StreamOrder convention to match; using editTS keeps this
-			// event's own two time-derived fields internally consistent
-			// with each other.
+			Timestamp:   gchatmeow.MicrosToTime(editTS),
 			StreamOrder: editTS,
 		},
 		ID:              gcid.MakeMessageID(gcMessageID),
@@ -348,40 +175,8 @@ func (c *GChatClient) queueMessageEdit(ctx context.Context, evt *pb.Event) bridg
 	return res
 }
 
-// queueMessageDeleted handles the MessageDeleted event body (EventBody
-// field 18, "message_deleted") and queues a bridgev2.RemoteMessageRemove for
-// it:
-//
-//   - target message id: evt.message_id.message_id. Unlike
-//     the message_posted body, MessageDeletedEvent carries no separate
-//     Message payload to pull a group id or sender from; group comes from
-//     the outer Event's own group_id, exactly like every other body arm
-//     (this file's top-of-file doc comment) -- MessageDeletedEvent itself
-//     has no group id field at all.
-//   - no sender: a redaction is always attributed to the bridge bot
-//     (main intent), never a per-user ghost intent, so there is no per-event
-//     sender to resolve here -- EventMeta.Sender is left at its zero value,
-//     matching mautrix-meta's wrapMessageDelete (pkg/connector/handlemeta.go),
-//     which does the same.
-//   - timestamp: evt.timestamp (MessageDeletedEvent field 2), Google Chat's
-//     microsecond epoch time, converted to Matrix's millisecond convention
-//     via gchatmeow.MicrosToTime (EventMeta.Timestamp), same as every other
-//     inbound event in this file.
-//
-// Unlike queueMessagePosted, CreatePortal is left false (the zero value): a
-// deletion target with no existing portal has nothing to redact (mirrors
-// queueMessageEdit's identical reasoning, and mautrix-meta's
-// wrapMessageDelete, which likewise never sets CreatePortal).
-//
-// The framework (bridgev2's handleRemoteMessageRemove,
-// mautrix-go bridgev2/portal.go) is responsible for looking up the target's
-// existing DB rows by TargetMessage and redacting every Matrix part found,
-// so this function only needs to supply the target id, not enumerate rows
-// itself. A target with no matching rows (e.g. an echo of a deletion this
-// same bridge just issued via HandleMatrixMessageRemove, whose DB row
-// bridgev2 already deleted after a successful RPC) is likewise a
-// framework-level no-op, not something this function needs to check for
-// itself.
+// queueMessageDeleted queues a RemoteMessageRemove (EventBody field 18). Group comes from the
+// outer Event; the redaction is sent by the bridge bot, so Sender is left empty.
 func (c *GChatClient) queueMessageDeleted(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	deleted := evt.GetBody().GetMessageDeleted()
@@ -415,52 +210,8 @@ func (c *GChatClient) queueMessageDeleted(ctx context.Context, evt *pb.Event) br
 	return res
 }
 
-// queueMessageReaction handles the MessageReaction event body (EventBody
-// field 22, "message_reaction") and queues a bridgev2.RemoteReaction or
-// bridgev2.RemoteReactionRemove (both are the same simplevent.Reaction type,
-// see mautrix-go bridgev2/simplevent/reaction.go's own doc comment) for it:
-//
-//   - target message id: evt.message_id.message_id.
-//     Like MessageDeletedEvent, MessageReactionEvent carries no separate
-//     Message payload to pull a group id from; group comes from the outer
-//     Event's own group_id, same as every other body arm (this file's
-//     top-of-file doc comment).
-//   - sender: evt.user_id.id -- the REACTOR's gaia id, distinct from
-//     MessagePosted's evt.creator (this body arm has no creator field at
-//     all, only user_id).
-//   - emoji: evt.emoji.unicode, normalized both ways (see handlereaction.go's
-//     top-of-file doc comment on variation selectors): EmojiID keeps the
-//     bare form GC's own wire protocol already uses (variationselector.Remove
-//     is applied defensively in case a future server response ever includes
-//     one; GC's own evt.emoji.unicode is not documented to), matching
-//     PreHandleMatrixReaction's identical bare-form EmojiID so a
-//     Matrix-initiated reaction and its own inbound echo key identically;
-//     Emoji gets the selector added back (variationselector.Add) for the
-//     value handed toward Matrix.
-//   - add vs remove: evt.type selects the RemoteEventType --
-//     MessageReactionEvent.ADD -> RemoteEventReaction,
-//     MessageReactionEvent.REMOVE -> RemoteEventReactionRemove. Any other
-//     value is logged and ignored rather than queued -- GC's own proto2
-//     default for an absent type field IS ADD (a field GC always sets on the
-//     wire in practice), so this branch only ever fires for a genuinely
-//     unexpected future enum value.
-//   - timestamp: evt.timestamp (MessageReactionEvent field 4), Google
-//     Chat's microsecond epoch time, converted to Matrix's millisecond
-//     convention via gchatmeow.MicrosToTime (EventMeta.Timestamp), same as
-//     every other inbound event in this file.
-//
-// The uniqueness key bridgev2 dedups/removes reactions by is (message, part,
-// sender, EmojiID) -- portal.getTargetReaction (mautrix-go bridgev2/portal.go:3293-3299)
-// and portal.handleRemoteReaction's own duplicate check
-// (portal.go:3464-3471) both key off exactly this tuple. Part is left
-// implicit (simplevent.Reaction carries no PartID -- Google
-// Chat messages are always single-part, gcid.TextPartID) exactly like
-// queueMessageDeleted's TargetMessage above.
-//
-// Unlike queueMessagePosted, CreatePortal is left false (the zero value): a
-// reaction to a message in a portal that doesn't exist yet has nothing to
-// attach to, mirroring queueMessageEdit/queueMessageDeleted's identical
-// reasoning.
+// queueMessageReaction queues a RemoteReaction(Remove) (EventBody field 22). EmojiID is the bare
+// emoji (no variation selector) so Matrix-initiated reactions and their echoes key identically.
 func (c *GChatClient) queueMessageReaction(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	reaction := evt.GetBody().GetMessageReaction()
@@ -518,49 +269,8 @@ func (c *GChatClient) queueMessageReaction(ctx context.Context, evt *pb.Event) b
 	return res
 }
 
-// queueReadReceiptChanged handles the ReadReceiptChanged event body
-// (EventBody field 33, "read_receipt_changed") and queues one
-// bridgev2.RemoteReadReceipt (simplevent.Receipt) per entry in the event's
-// ReadReceiptSet.
-//
-// A read receipt resolves the closest message at-or-before
-// rr.read_time_micros and marks THAT message read via the reading user's
-// own ghost/double-puppet intent. bridgev2's framework does that lookup
-// itself once this event reaches it (handleRemoteReadReceipt, mautrix-go
-// bridgev2/portal.go:3690-3769, via GetLastNonFakePartAtOrBeforeTime), so
-// this function only needs to supply ReadUpTo (rr.read_time_micros converted
-// to a time.Time) and the reading user's own Sender -- not look up a message
-// itself.
-//
-//   - group: the outer Event's own group_id (this file's top-of-file doc
-//     comment) -- ReadReceiptChangedEvent DOES carry its own group_id field
-//     (proto field 1), but only TYPING_STATE_CHANGED overrides group_id from
-//     the body; every other type, including this one, routes on the outer
-//     Event.group_id, which gchatmeow's splitEventBodies has already copied
-//     onto this per-body Event -- so this function reads evt.GetGroupId(),
-//     not the body's own field, for consistency with queueMessageDeleted/
-//     queueMessageReaction above (neither of which has a body-level group
-//     id at all to be tempted by).
-//   - sender: rr.user.user_id.id -- the READER's own gaia id, which may be
-//     any member of the conversation, including this login's own account
-//     (Google Chat can announce your own read state back to you via this
-//     same event on some clients); IsThisUser decides IsFromMe exactly like
-//     queueMessagePosted/queueMessageReaction above, so a self-read receipt
-//     correctly routes through double puppeting rather than a ghost intent.
-//   - ReadUpTo: rr.read_time_micros converted via gchatmeow.MicrosToTime --
-//     Google Chat's own microsecond epoch time, same unit conversion this
-//     file already applies to every other inbound event's timestamp.
-//
-// One bridgev2.RemoteReadReceipt is queued PER read_receipts entry, since
-// simplevent.Receipt carries a single Sender -- a ReadReceiptSet announcing
-// several users' read states at once needs one event per user. If any entry
-// fails to queue, the loop stops there and returns that failure (rather than
-// continuing and silently losing track of it): handleGChatEvent only
-// advances the watermark on a fully-Success result, so a partial failure
-// here re-delivers this whole event -- including entries already
-// successfully queued -- on the next reconnect's catch-up replay, which is
-// safe because read receipts are idempotent (re-marking an already-read
-// message read is a no-op).
+// queueReadReceiptChanged queues one RemoteReadReceipt per entry (EventBody field 33). A failed
+// entry stops the loop; re-delivery on catch-up is safe since receipts are idempotent.
 func (c *GChatClient) queueReadReceiptChanged(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	id, isDM, groupOK := gchatmeow.GroupIDToParts(evt.GetGroupId())
@@ -580,13 +290,7 @@ func (c *GChatClient) queueReadReceiptChanged(ctx context.Context, evt *pb.Event
 	for _, rr := range receipts {
 		gaiaID := rr.GetUser().GetUserId().GetId()
 		if gaiaID == "" {
-			// An rr entry with no user id would otherwise resolve to
-			// EventSender{Sender: ""}, which bridgev2 treats as "no sender"
-			// and falls back to the bridge bot intent -- silently marking
-			// the room read as the BOT rather than skipping the entry, as
-			// queueMembershipChanged's identical empty-gaia-id guard
-			// (systemmessage.go) already does for MEMBERSHIP_CHANGED
-			// members. Skip it instead of queuing a bogus bot receipt.
+			// An empty sender would make bridgev2 mark the room read as the bot.
 			log.Warn().Msg("googlechat: ReadReceiptChanged entry with no user id, skipping")
 			continue
 		}
@@ -616,36 +320,8 @@ func (c *GChatClient) queueReadReceiptChanged(ctx context.Context, evt *pb.Event
 	return res
 }
 
-// queueGroupViewed handles the GroupViewed event body (EventBody field 3,
-// "group_viewed") and queues a bridgev2.RemoteReadReceipt (simplevent.Receipt)
-// for the login's OWN user: group_viewed marks the conversation read up to
-// evt.body.group_viewed.view_time for this login's own account.
-//
-// group_viewed represents the LOGIN'S OWN account viewing this
-// conversation from some OTHER Google Chat client (a phone, a different
-// browser tab, chat.google.com directly, ...), reported back over the same
-// event stream this bridge is subscribed to; the viewer is always the User
-// whose stream this event arrived on, i.e. always this login's own account
-// -- there is no other user_id anywhere on GroupViewedEvent to read a
-// different sender from. This is Google Chat's own-read-marker sync,
-// distinct from read_receipt_changed's per-OTHER-user receipts above (though
-// as queueReadReceiptChanged's own doc comment notes, that event CAN also
-// carry this login's own gaia id on some clients -- group_viewed is the
-// SEPARATE, GC-client-driven channel for the same fact).
-//
-// EventSender{IsFromMe: true} tells bridgev2 to resolve the intent via this
-// login's own double puppet (mautrix-go bridgev2/networkinterface.go's
-// EventSender.IsFromMe doc comment: "the UserLogin who the event was
-// received through is used as the sender... Double puppeting will be used
-// if available").
-//
-//   - group: evt.GetGroupId() (the outer Event's own group_id), same
-//     reasoning as queueReadReceiptChanged above -- GroupViewedEvent also
-//     carries its own group_id field (proto field 1), but this event type
-//     routes on the outer Event.group_id, not that body field.
-//   - ReadUpTo: evt.body.group_viewed.view_time converted via
-//     gchatmeow.MicrosToTime, exactly like read_receipt_changed's own
-//     read_time_micros above.
+// queueGroupViewed queues a read receipt for the login's own account (EventBody field 3):
+// the user viewed the chat from another client.
 func (c *GChatClient) queueGroupViewed(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	id, isDM, groupOK := gchatmeow.GroupIDToParts(evt.GetGroupId())
@@ -676,13 +352,7 @@ func (c *GChatClient) queueGroupViewed(ctx context.Context, evt *pb.Event) bridg
 	return res
 }
 
-// typingContextGroupID extracts the *pb.GroupId a TypingStateChangedEvent's
-// own TypingContext oneof carries -- its direct group_id arm, or (when
-// scoped to a thread) topic_id.group_id, since TopicId embeds the group id
-// alongside the topic id (see handletyping.go's typingContext, which builds
-// the exact same shape outbound). Mirrors typingContextGroupID's own
-// reasoning in reverse: whichever arm is set, the group id inside it is what
-// queueTypingStateChanged (below) needs to resolve the portal.
+// typingContextGroupID returns the group id from the TypingContext oneof (group_id or topic_id.group_id).
 func typingContextGroupID(tc *pb.TypingContext) *pb.GroupId {
 	if tc == nil {
 		return nil
@@ -693,71 +363,8 @@ func typingContextGroupID(tc *pb.TypingContext) *pb.GroupId {
 	return tc.GetTopicId().GetGroupId()
 }
 
-// queueTypingStateChanged handles the TypingStateChanged event body
-// (EventBody field 26, "typing_state_changed") and queues a
-// bridgev2.RemoteTyping (simplevent.Typing) for it.
-//
-// *** THE ROUTING TRAP ***: unlike EVERY OTHER body arm in this file, group
-// comes from the BODY's own TypingContext
-// (evt.GetBody().GetTypingStateChanged().GetContext()), NOT the outer
-// Event's own group_id. TYPING_STATE_CHANGED is the ONLY event type that
-// overrides group_id from the body's typing context; every other body arm
-// in this file (queueMessageDeleted, queueMessageReaction,
-// queueReadReceiptChanged, queueGroupViewed -- see each of their own doc
-// comments) correctly reads evt.GetGroupId(), the outer Event's own field,
-// and must keep doing so. gchatmeow's splitEventBodies (client.go) copies the
-// PARENT frame's own group_id onto every flattened per-body Event uniformly,
-// with no type-specific exception -- so for a genuine typing_state_changed
-// event, evt.GetGroupId() is observed EMPTY on the wire. This is the exact
-// defect megabridge has: typing routed to an empty/garbage portal key
-// because it (wrongly) reads the outer group_id like every other event type
-// instead of the body's own context. This function
-// deliberately does NOT call gchatmeow.GroupIDToParts(evt.GetGroupId()) for
-// exactly that reason -- typingContextGroupID (above) extracts the id from
-// the body's own TypingContext oneof instead, and TestHandleGChatEventTyping
-// StateChangedRoutesViaBodyContextNotOuterGroupID (handletyping_test.go)
-// pins this by asserting the resolved portal key tracks the BODY's group id
-// even when the outer Event.group_id is empty or set to a different value.
-//
-//   - sender: evt.body.typing_state_changed.user_id.id -- the TYPIST's own
-//     gaia id. IsFromMe decides the double-puppet-vs-ghost intent exactly
-//     like every other inbound event in this file (queueMessagePosted,
-//     queueMessageReaction, queueReadReceiptChanged); the self-typing case
-//     resolves the SAME double-puppet intent. KNOWN GAP: a stricter
-//     implementation would additionally gate that self-typing case on an
-//     explicit direct-chat room-membership check (in a DM, when the typist
-//     is this login's own gaia, skip unless the resolved intent has already
-//     JOINed the room) that this function does NOT replicate -- bridgev2's
-//     own intent resolution (mautrix-go
-//     bridgev2/portal.go's getIntentAndUserMXIDFor/ensureFunctionalMember)
-//     does not perform an equivalent room-membership check before typing is
-//     sent. Reachable only when the room is a DM, the typist is this login's
-//     own gaia (Google Chat echoing your own typing state back to you), AND
-//     the resolved ghost/double-puppet intent has not yet joined that DM
-//     room (e.g. no double puppeting configured, or a very early DM-creation
-//     race) -- worst case is intent.MarkTyping erroring
-//     (EventHandlingResultFailed + a warning log) where the stricter check
-//     would have silently no-op'd instead.
-//   - Timeout: typingTimeout (6s, this file's own top-of-file doc comment)
-//     when state == TYPING, 0 (immediately stop) for STOPPED or any other/
-//     absent value. Unlike queueReadReceiptChanged's idempotent re-delivery,
-//     this function is called for BOTH the start AND the explicit stop, once
-//     per typing_state_changed event regardless of status, and bridgev2's own
-//     framework interprets Timeout==0 as "stop typing now" (handleRemoteTyping,
-//     mautrix-go bridgev2/portal.go:3827-3846) -- so there is no separate
-//     "stop" event kind to emit, just this same RemoteEventTyping with a zero
-//     Timeout.
-//   - Timestamp: evt.body.typing_state_changed.start_timestamp_usec
-//     (TypingStateChangedEvent field 4) converted via gchatmeow.MicrosToTime,
-//     same unit conversion this file already applies to every other inbound
-//     event's timestamp. This timestamp drives no behavior, but every other
-//     handler in this file sets EventMeta.Timestamp from the event's own
-//     wire timestamp, so this one does too for consistency/log fidelity.
-//
-// Unlike queueMessagePosted, CreatePortal is left false (the zero value): a
-// typing notification for a portal that doesn't exist yet has nothing to
-// attach to, mirroring queueMessageReaction/queueMessageDeleted's identical
-// reasoning.
+// queueTypingStateChanged queues a RemoteTyping (EventBody field 26). Unlike every other arm,
+// the group comes from the body's TypingContext: the outer Event.group_id is empty on the wire.
 func (c *GChatClient) queueTypingStateChanged(ctx context.Context, evt *pb.Event) bridgev2.EventHandlingResult {
 	log := zerolog.Ctx(ctx)
 	typing := evt.GetBody().GetTypingStateChanged()

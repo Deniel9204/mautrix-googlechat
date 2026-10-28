@@ -32,11 +32,6 @@ func dmResponse(dmID string, memberGaias ...string) *pb.CreateDmResponse {
 	return resp
 }
 
-// --- ResolveIdentifier ----------------------------------------------------
-
-// TestResolveIdentifierGaiaWithoutCreatingMakesNoRequest: a gaia id is
-// self-describing, so resolving one must not cost a round trip -- and must
-// certainly not open a conversation the caller did not ask for.
 func TestResolveIdentifierGaiaWithoutCreatingMakesNoRequest(t *testing.T) {
 	called := false
 	gc := &GChatClient{
@@ -47,8 +42,7 @@ func TestResolveIdentifierGaiaWithoutCreatingMakesNoRequest(t *testing.T) {
 		},
 	}
 
-	// Deliberately NOT the acting login's own id (112233): that is a self-DM
-	// and is refused separately, see TestResolveIdentifierRejectsOwnAccount.
+	// Not the acting login's own id (112233), which is a self-DM.
 	resp, err := gc.ResolveIdentifier(context.Background(), "778899", false)
 	if err != nil {
 		t.Fatalf("ResolveIdentifier: %v", err)
@@ -93,10 +87,6 @@ func TestResolveIdentifierGaiaWithCreateOpensDM(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierEmailWithoutCreatingIsRefused: there is no
-// email-to-gaia lookup, so the only way to answer would be to open the DM.
-// Doing that silently, for a call that merely asked to resolve, would create
-// a conversation the user never requested.
 func TestResolveIdentifierEmailWithoutCreatingIsRefused(t *testing.T) {
 	called := false
 	gc := &GChatClient{
@@ -116,11 +106,9 @@ func TestResolveIdentifierEmailWithoutCreatingIsRefused(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierEmailWithCreateUsesInviteesAndLearnsGaia: the email
-// goes in invitees (members only takes gaia ids), and the response's own
-// membership list is what finally reveals who the address belonged to.
+// TestResolveIdentifierEmailWithCreateUsesInviteesAndLearnsGaia: members only takes gaia ids.
 func TestResolveIdentifierEmailWithCreateUsesInviteesAndLearnsGaia(t *testing.T) {
-	const selfGaia = "112233" // matches newTestUserLogin's id
+	const selfGaia = "112233"
 	var gotReq *pb.CreateDmRequest
 	gc := &GChatClient{
 		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
@@ -154,8 +142,6 @@ func TestResolveIdentifierRejectsGarbage(t *testing.T) {
 	}
 }
 
-// --- CreateChatWithGhost --------------------------------------------------
-
 func TestCreateChatWithGhostUsesGhostIDAsGaia(t *testing.T) {
 	var gotReq *pb.CreateDmRequest
 	gc := &GChatClient{
@@ -186,22 +172,14 @@ func TestCreateChatWithGhostRejectsUnidentified(t *testing.T) {
 	}
 }
 
-// ghostWithID builds the minimal ghost CreateChatWithGhost needs: its id,
-// which IS the gaia id (gcid.MakeUserID is an identity mapping).
 func ghostWithID(gaia string) *bridgev2.Ghost {
 	return &bridgev2.Ghost{Ghost: &database.Ghost{ID: gcid.MakeUserID(gaia)}}
 }
 
-// TestResolveIdentifierRejectsWhitespaceIdentifier: `start-chat`'s optional
-// first argument is a LOGIN ID, and bridgev2 folds it back into the
-// identifier when it is not a recognised one (commands/startchat.go's
-// getClientForStartingChat). So `start-chat me@x.com them@y.com` arrives here
-// as the single string "me@x.com them@y.com", which used to be shipped
-// straight to Google and come back as a bare 500 with no hint about what was
-// wrong. Reject it locally with an explanation instead.
+// TestResolveIdentifierRejectsWhitespaceIdentifier: bridgev2 folds an unrecognised login ID into the identifier.
 func TestResolveIdentifierRejectsWhitespaceIdentifier(t *testing.T) {
 	for _, identifier := range []string{
-		"alice@example.com bob@example.com", // the real-world case: two emails
+		"alice@example.com bob@example.com",
 		"445566778899 bob@example.com",
 		"me@example.com\tthem@example.com",
 	} {
@@ -226,8 +204,6 @@ func TestResolveIdentifierRejectsWhitespaceIdentifier(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierAcceptsSurroundingWhitespace: only INTERNAL whitespace
-// signals two identifiers; padding is just sloppy typing and is trimmed.
 func TestResolveIdentifierAcceptsSurroundingWhitespace(t *testing.T) {
 	var gotReq *pb.CreateDmRequest
 	gc := &GChatClient{
@@ -246,10 +222,6 @@ func TestResolveIdentifierAcceptsSurroundingWhitespace(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierRejectsOwnAccount: Google Chat has no self-DM through
-// create_dm -- it answers with a bare 400. Observed live: `start-chat
-// <own-login-id> <own-email>` produced exactly that, with nothing to tell the
-// user they had simply addressed themselves.
 func TestResolveIdentifierRejectsOwnAccount(t *testing.T) {
 	called := false
 	gc := &GChatClient{
@@ -269,9 +241,6 @@ func TestResolveIdentifierRejectsOwnAccount(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierRejectsOwnAccountEvenWithoutCreating: resolving is
-// harmless, but answering "yes, that's a user you can chat with" about
-// yourself would just set up the failure one step later.
 func TestResolveIdentifierRejectsOwnAccountWithoutCreating(t *testing.T) {
 	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
 	own := string(gc.UserLogin.ID)
@@ -300,11 +269,6 @@ func TestCreateChatWithGhostRejectsOwnAccount(t *testing.T) {
 	}
 }
 
-// TestCreateDMFailureNamesLikelyCauses: an email cannot be checked against the
-// acting account locally (there is no email-to-gaia lookup), so a self-DM by
-// EMAIL still reaches the server and comes back as a bare 400. The wrapped
-// error should at least name the causes worth checking, since the raw status
-// says nothing.
 func TestCreateDMFailureNamesLikelyCauses(t *testing.T) {
 	gc := &GChatClient{
 		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
@@ -324,13 +288,7 @@ func TestCreateDMFailureNamesLikelyCauses(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierOwnAccountDefersToOtherLogin: refusing a self-DM must
-// not be TERMINAL. A gaia id that is this login's own may still be a
-// perfectly ordinary DM target for one of the user's OTHER logins -- two
-// accounts bridged by the same Matrix user can legitimately DM each other.
-// bridgev2 only tries the next login when the error wraps
-// ErrResolveIdentifierTryNext, which the framework documents for exactly this
-// case ("trying to resolve another login's user ID").
+// TestResolveIdentifierOwnAccountDefersToOtherLogin: another login may legitimately DM this account.
 func TestResolveIdentifierOwnAccountDefersToOtherLogin(t *testing.T) {
 	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
 	own := string(gc.UserLogin.ID)
@@ -339,8 +297,7 @@ func TestResolveIdentifierOwnAccountDefersToOtherLogin(t *testing.T) {
 	if !errors.Is(err, bridgev2.ErrResolveIdentifierTryNext) {
 		t.Fatalf("error = %v, want it to wrap ErrResolveIdentifierTryNext so the other login is tried", err)
 	}
-	// The explanation must survive too: when there is no other login, this is
-	// the text the user actually reads.
+	// When there is no other login, this is the text the user reads.
 	if !errors.Is(err, ErrCannotDMYourself) {
 		t.Errorf("error = %v, want it to still identify the self-DM cause", err)
 	}
@@ -359,10 +316,6 @@ func TestCreateChatWithGhostOwnAccountDefersToOtherLogin(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierEmptyIdentifierExplainsArgFolding: on Google Chat a
-// login ID *is* a gaia id, so `start-chat <your-own-login-id>` has its only
-// argument consumed as the login selector and arrives here empty. "empty
-// identifier" describes neither the cause nor the workaround.
 func TestResolveIdentifierEmptyIdentifierExplainsArgFolding(t *testing.T) {
 	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
 
@@ -375,9 +328,6 @@ func TestResolveIdentifierEmptyIdentifierExplainsArgFolding(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierRejectsNonGoogleChatIdentifiers: "contains @" was the
-// only test for an email, so a Matrix ID or a comma-joined pair sailed
-// through to create_dm and came back as an opaque server error.
 func TestResolveIdentifierRejectsNonGoogleChatIdentifiers(t *testing.T) {
 	cases := []struct {
 		identifier string
@@ -408,14 +358,7 @@ func TestResolveIdentifierRejectsNonGoogleChatIdentifiers(t *testing.T) {
 	}
 }
 
-// --- ValidateUserID -------------------------------------------------------
-
-// TestValidateUserIDAcceptsGaiaIDsOnly pins the shape gate the framework uses
-// before it will materialise a ghost row or register a ghost on the
-// homeserver. The valid cases are the ones that would silently break if the
-// predicate were tightened: "999" is this repo's own BOT fixture id, and
-// "112233" is the acting login's own id, which must stay valid or the
-// multi-login self-DM deferral is killed.
+// TestValidateUserIDAcceptsGaiaIDsOnly: "112233" (own login id) must stay valid for the self-DM deferral.
 func TestValidateUserIDAcceptsGaiaIDsOnly(t *testing.T) {
 	gc := &GChatConnector{}
 	for _, valid := range []string{"0", "999", "112233", "123456789012345678901"} {
@@ -433,10 +376,7 @@ func TestValidateUserIDAcceptsGaiaIDsOnly(t *testing.T) {
 	}
 }
 
-// TestGChatConnectorImplementsIdentifierValidatingNetwork asserts through the
-// NetworkConnector static type, which is exactly the assertion the framework
-// performs. Without it, defining ValidateUserID on the wrong receiver compiles
-// cleanly and does nothing.
+// TestGChatConnectorImplementsIdentifierValidatingNetwork: ValidateUserID on the wrong receiver compiles and does nothing.
 func TestGChatConnectorImplementsIdentifierValidatingNetwork(t *testing.T) {
 	var network bridgev2.NetworkConnector = &GChatConnector{}
 	if _, ok := network.(bridgev2.IdentifierValidatingNetwork); !ok {
@@ -445,12 +385,6 @@ func TestGChatConnectorImplementsIdentifierValidatingNetwork(t *testing.T) {
 	}
 }
 
-// --- create_dm failure classification -------------------------------------
-
-// TestCreateDMDefersToOtherLoginsOnlyForA400 pins which create_dm failures
-// mean "try the user's other logins". A 400 is Google saying THIS account
-// cannot open that DM, which says nothing about the others; a throttle, a
-// server error or a dead connection must not be replayed once per login.
 func TestCreateDMDefersToOtherLoginsOnlyForA400(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -512,10 +446,7 @@ func TestCreateDMDefersToOtherLoginsOnlyForA400(t *testing.T) {
 	}
 }
 
-// TestCreateDMErrorRemainsClassifiableByStatus pins the seam the
-// classification rests on: the connector's own wrap must keep the gchatmeow
-// status reachable. Changing the %w to a %v would silently disable every
-// decision above.
+// TestCreateDMErrorRemainsClassifiableByStatus: the wrap must use %w, not %v.
 func TestCreateDMErrorRemainsClassifiableByStatus(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -544,19 +475,12 @@ func TestCreateDMErrorRemainsClassifiableByStatus(t *testing.T) {
 	}
 }
 
-// --- self-DM by email -----------------------------------------------------
-
-// newLoginWithOwnEmail builds a login that has already learned its own address,
-// which is what updateOwnLoginProfile does on connect.
 func newLoginWithOwnEmail(email string) *bridgev2.UserLogin {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	login.RemoteProfile.Email = email
 	return login
 }
 
-// TestResolveIdentifierOwnEmailExplainsA400: Google refuses a self-DM with a
-// bare 400 that says nothing. The acting login's own address is known, so the
-// cause can be named -- but only once the server has actually refused.
 func TestResolveIdentifierOwnEmailExplainsA400(t *testing.T) {
 	sent := false
 	gc := &GChatClient{
@@ -578,10 +502,7 @@ func TestResolveIdentifierOwnEmailExplainsA400(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierOwnEmailDoesNotPreemptASuccess is the regression guard
-// for the tempting version of this fix. Nothing establishes that Google
-// refuses a self-DM -- Chat has a note-to-self conversation -- so a local
-// refusal could block something that works.
+// TestResolveIdentifierOwnEmailDoesNotPreemptASuccess: Google may allow a self-DM (note-to-self).
 func TestResolveIdentifierOwnEmailDoesNotPreemptASuccess(t *testing.T) {
 	gc := &GChatClient{
 		UserLogin: newLoginWithOwnEmail("ada@example.com"),
@@ -598,8 +519,6 @@ func TestResolveIdentifierOwnEmailDoesNotPreemptASuccess(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierOwnEmailOnlyClaimsSelfDMForA400: a transport failure or
-// a server error must not be relabelled "that is your own account".
 func TestResolveIdentifierOwnEmailOnlyClaimsSelfDMForA400(t *testing.T) {
 	for _, failure := range []error{
 		&gchatmeow.UnexpectedStatusError{Status: 500},
@@ -619,8 +538,6 @@ func TestResolveIdentifierOwnEmailOnlyClaimsSelfDMForA400(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierOtherEmailIsNotSelf: a 400 for somebody ELSE's address
-// keeps the server's own explanation instead of being blamed on the user.
 func TestResolveIdentifierOtherEmailIsNotSelf(t *testing.T) {
 	gc := &GChatClient{
 		UserLogin: newLoginWithOwnEmail("ada@example.com"),
@@ -637,12 +554,9 @@ func TestResolveIdentifierOtherEmailIsNotSelf(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierUnknownOwnEmailChangesNothing: until the login has
-// connected and learned its own address, every email behaves exactly as it did
-// before. An unknown address must never be treated as a match.
 func TestResolveIdentifierUnknownOwnEmailChangesNothing(t *testing.T) {
 	gc := &GChatClient{
-		UserLogin: newTestUserLogin(&UserLoginMetadata{}), // RemoteProfile.Email == ""
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
 		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
 			return nil, &gchatmeow.UnexpectedStatusError{Status: 400}
 		},
@@ -653,10 +567,7 @@ func TestResolveIdentifierUnknownOwnEmailChangesNothing(t *testing.T) {
 	}
 }
 
-// TestIsOwnEmailDoesNotNormaliseAliases pins the deliberate non-normalisation.
-// Dot/plus folding is a @gmail.com rule; on a Workspace domain first.last@ and
-// firstlast@ can be two different colleagues, so folding them would mislabel a
-// real person's address as the user's own.
+// TestIsOwnEmailDoesNotNormaliseAliases: dot/plus folding is a @gmail.com-only rule.
 func TestIsOwnEmailDoesNotNormaliseAliases(t *testing.T) {
 	gc := &GChatClient{UserLogin: newLoginWithOwnEmail("foo.bar@gmail.com")}
 	for _, match := range []string{"foo.bar@gmail.com", "FOO.BAR@GMAIL.COM", "Foo.Bar@Gmail.com"} {
@@ -671,14 +582,8 @@ func TestIsOwnEmailDoesNotNormaliseAliases(t *testing.T) {
 	}
 }
 
-// --- otherMember ----------------------------------------------------------
-
-// TestOtherMemberPicksThePeer pins the rule the email branch depends on: the
-// response's membership list is the only place the peer's gaia id ever
-// appears, and an entry that resolves to nothing must be skipped rather than
-// returned as an empty id.
 func TestOtherMemberPicksThePeer(t *testing.T) {
-	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})} // own id 112233
+	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
 	membership := func(gaia string) *pb.Membership {
 		return &pb.Membership{Id: &pb.MembershipId{MemberId: &pb.MemberId{
 			Id: &pb.MemberId_UserId{UserId: &pb.UserId{Id: proto.String(gaia)}},
@@ -692,9 +597,6 @@ func TestOtherMemberPicksThePeer(t *testing.T) {
 		{"no memberships", nil, ""},
 		{"only this login", []*pb.Membership{membership("112233")}, ""},
 		{
-			// Named for what it can actually observe: with only an
-			// unresolvable entry, both "skipped" and "returned empty" are the
-			// same value. The skip itself is pinned by the sibling case below.
 			name:        "a lone unresolvable entry yields no peer",
 			memberships: []*pb.Membership{{Id: &pb.MembershipId{MemberId: &pb.MemberId{}}}},
 			want:        "",
@@ -716,15 +618,11 @@ func TestOtherMemberPicksThePeer(t *testing.T) {
 	}
 }
 
-// TestResolveIdentifierKeepsADMWhoseMembersAreUnknown: when the server created
-// the DM but the response named nobody, the chat must still come back. The
-// portal resolves its own membership afterwards; discarding a real
-// conversation over a missing echo field would be far worse.
 func TestResolveIdentifierKeepsADMWhoseMembersAreUnknown(t *testing.T) {
 	gc := &GChatClient{
 		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
 		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
-			return dmResponse("dm5"), nil // no memberships at all
+			return dmResponse("dm5"), nil
 		},
 	}
 	resp, err := gc.ResolveIdentifier(context.Background(), "someone@example.com", true)

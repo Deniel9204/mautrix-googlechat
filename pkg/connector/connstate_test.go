@@ -1,16 +1,5 @@
 package connector
 
-// connstate_test.go -- callbacks arriving from a connection that has already
-// been superseded must not act on the shared GChatClient state.
-//
-// wireAndStart resets the one-shot initial-sync latch and installs a new
-// conn, then tears the old one down via gchatmeow.Client.Disconnect -- which
-// only cancels a context and does NOT wait for that conn's supervision
-// goroutine to exit. The old conn can therefore still emit one more
-// ConnStateConnected afterwards. Since initialSyncDone/syncInProgress live on
-// the shared client with no per-conn tag, that late callback would otherwise
-// race the new conn's own first Connected transition for the same latch.
-
 import (
 	"context"
 	"testing"
@@ -28,13 +17,7 @@ func newTestConn(t *testing.T) *gchatmeow.Client {
 	return conn
 }
 
-// TestSupersededConnStateCallbackIgnored: the losing side of the race. If a
-// stale conn's Connected callback consumes the latch, it runs syncChats under
-// its OWN (already cancelled) context, which fails immediately and queues
-// zero portals -- while the new conn's genuine first Connected sees the latch
-// already taken and takes the catch-up branch instead. The account then sits
-// CONNECTED with no portals until some later reconnect happens to re-trigger
-// the latch.
+// TestSupersededConnStateCallbackIgnored: a stale conn's Connected must not consume the new conn's sync latch.
 func TestSupersededConnStateCallbackIgnored(t *testing.T) {
 	active := newTestConn(t)
 	superseded := newTestConn(t)
@@ -43,7 +26,7 @@ func TestSupersededConnStateCallbackIgnored(t *testing.T) {
 	gc.replaceConn(active)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // as the superseded conn's context would be
+	cancel()
 
 	gc.connStateCallback(ctx, superseded)(gchatmeow.ConnStateConnected, nil)
 
@@ -58,22 +41,15 @@ func TestSupersededConnStateCallbackIgnored(t *testing.T) {
 	}
 }
 
-// TestActiveConnStateCallbackHandled is the other half: the guard must not
-// swallow callbacks from the conn that IS current.
 func TestActiveConnStateCallbackHandled(t *testing.T) {
 	active := newTestConn(t)
 
-	// saveFn stands in for the DB write persistCookies performs on a
-	// Connected transition; these lightweight test logins have no Bridge.
 	gc := &GChatClient{
 		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
 		saveFn:    func(context.Context) error { return nil },
 	}
 	gc.replaceConn(active)
 
-	// Pre-cancelled so the spawned syncChats goroutine returns immediately
-	// instead of attempting a real paginated_world round trip -- same pattern
-	// as the existing handleConnState tests in client_test.go.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -82,5 +58,5 @@ func TestActiveConnStateCallbackHandled(t *testing.T) {
 	if gc.shouldSyncOnConnect() {
 		t.Error("the active conn's Connected callback did not consume the initial-sync latch")
 	}
-	time.Sleep(20 * time.Millisecond) // let the spawned syncChats goroutine return
+	time.Sleep(20 * time.Millisecond)
 }

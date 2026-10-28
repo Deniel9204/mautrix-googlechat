@@ -1,15 +1,5 @@
 package migrate
 
-// White-box tests (package migrate, not migrate_test) for the engine
-// skeleton (Run, its guards, and the cookie/timestamp helpers). The fixture
-// TARGET database applies the REAL bridgev2 schema (via
-// bridgev2/database.New + dbutil.Database.Upgrade) rather than a hand-picked
-// subset of tables: that's the exact upgrade path a live bridge runs at
-// startup, so it exercises the real portal/user_login/ghost/message/
-// reaction/user table shapes Tasks 5-7 will write into, not an
-// approximation of them. See m7-task-4-report.md for why this was
-// preferred over hand-writing just the two guard tables.
-
 import (
 	"context"
 	"errors"
@@ -25,11 +15,7 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-// newFixtureTargetDB builds a fresh, empty TARGET bridgev2 database by
-// running the real upgrade table bridgev2 ships (bridgev2/database/upgrades)
-// against a throwaway SQLite file -- the same mechanism mxmain.BridgeMain's
-// initDB triggers on the live bridge's own configured database, just
-// pointed at a temp file instead of the operator's real one.
+// newFixtureTargetDB builds an empty target DB using the real bridgev2 schema upgrades.
 func newFixtureTargetDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "target.db")
@@ -37,9 +23,7 @@ func newFixtureTargetDB(t *testing.T) *dbutil.Database {
 	if err != nil {
 		t.Fatalf("opening fixture target db: %v", err)
 	}
-	// database.New's return value is a query-helper wrapper we don't need
-	// in this test -- its only relevant side effect is setting
-	// db.UpgradeTable to the real bridgev2 schema below.
+	// Called only for its side effect of setting db.UpgradeTable.
 	database.New("", database.MetaTypes{}, db)
 	if err := db.Upgrade(context.Background()); err != nil {
 		t.Fatalf("upgrading fixture target db to latest bridgev2 schema: %v", err)
@@ -48,18 +32,11 @@ func newFixtureTargetDB(t *testing.T) *dbutil.Database {
 	return db
 }
 
-// testFormatGhostMXID stands in for the live bridge's
-// matrix.Connector.FormatGhostMXID in tests -- Run/the migrators never call
-// it in Task 4 (all per-entity migrators are still stubs), so its exact
-// output doesn't matter here, only that Deps.FormatGhostMXID is non-nil and
-// has the right signature.
+// testFormatGhostMXID stands in for matrix.Connector.FormatGhostMXID.
 func testFormatGhostMXID(userID networkid.UserID) id.UserID {
 	return id.NewUserID("googlechat_"+string(userID), "example.com")
 }
 
-// validDeps builds a *Deps with a fresh fixture source and a fresh, empty
-// fixture target -- i.e. deps that should let Run proceed all the way
-// through without tripping any guard.
 func validDeps(t *testing.T) *Deps {
 	return &Deps{
 		Source:          newFixtureSourceDB(t),
@@ -68,10 +45,7 @@ func validDeps(t *testing.T) *Deps {
 	}
 }
 
-// assertTargetEmpty fails the test if any of the six tables Run's migrators
-// write into have any rows -- used both to confirm a dry run left the
-// target untouched, and (implicitly, by construction) that a fresh fixture
-// target really does start empty.
+// assertTargetEmpty fails if any table Run writes into has rows.
 func assertTargetEmpty(t *testing.T, target *dbutil.Database) {
 	t.Helper()
 	ctx := context.Background()
@@ -86,11 +60,7 @@ func assertTargetEmpty(t *testing.T, target *dbutil.Database) {
 	}
 }
 
-// seedOnePortalRow writes directly into the target's portal table,
-// bypassing Run entirely -- simulating a target database that has already
-// been used by a live bridge (or a previous migration run), which is
-// exactly what the non-empty-target guard (targetHasExistingData) exists to
-// detect.
+// seedOnePortalRow simulates a target already used by a live bridge.
 func seedOnePortalRow(t *testing.T, target *dbutil.Database) {
 	t.Helper()
 	_, err := target.Exec(context.Background(), `
@@ -142,15 +112,6 @@ func TestRun_MissingFormatGhostMXID(t *testing.T) {
 	}
 }
 
-// TestRun_DryRun_LeavesTargetUnaffected is the "dry-run-writes-nothing"
-// test the task brief asks for. Breakable in two independent, real ways
-// (each verified RED->GREEN while writing this test, then reverted -- see
-// m7-task-4-report.md):
-//   - hardcoding Summary{DryRun: false} in Run makes the summary.DryRun
-//     assertion below fail;
-//   - removing the errors.Is(txErr, errDryRun) unwrap in Run's final return
-//     makes the err == nil assertion below fail (Run would incorrectly
-//     surface the internal errDryRun sentinel to the caller).
 func TestRun_DryRun_LeavesTargetUnaffected(t *testing.T) {
 	deps := validDeps(t)
 	ctx := context.Background()
@@ -168,12 +129,6 @@ func TestRun_DryRun_LeavesTargetUnaffected(t *testing.T) {
 	assertTargetEmpty(t, deps.Target)
 }
 
-// TestRun_NonEmptyTargetGuard is the "guard" test the task brief asks for.
-// Breakable by disabling the `if !opts.Force` check in Run (verified
-// RED->GREEN while writing this test, then reverted -- see
-// m7-task-4-report.md): with the guard disabled, the first Run call below
-// (Force not set) would incorrectly return a nil error instead of
-// ErrTargetNotEmpty.
 func TestRun_NonEmptyTargetGuard(t *testing.T) {
 	deps := validDeps(t)
 	ctx := context.Background()
@@ -192,12 +147,7 @@ func TestRun_NonEmptyTargetGuard(t *testing.T) {
 	}
 }
 
-// TestRun_NonEmptyTargetGuard_BareUserRow pins the guard-hardening fix: a
-// target that has a bare `user` row (someone messaged the bridge bot) but NO
-// portals and NO logins must still be treated as non-empty. Counting only
-// portal+user_login (the original guard) would have misclassified this as
-// fresh and let the migration write into it. Breakable by removing `"user"`
-// from targetHasExistingData's table list.
+// A bare `user` row (someone messaged the bot) must count as non-empty.
 func TestRun_NonEmptyTargetGuard_BareUserRow(t *testing.T) {
 	deps := validDeps(t)
 	ctx := context.Background()
@@ -272,10 +222,7 @@ func TestHasRequiredCookieKeys(t *testing.T) {
 		}
 	}
 
-	// A key that is PRESENT but has an empty value must be treated the same
-	// as missing -- this mirrors pkg/connector/client.go's own
-	// hasRequiredCookies (`cookies[key] == ""`), which the migrated
-	// UserLogin must satisfy once a live bridge tries to Connect() with it.
+	// Present but empty counts as missing, matching hasRequiredCookies.
 	for emptyKey := range complete {
 		withEmptyValue := make(map[string]string, len(complete))
 		for k, v := range complete {

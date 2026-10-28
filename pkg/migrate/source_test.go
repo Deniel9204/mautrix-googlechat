@@ -1,17 +1,5 @@
 package migrate
 
-// White-box tests (package migrate, not migrate_test): source_test.go builds
-// a hand-rolled fixture Python SQLite database matching the FINAL Python
-// schema this package migrates, seeds it with a couple of representative
-// rows per table -- including deliberate NULLs, since every nullable Python
-// column is exercised by real installs -- and asserts the Get* readers
-// return the right typed rows with correct NULL handling.
-//
-// The fixture is built with a normal read-write "sqlite3" connection (the
-// same driver source.go blank-imports), then closed and reopened via the
-// package's own OpenSource so these tests exercise the exact read-only path
-// production code uses, not a shortcut around it.
-
 import (
 	"context"
 	"database/sql"
@@ -21,10 +9,7 @@ import (
 	"go.mau.fi/util/dbutil"
 )
 
-// fixtureSchemaSQL is the Python bridge's final per-entity schema (v10),
-// reconstructed per m7-migration-schema-map.md §1-§5. Column names/nullability
-// mirror that doc exactly; types are SQLite storage classes (SQLite itself is
-// dynamically typed, so BOOLEAN/BIGINT are advisory only).
+// fixtureSchemaSQL is the Python bridge's final (v10) per-entity schema.
 const fixtureSchemaSQL = `
 CREATE TABLE portal (
 	gcid             TEXT,
@@ -94,10 +79,7 @@ CREATE TABLE "user" (
 );
 `
 
-// seedFixtureRows inserts two rows per table: one with as many fields
-// populated as a real row would have, and one exercising the NULLs that
-// real Python installs actually produce (never-logged-in users, space
-// portals with no per-portal avatar, attachment-only messages, etc.).
+// seedFixtureRows inserts two rows per table: one fully populated, one with typical NULLs.
 func seedFixtureRows(t *testing.T, db *sql.DB) {
 	t.Helper()
 	stmts := []struct {
@@ -140,7 +122,7 @@ func seedFixtureRows(t *testing.T, db *sql.DB) {
 			`INSERT INTO puppet (gcid, name, photo_id, photo_mxc, photo_hash, name_set, avatar_set, contact_info_set, is_registered, custom_mxid, access_token, next_batch, base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			[]any{"999999999999999999", nil, nil, nil, nil, false, false, false, false, nil, nil, nil, nil},
 		},
-		// user: one logged in (lowercase cookie keys, per preflight item 1), one never logged in.
+		// user: one logged in (lowercase cookie keys), one never logged in.
 		{
 			`INSERT INTO "user" (mxid, gcid, cookies, user_agent, notice_room, revision) VALUES (?, ?, ?, ?, ?, ?)`,
 			[]any{"@user1:example.com", "103432744896036786916", `{"compass":"c1","ssid":"s1","sid":"si1","osid":"o1","hsid":"h1"}`, "Mozilla/5.0 (test)", "!notice:example.com", int64(42)},
@@ -157,9 +139,7 @@ func seedFixtureRows(t *testing.T, db *sql.DB) {
 	}
 }
 
-// newFixtureSourceDB builds a fresh fixture Python SQLite database (schema +
-// seed rows, no version table) and reopens it read-only via OpenSource,
-// exactly like production code would for a real source DSN.
+// newFixtureSourceDB builds a fixture Python DB (no version table) and reopens it via OpenSource.
 func newFixtureSourceDB(t *testing.T) *dbutil.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "source.db")

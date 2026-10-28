@@ -1,13 +1,5 @@
 package migrate
 
-// White-box tests (package migrate) for migrateReactions, covering the
-// reaction mapping -- especially the message_part_id lookup (do NOT
-// hardcode "").
-//
-// Reuses seedMessageFixtureRows (message_test.go) for the message groups a
-// reaction can resolve against, so both files agree on exactly the same
-// index->part_id assignments.
-
 import (
 	"context"
 	"database/sql"
@@ -28,11 +20,8 @@ const (
 	reactionFixtureBareThumbsDown = "\U0001F44E" // 👎, no variation selector
 )
 
-// seedReactionFixtureRows adds reaction rows on top of
-// seedMessageFixtureRows's message groups:
-//   - thumbsUp reacts to msgTextPlusAtt -> resolves to the text row's part id ("").
-//   - thumbsDown reacts to msgAttOnly -> resolves to its index-0 row's part id ("att_0").
-//   - orphan reacts to a gc_msgid with no matching message row at all -> warn+skip.
+// seedReactionFixtureRows adds reactions on seedMessageFixtureRows's messages: one resolving to "",
+// one to "att_0", and one orphan.
 func seedReactionFixtureRows(t *testing.T, db *sql.DB) {
 	t.Helper()
 	const insertReactionSQ = `INSERT INTO reaction (mxid, mx_room, emoji, gc_sender, gc_msgid, gc_chat, gc_receiver, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -117,8 +106,6 @@ func TestMigrateReactions_MessagePartIDLookup(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	// Full step order (portals, ghosts, messages, then reactions) -- a
-	// reaction's FK requires the target message row to already exist.
 	if _, _, err := migratePortals(ctx, deps, Options{}); err != nil {
 		t.Fatalf("migratePortals: %v", err)
 	}
@@ -185,16 +172,7 @@ func TestMigrateReactions_MessagePartIDLookup(t *testing.T) {
 	})
 }
 
-// TestMigrateReactions_TargetMessageNotMigrated_WarnsAndSkips is the
-// regression test for the gchat-port-auditor's P1 finding: the SOURCE has a
-// matching message row for the reaction's (gc_msgid, gc_chat, gc_receiver,
-// index=0), but migrateMessages itself skipped writing that row to the
-// TARGET (here: a NULL gc_sender). Without the messagePartExistsInTarget
-// guard, inserting the reaction fails reaction_message_fkey and
-// migrateReactions returns a non-nil error, which aborts and rolls back the
-// ENTIRE migration (portals/ghosts/messages/reactions/users) via Run's
-// single transaction -- not a per-row warn+skip. This must instead be
-// treated as an orphan reaction.
+// The source message exists but migrateMessages skipped it; the reaction must warn-and-skip, not abort.
 func TestMigrateReactions_TargetMessageNotMigrated_WarnsAndSkips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "reaction_dangling_message_source.db")
 	setup, err := sql.Open("sqlite3", path)
@@ -218,9 +196,7 @@ func TestMigrateReactions_TargetMessageNotMigrated_WarnsAndSkips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding puppet row: %v", err)
 	}
-	// NULL gc_sender -> migrateMessages will skip this row (schema map §2:
-	// "no ghost to attribute sender to"), leaving nothing in the target for
-	// the reaction below to reference.
+	// NULL gc_sender: migrateMessages skips this row.
 	_, err = setup.Exec(msgFixtureInsertMessageSQ,
 		"$eDangling:example.com", "!room:example.com", "msgNoSenderForReaction", msgFixturePortalGCID, msgFixturePortalReceiver, nil, nil, 0, int64(1700000008000000), "m.text",
 	)
@@ -283,10 +259,7 @@ func TestMigrateReactions_TargetMessageNotMigrated_WarnsAndSkips(t *testing.T) {
 	}
 }
 
-// TestMigrateReactions_SenderGhostMissing_WarnsAndSkips covers a reactor
-// whose gaia ID has no corresponding `puppet` row in the source at all (so
-// migrateGhosts never creates a ghost for it) -- distinct from the message's
-// own sender, which does have a ghost, so the message itself migrates fine.
+// The reactor has no puppet row, so no ghost; the message's own sender does.
 func TestMigrateReactions_SenderGhostMissing_WarnsAndSkips(t *testing.T) {
 	const reactorWithNoGhostGaiaID = "222222222222222222"
 
@@ -305,7 +278,7 @@ func TestMigrateReactions_SenderGhostMissing_WarnsAndSkips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding portal row: %v", err)
 	}
-	// Only the message author has a puppet row -- the reactor below does not.
+
 	_, err = setup.Exec(
 		`INSERT INTO puppet (gcid, name, photo_id, photo_mxc, photo_hash, name_set, avatar_set, contact_info_set, is_registered, custom_mxid, access_token, next_batch, base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		msgFixtureSenderGaiaID, "Sender", nil, nil, nil, true, false, false, false, nil, nil, nil, nil,
@@ -372,12 +345,7 @@ func TestMigrateReactions_SenderGhostMissing_WarnsAndSkips(t *testing.T) {
 	}
 }
 
-// TestMigrateReactions_NoIndexZeroRow_WarnsAndSkips covers the defensive
-// "message group has no index=0 row" branch (reaction.go): a corrupt/foreign
-// source where the referenced message group exists but its lowest index is
-// not 0 (Python's own index counter always starts at 0, so this shouldn't
-// happen with well-formed data, but the code must not panic or write a
-// bogus row if it does).
+// A message group without an index=0 row (corrupt source) must warn-and-skip.
 func TestMigrateReactions_NoIndexZeroRow_WarnsAndSkips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "reaction_no_index_zero_source.db")
 	setup, err := sql.Open("sqlite3", path)
@@ -401,9 +369,7 @@ func TestMigrateReactions_NoIndexZeroRow_WarnsAndSkips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding puppet row: %v", err)
 	}
-	// index=1, no index=0 row at all -- a well-formed Python DB never
-	// produces this (its counter always starts at 0), but the migrator must
-	// still degrade gracefully rather than panic/miswrite.
+
 	_, err = setup.Exec(msgFixtureInsertMessageSQ,
 		"$eNoIndexZero:example.com", "!room:example.com", "msgNoIndexZero", msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 1, int64(1700000010000000), "m.text",
 	)
@@ -459,20 +425,8 @@ func TestMigrateReactions_NoIndexZeroRow_WarnsAndSkips(t *testing.T) {
 	}
 }
 
-// TestMigrateReactions_PortalNotMigrated_WarnsAndSkips covers the FK the
-// other guards miss.
-//
-// migrateReactions checks the reaction -> message FK with
-// messagePartExistsInTarget, which matches on (id, part_id, room_receiver)
-// and deliberately NOT on room_id. That is fine on its own, but the row it
-// inserts also carries room_id, covered by reaction_room_fkey. So when the
-// source contains the same gcid under two different chats -- one migrated,
-// one not -- the message guard is satisfied by the MIGRATED chat's row while
-// the reaction's own portal is absent, and the insert violates the room FK.
-//
-// Because a failed insert returns an error rather than a warning, that
-// aborted (and rolled back) the entire --migrate-from-python run over a
-// single orphan row, contrary to this package's warn-and-skip-per-row rule.
+// The message guard ignores room_id, so a gcid shared by a migrated and an unmigrated chat
+// must still skip the reaction via the portal check.
 func TestMigrateReactions_PortalNotMigrated_WarnsAndSkips(t *testing.T) {
 	const (
 		collidingGCID  = "collidingMsgID"
@@ -487,8 +441,7 @@ func TestMigrateReactions_PortalNotMigrated_WarnsAndSkips(t *testing.T) {
 	if _, err := setup.Exec(fixtureSchemaSQL); err != nil {
 		t.Fatalf("creating fixture schema: %v", err)
 	}
-	// Only ONE portal exists in the source; unmigratedChat deliberately has
-	// no portal row at all, so nothing for it reaches the target.
+
 	_, err = setup.Exec(
 		`INSERT INTO portal (gcid, gc_receiver, other_user_id, mxid, name, avatar_mxc, description, name_set, avatar_set, description_set, encrypted, revision, threads_only, threads_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		msgFixturePortalGCID, msgFixturePortalReceiver, nil, "!room:example.com", "Team", nil, nil, true, false, false, false, nil, nil, nil,
@@ -503,8 +456,7 @@ func TestMigrateReactions_PortalNotMigrated_WarnsAndSkips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding puppet row: %v", err)
 	}
-	// Same gcid in both chats. The first migrates (its portal exists); the
-	// second is skipped by migrateMessages because its portal does not.
+	// Same gcid in both chats; only the first chat's portal exists.
 	_, err = setup.Exec(msgFixtureInsertMessageSQ,
 		"$mMigrated:example.com", "!room:example.com", collidingGCID, msgFixturePortalGCID, msgFixturePortalReceiver, nil, msgFixtureSenderGaiaID, 0, int64(1700000009000000), "m.text",
 	)
@@ -517,7 +469,7 @@ func TestMigrateReactions_PortalNotMigrated_WarnsAndSkips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding orphan message row: %v", err)
 	}
-	// The reaction belongs to the chat that never migrated.
+
 	_, err = setup.Exec(
 		`INSERT INTO reaction (mxid, mx_room, emoji, gc_sender, gc_msgid, gc_chat, gc_receiver, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		"$rOrphanPortal:example.com", "!other:example.com", reactionFixtureBareThumbsUp, msgFixtureSenderGaiaID, collidingGCID, unmigratedChat, msgFixturePortalReceiver, int64(1700000009150000),

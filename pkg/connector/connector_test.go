@@ -11,9 +11,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// TestLoadUserLoginFirstCallBuildsShell covers the plain restart path: no
-// prior client, LoadUserLogin just installs a fresh *GChatClient shell (no
-// network I/O -- see connector.go's LoadUserLogin doc comment).
 func TestLoadUserLoginFirstCallBuildsShell(t *testing.T) {
 	login := &bridgev2.UserLogin{
 		UserLogin: &database.UserLogin{ID: gcid.MakeUserLoginID("g1")},
@@ -33,12 +30,7 @@ func TestLoadUserLoginFirstCallBuildsShell(t *testing.T) {
 	}
 }
 
-// TestLoadUserLoginDisconnectsPriorClient is the carry-over (a) regression
-// test: a resubmitted login (User.NewLogin reusing an existing UserLogin row)
-// or Bridge.ResetNetworkConnections's recreateClient calls LoadUserLogin
-// again on an already-running login. The previous *GChatClient's gchatmeow
-// client must be disconnected before it is replaced, or its Connect goroutine
-// (and live webchannel session) leaks forever.
+// TestLoadUserLoginDisconnectsPriorClient: reloading a running login must disconnect the old client.
 func TestLoadUserLoginDisconnectsPriorClient(t *testing.T) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{})
 	if err != nil {
@@ -78,10 +70,6 @@ func TestLoadUserLoginDisconnectsPriorClient(t *testing.T) {
 	}
 }
 
-// TestLoadUserLoginNilPriorClientIsSafe guards the type assertion in
-// LoadUserLogin against a nil login.Client (the very first load) or a
-// login.Client of some other concrete type -- neither should panic or call
-// Disconnect.
 func TestLoadUserLoginNilPriorClientIsSafe(t *testing.T) {
 	login := &bridgev2.UserLogin{
 		UserLogin: &database.UserLogin{ID: gcid.MakeUserLoginID("g1")},
@@ -90,18 +78,12 @@ func TestLoadUserLoginNilPriorClientIsSafe(t *testing.T) {
 	if err := gc.LoadUserLogin(context.Background(), login); err != nil {
 		t.Fatalf("LoadUserLogin() error = %v", err)
 	}
-	// Calling it again (as a second restart-style load) must also be safe:
-	// the freshly-installed *GChatClient has a nil conn, so Disconnect() is a
-	// real no-op, not a panic.
+	// A second load must also be safe: the new client's conn is nil.
 	if err := gc.LoadUserLogin(context.Background(), login); err != nil {
 		t.Fatalf("second LoadUserLogin() error = %v", err)
 	}
 }
 
-// TestSetMaxFileSize pins M5 Task 3's bridgev2.MaxFileSizeingNetwork wiring:
-// bridgev2 calls SetMaxFileSize once soon after startup with the
-// homeserver's own configured max upload size, and GChatClient.maxFileSize
-// (media.go) must read back exactly that value.
 func TestSetMaxFileSize(t *testing.T) {
 	gc := &GChatConnector{}
 	gc.SetMaxFileSize(12345)
@@ -114,11 +96,6 @@ func TestSetMaxFileSize(t *testing.T) {
 	}
 }
 
-// TestMaxFileSizeNilMainFallsBackToZero mirrors msgConverter()'s identical
-// bare-*GChatClient test fallback (client.go): a *GChatClient with no Main
-// (as constructed by many other tests in this package) must not panic, and
-// must report 0 ("no cap", per gchatmeow.DownloadAttachment's own
-// maxSize<=0 contract) rather than some arbitrary default.
 func TestMaxFileSizeNilMainFallsBackToZero(t *testing.T) {
 	client := &GChatClient{}
 	if got := client.maxFileSize(); got != 0 {
@@ -126,11 +103,6 @@ func TestMaxFileSizeNilMainFallsBackToZero(t *testing.T) {
 	}
 }
 
-// TestAttachmentURLAndDownloadAttachmentFailCleanlyWhenNotConnected pins the
-// nil-conn guard in both mediaFetcher methods (media.go): a *GChatClient
-// with no live gchatmeow.Client (e.g. mid-reconnect, or never connected)
-// must return a plain error, not panic -- convertOneAttachment (media.go)
-// then skips that attachment like any other download failure.
 func TestAttachmentURLAndDownloadAttachmentFailCleanlyWhenNotConnected(t *testing.T) {
 	client := &GChatClient{}
 	if _, _, err := client.attachmentURL(nil); err == nil {

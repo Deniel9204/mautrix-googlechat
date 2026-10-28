@@ -15,8 +15,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
 
-// TestToMatrix_PlainText covers the base case: TextBody becomes the body of
-// a single m.text part.
 func TestToMatrix_PlainText(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hello world")}
@@ -50,10 +48,6 @@ func TestToMatrix_PlainText(t *testing.T) {
 	}
 }
 
-// TestToMatrix_EmptyBody pins the empty-text_body gate: no text event is
-// sent for a message whose text_body is empty (e.g. an attachment-only
-// message), so ToMatrix must produce zero parts, not a part with an empty
-// body.
 func TestToMatrix_EmptyBody(t *testing.T) {
 	mc := msgconv.New()
 
@@ -74,9 +68,7 @@ func TestToMatrix_EmptyBody(t *testing.T) {
 	})
 }
 
-// TestToMatrix_WhitespaceBody: only the exact empty string is excluded;
-// whitespace-only text is NOT trimmed anywhere in the conversion, so it
-// must survive verbatim.
+// Only the exact empty string is excluded; whitespace is kept verbatim.
 func TestToMatrix_WhitespaceBody(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("   ")}
@@ -91,9 +83,6 @@ func TestToMatrix_WhitespaceBody(t *testing.T) {
 	}
 }
 
-// TestToMatrix_UnicodeEmoji proves UTF-8 text (including astral-plane
-// emoji, which are surrogate pairs in UTF-16) survives untouched in the
-// plain body.
 func TestToMatrix_UnicodeEmoji(t *testing.T) {
 	mc := msgconv.New()
 	want := "héllo 👋🏽 世界 🇺🇳"
@@ -109,10 +98,6 @@ func TestToMatrix_UnicodeEmoji(t *testing.T) {
 	}
 }
 
-// TestToMatrix_NoAnnotationsStaysPlain pins the fast path: a message with no
-// annotations must never get an HTML formatted_body, matching
-// gchatfmt.Parse's empty-annotations behavior (see gchatfmt's package doc
-// comment).
 func TestToMatrix_NoAnnotationsStaysPlain(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("plain text, nothing special")}
@@ -131,10 +116,6 @@ func TestToMatrix_NoAnnotationsStaysPlain(t *testing.T) {
 	}
 }
 
-// TestToMatrix_FormatAnnotationsProduceHTML is the headline behavior: a
-// message with FORMAT_DATA annotations must produce a part
-// with Format=org.matrix.custom.html, the gchatfmt-rendered FormattedBody,
-// and Body left as the plain text_body (unmodified by the HTML rendering).
 func TestToMatrix_FormatAnnotationsProduceHTML(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -162,11 +143,6 @@ func TestToMatrix_FormatAnnotationsProduceHTML(t *testing.T) {
 	}
 }
 
-// TestToMatrix_MentionAnnotationUsesPassedResolver proves ToMatrix actually
-// threads the mention parameter into gchatfmt.Parse (not just accepting and
-// ignoring it): a resolver that knows the gaia id must produce a pill in
-// FormattedBody AND surface the resolved mention in the returned
-// ParsedMentions (the source content.Mentions is later built from).
 func TestToMatrix_MentionAnnotationUsesPassedResolver(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -197,9 +173,6 @@ func TestToMatrix_MentionAnnotationUsesPassedResolver(t *testing.T) {
 	}
 }
 
-// TestToMatrix_NilResolverDoesNotPanic: a nil mention resolver (e.g. a
-// caller that hasn't wired one up) must degrade to gchatfmt's own nil-safe
-// fallback, not panic.
 func TestToMatrix_NilResolverDoesNotPanic(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -217,11 +190,6 @@ func TestToMatrix_NilResolverDoesNotPanic(t *testing.T) {
 	}
 }
 
-// TestToMatrix_PartID pins the single-part convention (empty PartID for
-// the first/only part), matching the wider bridgev2 ecosystem convention
-// (e.g. mautrix-meta's metaid.MakeMessagePartID: index 0 -> "") so that
-// additional non-empty PartIDs for attachment parts can later be appended
-// without renumbering this one.
 func TestToMatrix_PartID(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hi")}
@@ -236,15 +204,7 @@ func TestToMatrix_PartID(t *testing.T) {
 	}
 }
 
-// TestToMatrix_TextPartAppendedNotOverwritten is a B4-adjacent regression
-// guard: a media message with a formatted caption must keep BOTH the file
-// and the caption text, never let one overwrite the other. ToMatrix itself
-// only builds a text part for now (attachment parts come later), but it
-// must add that part via append onto whatever cm.Parts a future combined
-// build already populated, never by replacing the whole slice -- otherwise
-// a caller that had already appended a stub "file" part before calling into
-// text-part construction would lose it. This pins that structural invariant
-// directly against ToMatrix's actual cm.Parts, not a hypothetical helper.
+// The text part must be appended to cm.Parts, never replace it.
 func TestToMatrix_TextPartAppendedNotOverwritten(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("a caption")}
@@ -254,9 +214,6 @@ func TestToMatrix_TextPartAppendedNotOverwritten(t *testing.T) {
 		t.Fatalf("expected 1 text part, got %d", len(cm.Parts))
 	}
 
-	// Simulate a caller that already has a stub file part and combines it
-	// with ToMatrix's own output by appending, the same way ToMatrix itself
-	// builds cm.Parts (cm.Parts = append(cm.Parts, textPart)).
 	stubFilePart := &bridgev2.ConvertedMessagePart{
 		ID:   "file",
 		Type: event.EventMessage,
@@ -278,23 +235,7 @@ func TestToMatrix_TextPartAppendedNotOverwritten(t *testing.T) {
 	}
 }
 
-// --- ThreadRoot --------------------------------------------------------------
-//
-// The topic id comes from msg.id.parent_id.topic_id.topic_id, combined with
-// the head-vs-reply distinction inherent to Google Chat's topic model:
-// message_id == topic_id for the head/root message of a topic (self-
-// referencing on the wire), and != for every reply posted into an existing
-// one (create_message always targets an EXISTING topic id, never the new
-// message's own id).
-//
-// bridgev2's own convention (mautrix-go bridgev2/portal.go:2804,
-// getRelationMeta: `if currentMsg.ThreadRoot != nil && *currentMsg.ThreadRoot
-// != currentMsgID`) accepts a SELF-referencing ThreadRoot (equal to the
-// message's own id) as "this message is the head of its own thread" --
-// bridgev2 skips the thread-root lookup for that case but still records the
-// self-reference in the message's DB row, so a later Matrix reply to this
-// head message resolves back to it via GetFirstThreadMessage (the "reply ->
-// thread auto-conversion", portal.go:1259-1268).
+// ThreadRoot: message_id == topic_id marks a topic head; replies differ.
 
 func topicMessage(messageID, topicID, text string) *pb.Message {
 	msg := &pb.Message{TextBody: proto.String(text)}
@@ -309,10 +250,6 @@ func topicMessage(messageID, topicID, text string) *pb.Message {
 	return msg
 }
 
-// TestToMatrix_HeadMessageFlatRoomNoThreadRoot: message_id == topic_id (the
-// head of a brand new topic) in a non-threads-only room must NOT get a
-// self-referencing ThreadRoot -- a head message gets none unless the room
-// is threads-only.
 func TestToMatrix_HeadMessageFlatRoomNoThreadRoot(t *testing.T) {
 	mc := msgconv.New()
 	msg := topicMessage("topic1", "topic1", "hello")
@@ -324,10 +261,6 @@ func TestToMatrix_HeadMessageFlatRoomNoThreadRoot(t *testing.T) {
 	}
 }
 
-// TestToMatrix_HeadMessageThreadsOnlyRoomSelfThreadRoot: the same head
-// message in a threads-only room DOES get a self-referencing ThreadRoot so
-// later Matrix replies auto-convert into this topic (bridgev2
-// portal.go:1259-1268).
 func TestToMatrix_HeadMessageThreadsOnlyRoomSelfThreadRoot(t *testing.T) {
 	mc := msgconv.New()
 	msg := topicMessage("topic1", "topic1", "hello")
@@ -342,11 +275,7 @@ func TestToMatrix_HeadMessageThreadsOnlyRoomSelfThreadRoot(t *testing.T) {
 	}
 }
 
-// TestToMatrix_ReplyMessageAlwaysSetsThreadRoot: message_id != topic_id (a
-// reply posted into an existing topic) must get ThreadRoot set to the topic
-// id UNCONDITIONALLY -- in both a flat/legacy room and a threads-only one --
-// not conditioned on threadsOnly at all (only the head-message
-// self-reference case is).
+// Replies get ThreadRoot regardless of threadsOnly.
 func TestToMatrix_ReplyMessageAlwaysSetsThreadRoot(t *testing.T) {
 	mc := msgconv.New()
 	for _, threadsOnly := range []bool{false, true} {
@@ -361,9 +290,6 @@ func TestToMatrix_ReplyMessageAlwaysSetsThreadRoot(t *testing.T) {
 	}
 }
 
-// TestToMatrix_NoParentIDNoThreadRoot: a message with no parent_id.topic_id
-// on the wire at all (topic_id empty/absent) must never get a ThreadRoot --
-// there is nothing to route to or self-reference.
 func TestToMatrix_NoParentIDNoThreadRoot(t *testing.T) {
 	mc := msgconv.New()
 	for _, threadsOnly := range []bool{false, true} {
@@ -375,10 +301,7 @@ func TestToMatrix_NoParentIDNoThreadRoot(t *testing.T) {
 	}
 }
 
-// TestToMatrix_ThreadRootSetEvenForAttachmentOnlyMessage proves ThreadRoot
-// is computed before the empty-text_body early return, so a future
-// attachment-only message in a thread still carries the right ThreadRoot
-// even though it has zero text parts today.
+// ThreadRoot is computed before the empty-text early return.
 func TestToMatrix_ThreadRootSetEvenForAttachmentOnlyMessage(t *testing.T) {
 	mc := msgconv.New()
 	msg := topicMessage("reply1", "topic1", "")
@@ -393,33 +316,14 @@ func TestToMatrix_ThreadRootSetEvenForAttachmentOnlyMessage(t *testing.T) {
 	}
 }
 
-// --- ReplyTo (quote-replies) -------------------------------------------------
-//
-// The wire-level source is always msg.reply_to.id.message_id
-// (ReplyToMessage.id, MessageId.message_id, proto field 37 -> field 1 ->
-// field 2). Resolving the DB row and handing its Matrix mxid to a reply
-// requires a DB lookup that belongs in the connector, not msgconv (matching
-// msgconv's own "no portal, no intent" package doc), so ToMatrix here only
-// surfaces the network message id itself via cm.ReplyTo (a
-// *networkid.MessageOptionalPartID); resolving it to a concrete Matrix event
-// (or dropping it if the target was never bridged) is bridgev2's own generic
-// job (mautrix-go bridgev2/portal.go:2768-2801, GetFirstOrSpecificPartByID),
-// not this connector's, and not msgconv's.
+// ReplyTo comes from msg.reply_to.id.message_id (proto field 37 -> 1 -> 2).
 
-// replyMessage builds a *pb.Message with a ReplyToMessage set, mirroring
-// topicMessage's plain-field-construction style above.
 func replyMessage(text, replyToMessageID string) *pb.Message {
 	msg := &pb.Message{TextBody: proto.String(text)}
 	msg.ReplyTo = &pb.ReplyToMessage{Id: &pb.MessageId{MessageId: proto.String(replyToMessageID)}}
 	return msg
 }
 
-// TestToMatrix_ReplyToSetsConvertedMessageReplyTo is the headline inbound
-// case: a message with reply_to set must produce a ConvertedMessage whose
-// ReplyTo.MessageID is exactly reply_to.id.message_id, with no PartID
-// override (nil -- "refer to the first part", matching every other
-// single-part Google Chat message; networkid.MessageOptionalPartID's own doc
-// comment).
 func TestToMatrix_ReplyToSetsConvertedMessageReplyTo(t *testing.T) {
 	mc := msgconv.New()
 	msg := replyMessage("a reply", "target1")
@@ -437,10 +341,7 @@ func TestToMatrix_ReplyToSetsConvertedMessageReplyTo(t *testing.T) {
 	}
 }
 
-// TestToMatrix_NoReplyToLeavesConvertedMessageReplyToNil is the converse: a
-// message with no reply_to at all (the common case) must leave cm.ReplyTo
-// nil, not a zero-value MessageOptionalPartID{} (which would spuriously
-// point bridgev2 at a message with an empty MessageID).
+// Must be nil, not a zero-value MessageOptionalPartID.
 func TestToMatrix_NoReplyToLeavesConvertedMessageReplyToNil(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("no reply here")}
@@ -452,11 +353,6 @@ func TestToMatrix_NoReplyToLeavesConvertedMessageReplyToNil(t *testing.T) {
 	}
 }
 
-// TestToMatrix_ReplyToSetEvenForAttachmentOnlyMessage mirrors
-// TestToMatrix_ThreadRootSetEvenForAttachmentOnlyMessage: ReplyTo must be
-// computed before the empty-text_body early return too, so a future
-// attachment-only reply still carries the right ReplyTo even with zero text
-// parts.
 func TestToMatrix_ReplyToSetEvenForAttachmentOnlyMessage(t *testing.T) {
 	mc := msgconv.New()
 	msg := replyMessage("", "target1")
@@ -471,13 +367,7 @@ func TestToMatrix_ReplyToSetEvenForAttachmentOnlyMessage(t *testing.T) {
 	}
 }
 
-// TestToMatrix_ReplyToAndThreadRootBothSet covers composing with threads:
-// a message that is both a reply into an existing topic
-// (message_id != topic_id -> ThreadRoot) AND carries an explicit reply_to
-// (a quote-reply to a specific message within that thread) must set BOTH
-// cm.ThreadRoot and cm.ReplyTo independently -- they are computed from
-// disjoint proto fields (msg.id.parent_id vs msg.reply_to) and neither
-// setter here has any awareness of the other.
+// ThreadRoot and ReplyTo come from disjoint fields and must both be set.
 func TestToMatrix_ReplyToAndThreadRootBothSet(t *testing.T) {
 	mc := msgconv.New()
 	msg := topicMessage("reply2", "topic1", "a reply in a thread")
@@ -492,18 +382,6 @@ func TestToMatrix_ReplyToAndThreadRootBothSet(t *testing.T) {
 		t.Errorf("ReplyTo = %v, want MessageID %q", cm.ReplyTo, "target-in-thread")
 	}
 }
-
-// --- Drive/Meet/YouTube link annotations -------------------------------------
-//
-// The video_call_metadata/drive_metadata/youtube_metadata annotation
-// branches are handled via gchatfmt.AppendLinkAnnotations, wired in ToMatrix
-// BEFORE the empty-text_body gate (see from-gchat.go's package/function doc
-// comments and gchatfmt/linkappend.go's doc comment for the full
-// investigation into why url_metadata is NOT handled the same way -- it is
-// never appended to text_body at all, so there is no double-render hazard
-// between this append and gchatfmt.Parse's pre-existing inline url_metadata
-// rendering; see TestToMatrix_UrlMetadataInlineAnnotationNotDoubleAppended
-// below for the pinning test).
 
 func driveMetadataAnnotation(id string) *pb.Annotation {
 	return &pb.Annotation{
@@ -531,10 +409,6 @@ func videoCallMetadataAnnotation(meetingURL string) *pb.Annotation {
 	}
 }
 
-// TestToMatrix_DriveMetadataAppendsURLToBody is the headline drive_metadata
-// case: the Drive open URL is appended to the plain body with a "\n\n"
-// separator, and (having no chip_render_type == DO_NOT_RENDER span) produces
-// no HTML formatting -- just plain appended text.
 func TestToMatrix_DriveMetadataAppendsURLToBody(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -553,8 +427,6 @@ func TestToMatrix_DriveMetadataAppendsURLToBody(t *testing.T) {
 	}
 }
 
-// TestToMatrix_YoutubeMetadataAppendsWatchURLToBody mirrors the drive test
-// for youtube_metadata.
 func TestToMatrix_YoutubeMetadataAppendsWatchURLToBody(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -573,8 +445,6 @@ func TestToMatrix_YoutubeMetadataAppendsWatchURLToBody(t *testing.T) {
 	}
 }
 
-// TestToMatrix_VideoCallMetadataAppendsMeetingURLToBody mirrors the drive
-// test for video_call_metadata (a Meet link).
 func TestToMatrix_VideoCallMetadataAppendsMeetingURLToBody(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -593,9 +463,6 @@ func TestToMatrix_VideoCallMetadataAppendsMeetingURLToBody(t *testing.T) {
 	}
 }
 
-// TestToMatrix_DriveMetadataAlreadyPresentSkipsAppend proves the substring
-// dedup: if the id is already present in text_body (e.g. the user pasted
-// the link themselves), no duplicate is appended.
 func TestToMatrix_DriveMetadataAlreadyPresentSkipsAppend(t *testing.T) {
 	mc := msgconv.New()
 	text := "see https://drive.google.com/open?id=doc1 for the doc"
@@ -614,14 +481,7 @@ func TestToMatrix_DriveMetadataAlreadyPresentSkipsAppend(t *testing.T) {
 	}
 }
 
-// TestToMatrix_EmptyTextBodyWithDriveAnnotationProducesTextPart is the key
-// empty-gate-ordering test: AppendLinkAnnotations (which can extend
-// text_body via the drive_metadata branch) runs BEFORE the empty-text_body
-// gate. So a message with NO original text but a drive_metadata annotation
-// must still produce ONE text part whose body is exactly the appended Drive
-// URL -- NOT zero
-// parts, which is what TestToMatrix_EmptyBody proves for a message with no
-// link annotations at all.
+// Link appending runs before the empty-text gate, so this must yield one part.
 func TestToMatrix_EmptyTextBodyWithDriveAnnotationProducesTextPart(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -640,19 +500,7 @@ func TestToMatrix_EmptyTextBodyWithDriveAnnotationProducesTextPart(t *testing.T)
 	}
 }
 
-// TestToMatrix_UrlMetadataInlineAnnotationNotDoubleAppended is THE double-
-// render pin. A url_metadata annotation with chip_render_type ==
-// DO_NOT_RENDER wraps EXISTING body text as an inline <a href>
-// (gchatfmt.Parse's pre-existing renderURL, convert.go:523) -- a completely
-// different code path from
-// link-appending, which never appends url_metadata's URL to text_body at
-// all (see gchatfmt/linkappend.go's doc comment). If AppendLinkAnnotations
-// mistakenly treated url_metadata like drive/youtube/video_call metadata,
-// the URL would render TWICE: once as the inline hyperlink around "click
-// here", once more as new plain text appended after it. This test proves the
-// plain Body is exactly the original text (the inline rendering only
-// affects FormattedBody, via HTML markup around the SAME text, not new
-// text) -- i.e. no double render.
+// An inline DO_NOT_RENDER url_metadata must not also be appended to the body.
 func TestToMatrix_UrlMetadataInlineAnnotationNotDoubleAppended(t *testing.T) {
 	mc := msgconv.New()
 	text := "click here"
@@ -681,16 +529,7 @@ func TestToMatrix_UrlMetadataInlineAnnotationNotDoubleAppended(t *testing.T) {
 	}
 }
 
-// TestToMatrix_UrlMetadataRenderChipNeverAppended covers the OTHER
-// url_metadata shape: a RENDER (link-preview chip) annotation, should_not_
-// render=false, with an image_url set -- the closest analogue to what might
-// be assumed to be appended. Per the investigation
-// (gchatfmt/linkappend.go doc comment), this shape becomes an AttachmentURL
-// for a separate, out-of-scope HTTP download; it is never appended to
-// text_body, and gchatfmt.Parse skips
-// non-DO_NOT_RENDER chip annotations entirely (convert.go:412) so it isn't
-// rendered inline either. The plain, unwrapped underlying text survives
-// verbatim and no URL is appended.
+// A RENDER chip url_metadata is neither appended nor rendered inline.
 func TestToMatrix_UrlMetadataRenderChipNeverAppended(t *testing.T) {
 	mc := msgconv.New()
 	text := "check out this link"
@@ -711,9 +550,6 @@ func TestToMatrix_UrlMetadataRenderChipNeverAppended(t *testing.T) {
 	}
 }
 
-// TestToMatrix_NoLinkAnnotationsBodyUnchanged is the converse fast path: a
-// message with no video_call/drive/youtube/url metadata annotations at all
-// must have its body left completely untouched by AppendLinkAnnotations.
 func TestToMatrix_NoLinkAnnotationsBodyUnchanged(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{TextBody: proto.String("hello world")}
@@ -728,8 +564,7 @@ func TestToMatrix_NoLinkAnnotationsBodyUnchanged(t *testing.T) {
 	}
 }
 
-// cardOnlyAttachment builds the shape a workflow bot posts: all content in
-// card widgets, no text_body at all.
+// cardOnlyAttachment builds a bot card with no text_body.
 func cardOnlyAttachment(title, para, btnLabel, btnURL string) *pb.Attachment {
 	ft := func(s string) *pb.JAddOnsFormattedText {
 		return &pb.JAddOnsFormattedText{OriginalText: proto.String(s)}
@@ -762,9 +597,6 @@ func cardOnlyAttachment(title, para, btnLabel, btnURL string) *pb.Attachment {
 	}
 }
 
-// TestToMatrix_CardOnlyMessageProducesAPart: a bot card with no text_body
-// previously hit ToMatrix's `if text == ""` early return and bridged as a
-// message with ZERO parts -- the alert simply never appeared on Matrix.
 func TestToMatrix_CardOnlyMessageProducesAPart(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -792,8 +624,6 @@ func TestToMatrix_CardOnlyMessageProducesAPart(t *testing.T) {
 	}
 }
 
-// TestToMatrix_TextAndCardAreBothKept: a message carrying both must not lose
-// either half.
 func TestToMatrix_TextAndCardAreBothKept(t *testing.T) {
 	mc := msgconv.New()
 	msg := &pb.Message{
@@ -812,16 +642,12 @@ func TestToMatrix_TextAndCardAreBothKept(t *testing.T) {
 			t.Errorf("body missing %q\nbody = %q", want, content.Body)
 		}
 	}
-	// The plain text half had no annotations of its own, so it contributed no
-	// HTML; it must still be escaped into the combined formatted_body rather
-	// than dropped.
+	// The unannotated text half must still be escaped into formatted_body.
 	if !strings.Contains(content.FormattedBody, "heads up") {
 		t.Errorf("formatted_body lost the plain text half\nhtml = %q", content.FormattedBody)
 	}
 }
 
-// TestToMatrix_NoTextNoCardStillEmpty: the early return must survive for a
-// message that genuinely carries nothing.
 func TestToMatrix_NoTextNoCardStillEmpty(t *testing.T) {
 	mc := msgconv.New()
 	cm, _ := mc.ToMatrix(context.Background(), &pb.Message{}, false, nil)
@@ -830,15 +656,7 @@ func TestToMatrix_NoTextNoCardStillEmpty(t *testing.T) {
 	}
 }
 
-// TestToMatrix_ZeroLengthURLAnnotationOnlyMessageIsNotDropped is the
-// end-to-end regression test for a silent message loss.
-//
-// A message whose only content is a url_metadata annotation covering no text
-// (the shape a shared GIF arrives in) has an empty text_body, and convert.go
-// renders nothing for an annotation with length == 0. Before the fix that made
-// ToMatrix return ZERO parts, and mautrix-go's sendConvertedMessage loops over
-// the parts -- so it sent nothing and the message never appeared on Matrix at
-// all, with no error anywhere.
+// A text-less message with only a zero-length url_metadata (shared GIF) must not convert to zero parts.
 func TestToMatrix_ZeroLengthURLAnnotationOnlyMessageIsNotDropped(t *testing.T) {
 	const gifURL = "https://tenor.com/view/example-gif-12345"
 	mc := msgconv.New()

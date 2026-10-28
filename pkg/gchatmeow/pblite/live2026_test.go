@@ -1,16 +1,6 @@
 package pblite_test
 
-// Decode tests for the "live 2026" proto fields observed on the wire. The
-// live spike connected to real Google Chat traffic and logged
-// "pblite: skipping unknown field" for these field numbers -- present on the
-// wire, absent from the 2023-era proto snapshot. This file proves each one
-// now decodes instead of being silently skipped.
-//
-// Field descriptors are looked up generically by number via protoreflect
-// (not the generated Getters) so this file compiles identically before and
-// after the proto/regeneration change -- the RED state (run against the
-// pre-change googlechat.pb.go) is a real assertion failure ("field N not
-// present in descriptor"), not a compile error.
+// Fields are looked up by number via protoreflect, so a missing field fails an assertion, not compilation.
 
 import (
 	"encoding/json"
@@ -22,8 +12,6 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// mustField looks up field number num on desc, failing the test if the
-// proto doesn't have it yet (the RED state before these additions).
 func mustField(t *testing.T, desc protoreflect.MessageDescriptor, num int32) protoreflect.FieldDescriptor {
 	t.Helper()
 	fd := desc.Fields().ByNumber(protoreflect.FieldNumber(num))
@@ -33,8 +21,6 @@ func mustField(t *testing.T, desc protoreflect.MessageDescriptor, num int32) pro
 	return fd
 }
 
-// mustDecoded asserts fd was actually populated on m (not skipped) and
-// returns its decoded value.
 func mustDecoded(t *testing.T, m protoreflect.Message, fd protoreflect.FieldDescriptor) protoreflect.Value {
 	t.Helper()
 	if !m.Has(fd) {
@@ -43,8 +29,7 @@ func mustDecoded(t *testing.T, m protoreflect.Message, fd protoreflect.FieldDesc
 	return m.Get(fd)
 }
 
-// arrayOf builds a pblite positional array of length n (fields 1..n) with
-// only fieldNumber set to value; every other slot is left null.
+// arrayOf builds a positional array of length n with only fieldNumber set.
 func arrayOf(n int, fieldNumber int, value any) []byte {
 	a := make([]any, n)
 	a[fieldNumber-1] = value
@@ -55,14 +40,10 @@ func arrayOf(n int, fieldNumber int, value any) []byte {
 	return data
 }
 
-// dmGroupID builds the pblite array for a GroupId wrapping a DmId (dm_id
-// field 1, GroupId.Id oneof member 3) -- the shape used by every one of the
-// additions below that carry a dm/topic id.
+// dmGroupID builds a GroupId wrapping a DmId (oneof member 3).
 func dmGroupID(dmID string) []any {
 	return []any{nil, nil, []any{dmID}}
 }
-
-// --- Event.EventBody additions ---
 
 func TestEventBody_Field7_TopicMuteChanged(t *testing.T) {
 	topicID := []any{nil, "topic-xyz", dmGroupID("dm-abc")}
@@ -91,21 +72,9 @@ func TestEventBody_Field11_GroupUnreadSubscribedTopicCountUpdated(t *testing.T) 
 	mustDecoded(t, body.ProtoReflect(), fd)
 }
 
-// TestEventBody_Field21_TopicCreated uses the actual captured wire sample:
-// EventBody field 21 (topic_created) accompanying a TOPIC_CREATED event
-// carried
-//
-//	[[null,"O0Oxx-5XEnc",[null,null,["nhbQbgAAAAE"]]],"1784057036779823"]
-//
-// i.e. TopicCreatedEvent{topic: Topic{id: TopicId{topic_id:"O0Oxx-5XEnc",
-// group_id: GroupId{dm_id: DmId{dm_id:"nhbQbgAAAAE"}}}, sort_time:
-// 1784057036779823}} -- ids/timestamp are real capture values (gaia/dm ids
-// were not sanitized since the sample is a topic id + dm id, not
-// account-identifying).
+// TestEventBody_Field21_TopicCreated decodes a captured TOPIC_CREATED sample.
 func TestEventBody_Field21_TopicCreated(t *testing.T) {
-	// The captured sample is TopicCreatedEvent.topic (field 1), so the value
-	// stored at EventBody field 21 is that Topic array wrapped one more
-	// level as TopicCreatedEvent{topic: ...} (has_more_replied omitted).
+	// EventBody field 21 is TopicCreatedEvent{topic: ...}, one level above the captured Topic.
 	const topicCreatedSample = `[[[null,"O0Oxx-5XEnc",[null,null,["nhbQbgAAAAE"]]],"1784057036779823"]]`
 	a := make([]any, 21)
 	a[20] = json.RawMessage(topicCreatedSample)
@@ -194,14 +163,7 @@ func TestEventBody_Field65_GroupReadStateUpdated(t *testing.T) {
 	mustDecoded(t, body.ProtoReflect(), fd)
 }
 
-// --- Event additions ---
-
-// TestEvent_Field9_BackendMetadata matches the literal wire shape
-// `[null, <int>, null, "<µs>", [3,14,10], 1, <int>]`.
-// [3,14,10] decodes as BackendMetadataDimension{TYPE_SPACE, GROUP_SIZE_SMALL,
-// PAYLOAD_SIZE_LT_1K} -- confirmed by cross-referencing
-// purple-googlechat's BackendMetadataDimension enum, which is an exact
-// structural match for the observed shape.
+// [3,14,10] decodes as BackendMetadataDimension{TYPE_SPACE, GROUP_SIZE_SMALL, PAYLOAD_SIZE_LT_1K}.
 func TestEvent_Field9_BackendMetadata(t *testing.T) {
 	value := []any{nil, 42, nil, "1700000000000007", []any{3, 14, 10}, true, 9}
 	data := arrayOf(9, 9, value)
@@ -237,9 +199,7 @@ func TestEvent_Field9_BackendMetadata(t *testing.T) {
 	}
 }
 
-// TestEvent_Field11_LatencyData matches the observed shape: "arrays of
-// [sec, nsec] timing pairs" -- each LatencyData wraps an Interval of two
-// [sec, nsec] Timestamps.
+// Each LatencyData wraps an Interval of two [sec, nsec] Timestamps.
 func TestEvent_Field11_LatencyData(t *testing.T) {
 	latency := []any{3, []any{
 		[]any{"1700000000", "123456789"},
@@ -286,8 +246,6 @@ func TestEvent_Field11_LatencyData(t *testing.T) {
 	}
 }
 
-// --- Message additions ---
-
 func TestMessage_Fields24And25_Permissions(t *testing.T) {
 	a := make([]any, 25)
 	a[23] = 2 // editable_by = CREATOR (2)
@@ -313,8 +271,6 @@ func TestMessage_Fields24And25_Permissions(t *testing.T) {
 	}
 }
 
-// --- MessageEvent addition ---
-
 func TestMessageEvent_Field7_NumRecipients(t *testing.T) {
 	data := arrayOf(7, 7, 2)
 
@@ -329,15 +285,7 @@ func TestMessageEvent_Field7_NumRecipients(t *testing.T) {
 	}
 }
 
-// --- Event.EventType enum values 64/83 ---
-
-// TestEventTypeEnumValues6483HaveNames doesn't touch decoding at all (an
-// enum field already decodes any raw number, named or not -- protobuf-go
-// enums are always "open"). It instead checks that the additions gave
-// these live-observed raw numbers (type=64, type=83) real names instead of
-// stringifying to the bare number. This compiles both before and after the
-// proto change (Event_EventType already existed); only the assertion flips
-// from RED ("64"/"83", the generated String() numeric fallback) to GREEN.
+// TestEventTypeEnumValues6483HaveNames checks the names, not decoding (enums are open).
 func TestEventTypeEnumValues6483HaveNames(t *testing.T) {
 	if got := pb.Event_EventType(64).String(); got != "GROUP_DEFAULT_SORT_ORDER_UPDATED" {
 		t.Errorf("Event_EventType(64).String() = %q, want GROUP_DEFAULT_SORT_ORDER_UPDATED", got)

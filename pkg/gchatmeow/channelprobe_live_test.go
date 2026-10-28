@@ -9,10 +9,7 @@ import (
 	"time"
 )
 
-// TestLiveChannelProbe drives the BrowserChannel internals step-by-step to
-// locate exactly where the connection stalls: register (csessionid), the first
-// long-poll (SID from X-HTTP-Initial-Response), and whether any data arrays
-// arrive. In-package so it can call the unexported register/longpollRequest.
+// TestLiveChannelProbe steps through register and the first long-poll to locate connection stalls.
 func TestLiveChannelProbe(t *testing.T) {
 	cookies := liveCookies(t)
 	sess, err := NewSession(cookies, os.Getenv("GCHAT_LIVE_UA"))
@@ -33,7 +30,6 @@ func TestLiveChannelProbe(t *testing.T) {
 	}
 	ch.OnConnect = func(ctx context.Context) { t.Log("      >>> OnConnect fired (first chunk received)") }
 
-	// Step 1: register.
 	regCtx, regCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer regCancel()
 	t0 := time.Now()
@@ -43,7 +39,7 @@ func TestLiveChannelProbe(t *testing.T) {
 	}
 	t.Logf("PASS  register OK in %s (csessionid %q)", time.Since(t0), truncateBody([]byte(csid)))
 
-	// Step 2: first long-poll (SID=="" → sends SID=null, reads SID from header).
+	// First long-poll sends SID=null and reads SID from X-HTTP-Initial-Response.
 	pollCtx, pollCancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer pollCancel()
 	t1 := time.Now()

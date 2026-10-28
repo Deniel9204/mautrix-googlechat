@@ -17,10 +17,7 @@ import (
 	"sync/atomic"
 )
 
-// newTestClient builds a Client wired to an httptest server via the
-// unexported baseURL override, with session pointed so cookies don't matter
-// for these tests (no cookie assertions here -- session.go's
-// cookie/host-allowlist behavior is covered by session_test.go).
+// newTestClient builds a Client pointed at srv via the baseURL override.
 func newTestClient(t *testing.T, srv *httptest.Server, xsrfToken string) *Client {
 	t.Helper()
 	sess, err := NewSession(nil, "")
@@ -37,10 +34,7 @@ func newTestClient(t *testing.T, srv *httptest.Server, xsrfToken string) *Client
 	return c
 }
 
-// TestGetSelfUserStatusRoundTrip is the RED/GREEN anchor test for the whole
-// wire format: POST method, path, query params (c/rt/alt/key), headers
-// (Content-Type, x-framework-xsrf-token, X-Goog-Encode-Response-If-Executable),
-// and a binary-proto request/response body round trip.
+// TestGetSelfUserStatusRoundTrip pins the whole wire format: method, path, query, headers and proto body.
 func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 	const wantToken = "test-xsrf-token"
 
@@ -58,11 +52,7 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 		gotQuery = r.URL.Query()
 		gotHeaders = r.Header.Clone()
 
-		// io.ReadAll, not a single r.Body.Read(buf) call: net/http.Request.Body
-		// makes no guarantee that one Read fills the whole buffer, so a
-		// single-Read version would be a latent flaky-test risk. t.Errorf
-		// (not Fatalf) because this runs on the server's own goroutine, not
-		// the test goroutine -- FailNow/Fatalf is unsafe there.
+		// t.Errorf, not Fatalf: this runs on the server goroutine.
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Errorf("reading request body: %v", err)
@@ -90,7 +80,6 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 		t.Fatalf("GetSelfUserStatus: %v", err)
 	}
 
-	// -- Method / path --
 	if gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want POST", gotMethod)
 	}
@@ -98,7 +87,6 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 		t.Errorf("path = %q, want /api/get_self_user_status", gotPath)
 	}
 
-	// -- Query params: c=<counter>&rt=b&alt=proto&key=<APIKey> --
 	if got := gotQuery.Get("c"); got != "1" {
 		t.Errorf("query c = %q, want %q (first request on a fresh Client)", got, "1")
 	}
@@ -112,7 +100,6 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 		t.Errorf("query key = %q, want %q", got, apiKey)
 	}
 
-	// -- Headers --
 	if got := gotHeaders.Get("Content-Type"); got != "application/x-protobuf" {
 		t.Errorf("Content-Type = %q, want application/x-protobuf", got)
 	}
@@ -123,8 +110,6 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 		t.Errorf("X-Goog-Encode-Response-If-Executable = %q, want base64", got)
 	}
 
-	// -- Request body proto round trip: RequestHeader must be populated by
-	// the wrapper (WEB/2440378181258/FULLY_SUPPORTED). --
 	var gotReq pb.GetSelfUserStatusRequest
 	if err := proto.Unmarshal(gotBody, &gotReq); err != nil {
 		t.Fatalf("unmarshal request body sent to server: %v", err)
@@ -143,15 +128,11 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 		t.Errorf("spam_room_invites_level = %v, want FULLY_SUPPORTED", got)
 	}
 
-	// -- Response body proto round trip --
 	if got := resp.GetUserStatus().GetUserId().GetId(); got != "112233" {
 		t.Errorf("response UserStatus.UserId.Id = %q, want %q", got, "112233")
 	}
 }
 
-// TestGetSelfUserStatusRequestCounterIncrements verifies the "c" query
-// param increments per call on the same Client (an incrementing request id,
-// incremented before every request).
 func TestGetSelfUserStatusRequestCounterIncrements(t *testing.T) {
 	var gotCounters []string
 
@@ -182,8 +163,6 @@ func TestGetSelfUserStatusRequestCounterIncrements(t *testing.T) {
 	}
 }
 
-// TestGetSelfUserStatusBase64Response covers the dual binary/base64
-// response path: if the body isn't valid proto, try base64-decode first.
 func TestGetSelfUserStatusBase64Response(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := &pb.GetSelfUserStatusResponse{
@@ -212,10 +191,7 @@ func TestGetSelfUserStatusBase64Response(t *testing.T) {
 	}
 }
 
-// TestGetSelfUserStatus401IsAuthError verifies a non-200 response surfaces
-// as *UnexpectedStatusError with the status preserved, and that
-// IsAuthError recognizes 401 -- required so the connector can map this to
-// BAD_CREDENTIALS.
+// TestGetSelfUserStatus401IsAuthError: a 401 must surface as an auth error (BAD_CREDENTIALS).
 func TestGetSelfUserStatus401IsAuthError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -241,22 +217,12 @@ func TestGetSelfUserStatus401IsAuthError(t *testing.T) {
 	}
 }
 
-// hasRequestHeader is satisfied by every *Request proto in this schema
-// (field 100, or field 1 for PaginatedWorldRequest) -- but by NO *Response
-// proto (request_header is a request-only concept here). Wrappers are
-// expected to mutate the caller-supplied request in place, matching
-// megabridge's `request.RequestHeader = c.gcRequestHeader` pattern, so the
-// table test below can inspect the same pointer it passed in after the
-// call returns.
+// hasRequestHeader matches every *Request proto (field 100, or 1 for PaginatedWorldRequest).
 type hasRequestHeader interface {
 	GetRequestHeader() *pb.RequestHeader
 }
 
-// TestAllRPCsSetEndpointAndRequestHeader is a table-driven smoke
-// test over all 19 /api/* wrappers: each must POST to its named endpoint,
-// and must stamp request_header on the outgoing request. It does not assert
-// per-RPC response field plumbing beyond "no error" -- GetSelfUserStatus
-// above covers the full wire format (including the response side) in detail.
+// TestAllRPCsSetEndpointAndRequestHeader checks every wrapper's endpoint and request_header.
 func TestAllRPCsSetEndpointAndRequestHeader(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -383,8 +349,6 @@ func TestAllRPCsSetEndpointAndRequestHeader(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotMethod = r.Method
 				gotPath = r.URL.Path
-				// Zero-length body is a valid (empty) proto message for
-				// every response type in this schema.
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer srv.Close()
@@ -409,9 +373,7 @@ func TestAllRPCsSetEndpointAndRequestHeader(t *testing.T) {
 	}
 }
 
-// TestCreateTopicDoesNotRetryOn5xx pins that the message-create RPCs route
-// through the non-idempotent path: a 502 returned after the server already
-// accepted the message would otherwise be retried and post it twice.
+// TestCreateTopicDoesNotRetryOn5xx: a retried 502 could post the message twice.
 func TestCreateTopicDoesNotRetryOn5xx(t *testing.T) {
 	var requests int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -446,8 +408,6 @@ func TestCreateMessageDoesNotRetryOn5xx(t *testing.T) {
 	}
 }
 
-// TestIdempotentRPCStillRetriesOn5xx: the change must not disable retry for
-// the read/idempotent RPCs, where a transient 502 should still be absorbed.
 func TestIdempotentRPCStillRetriesOn5xx(t *testing.T) {
 	var mu sync.Mutex
 	requests := 0

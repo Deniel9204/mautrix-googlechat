@@ -6,31 +6,15 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// BodyRangeValue is one formatting entity produced while walking a Matrix
-// HTML tree (a bold span, a hyperlink, a mention, ...). Every concrete type
-// below knows how to turn itself, plus a UTF-16 code-unit [start, start+
-// length) span computed by the EntityString machinery in html.go, into a
-// fully-populated *pb.Annotation from a (type, offset, length, extra_info)
-// tuple.
-//
-// Every annotation produced by this package sets chip_render_type =
-// DO_NOT_RENDER (for FORMAT_DATA/USER_MENTION/URL) -- these are
-// inline-formatting annotations we are asking Google Chat to apply to text
-// that is already present, not link/upload preview chips (those are RENDER/
-// RENDER_IF_POSSIBLE and out of scope).
+// BodyRangeValue is one formatting entity. All annotations produced here are
+// DO_NOT_RENDER inline formatting, never preview chips.
 type BodyRangeValue interface {
 	fmt.Stringer
-	// Annotation builds the *pb.Annotation for this value at the given
-	// UTF-16 code-unit start/length.
+	// Annotation builds the annotation at the given UTF-16 code-unit span.
 	Annotation(start, length int32) *pb.Annotation
 }
 
-// Style is a formatting annotation with no associated data beyond its
-// FormatMetadata.format_type -- bold/italic/strike/underline/monospace/
-// monospace-block/list/list-item. FontColor (which needs an associated RGB
-// value) is its own type below; megabridge's single Style type could not
-// carry a color value at all -- that gap is why FontColor is split out
-// here instead.
+// Style is a formatting annotation with only a format_type.
 type Style int
 
 const (
@@ -44,11 +28,7 @@ const (
 	StyleListItem
 )
 
-// formatType maps a Style to its wire FormatMetadata_FormatType via an
-// explicit switch rather than relying on Style's iota ordering matching the
-// proto enum's numbering (megabridge did the latter, which is
-// fragile-but-correct; an explicit table removes that fragility at
-// essentially no cost).
+// formatType maps a Style to its wire format type explicitly, not via iota order.
 func (s Style) formatType() pb.FormatMetadata_FormatType {
 	switch s {
 	case StyleBold:
@@ -89,10 +69,7 @@ func (s Style) Annotation(start, length int32) *pb.Annotation {
 	}
 }
 
-// FontColor is a FORMAT_DATA/FONT_COLOR annotation carrying the wire-encoded
-// RGB value colorToFontColor (html.go) computed -- the exact inverse of
-// gchatfmt's (rgb+2^31)&0xFFFFFF transform (pkg/msgconv/gchatfmt/convert.go's
-// renderFormat, FONT_COLOR case).
+// FontColor is a FONT_COLOR annotation with the wire-encoded RGB value.
 type FontColor struct {
 	RGB int32
 }
@@ -115,11 +92,7 @@ func (c FontColor) Annotation(start, length int32) *pb.Annotation {
 	}
 }
 
-// Mention is a USER_MENTION/MENTION annotation for a specific Google Chat
-// user, resolved from a Matrix pill's mxid via this package's
-// MentionResolver seam. Carries id + type, no display_name -- see html.go's
-// linkToString doc comment for why the "@"+displayname text lives in the
-// rendered string instead of UserMentionMetadata.display_name.
+// Mention is a USER_MENTION annotation; the "@Name" text lives in the body, not display_name.
 type Mention struct {
 	GaiaID string
 }
@@ -145,9 +118,7 @@ func (m Mention) Annotation(start, length int32) *pb.Annotation {
 	}
 }
 
-// MentionAll is a USER_MENTION/MENTION_ALL annotation -- Google Chat's
-// "@all", produced whenever a Matrix message's plain text contains the
-// literal substring "@room".
+// MentionAll is a MENTION_ALL ("@all") annotation, produced from "@room".
 type MentionAll struct{}
 
 func (MentionAll) String() string { return "MentionAll{}" }
@@ -165,13 +136,7 @@ func (MentionAll) Annotation(start, length int32) *pb.Annotation {
 	}
 }
 
-// URL is a URL annotation carrying the anchor's href. This is the type that
-// did not exist at all in megabridge's matrixfmt (which renders
-// "text (url)" plain text, with zero UrlMetadata references) -- its
-// introduction, plus html.go's linkToString unconditionally using it for
-// every non-mention, non-mailto anchor (including the "text equals href"
-// case megabridge special-cased into silent loss), is the fix for the
-// outgoing-hyperlink URL-loss bug.
+// URL is a URL annotation carrying the anchor's href.
 type URL struct {
 	Href string
 }

@@ -1,9 +1,5 @@
 package migrate
 
-// migrateReactions implements the reaction half of the migration,
-// replicating the source schema's reaction mapping field-by-field. Same
-// raw-INSERT-through-ctx approach as message.go/portal.go/ghost.go.
-
 import (
 	"context"
 	"encoding/json"
@@ -16,11 +12,7 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// insertMigratedReactionQuery writes one Go `reaction` row per schema map §3.
-// Column order matches bridgev2/database/reaction.go's own
-// upsertReactionQuery, just as a plain INSERT (a migrated target is always
-// fresh -- see migrate.go's non-empty-target guard -- so there's never a
-// conflict to upsert over).
+// insertMigratedReactionQuery writes one Go `reaction` row; plain INSERT since the target is always fresh.
 const insertMigratedReactionQuery = `
 	INSERT INTO reaction (
 		bridge_id, message_id, message_part_id, sender_id, sender_mxid, emoji_id, emoji,
@@ -31,8 +23,7 @@ const insertMigratedReactionQuery = `
 	)
 `
 
-// migrateReactions reads every row of the source Python `reaction` table and
-// writes the corresponding Go `reaction` row, per schema map §3.
+// migrateReactions writes one Go `reaction` row per Python `reaction` row.
 func migrateReactions(ctx context.Context, deps *Deps, opts Options) (int, []string, error) {
 	version, versionKnown, err := ReadSchemaVersion(ctx, deps.Source)
 	if err != nil {
@@ -43,9 +34,7 @@ func migrateReactions(ctx context.Context, deps *Deps, opts Options) (int, []str
 	if err != nil {
 		return 0, nil, fmt.Errorf("migrate: reading source messages (for message_part_id resolution): %w", err)
 	}
-	// Only the groups map is needed here (a lookup by (gcid, gc_chat,
-	// gc_receiver)) -- the NULL-gcid warning is migrateMessages's job, not
-	// this function's, so `skipped`/`order` are discarded.
+
 	messageGroups, _, _ := groupMessagesByID(messageRows)
 
 	reactions, err := GetReactions(ctx, deps.Source)
@@ -75,9 +64,7 @@ func migrateReactions(ctx context.Context, deps *Deps, opts Options) (int, []str
 			continue
 		}
 
-		// message_part_id: schema map §3 -- look up the Python message row
-		// with (gcid=gc_msgid, gc_chat, gc_receiver, index=0) and apply §2's
-		// index->part_id rule to THAT row's group. Do NOT hardcode "".
+		// message_part_id comes from the index=0 row's part_id rule; never hardcode "".
 		key := messageGroupKey{gcid: msgID, chat: chat, receiver: receiver}
 		groupRows, ok := messageGroups[key]
 		if !ok {
@@ -91,13 +78,7 @@ func migrateReactions(ctx context.Context, deps *Deps, opts Options) (int, []str
 			continue
 		}
 
-		// reaction_message_fkey guard -- see messagePartExistsInTarget's doc
-		// comment (message.go). The SOURCE has a matching message row (the
-		// lookup above succeeded), but migrateMessages may have skipped
-		// writing it to the TARGET for its own reasons (missing sender,
-		// missing portal, ...) -- without this check, inserting the
-		// reaction would fail the FK and abort the entire migration instead
-		// of being treated as an orphan reaction.
+		// The source message may exist but not have been migrated.
 		msgExists, err := messagePartExistsInTarget(ctx, deps.Target, msgID, string(partID), receiver)
 		if err != nil {
 			return count, warnings, fmt.Errorf("migrate: checking target message for reaction (mxid=%q, gc_msgid=%q, part_id=%q): %w", r.MXID, msgID, partID, err)
@@ -107,14 +88,7 @@ func migrateReactions(ctx context.Context, deps *Deps, opts Options) (int, []str
 			continue
 		}
 
-		// reaction_room_fkey guard. The message check above matches on
-		// (id, part_id, room_receiver) and deliberately NOT on room_id, so a
-		// gcid that appears under two different chats -- one migrated, one not
-		// -- satisfies it via the MIGRATED chat's row while this reaction's own
-		// portal is absent from the target. The insert below carries room_id,
-		// so without this the FK fails and the error return aborts (and rolls
-		// back) the ENTIRE migration over one orphan row, instead of skipping
-		// it the way every other dangling-reference case here does.
+		// The message check ignores room_id, so the reaction's own portal must be checked too.
 		portalOK, err := portalExistsInTarget(ctx, deps.Target, chat, receiver)
 		if err != nil {
 			return count, warnings, fmt.Errorf("migrate: checking target portal for reaction (mxid=%q, gc_msgid=%q, gc_chat=%q): %w", r.MXID, msgID, chat, err)
@@ -126,7 +100,6 @@ func migrateReactions(ctx context.Context, deps *Deps, opts Options) (int, []str
 
 		senderID := gcid.MakeUserID(senderStr)
 
-		// reaction_sender_fkey guard -- see ghostExistsInTarget's doc comment.
 		ghostOK, err := ghostExistsInTarget(ctx, deps.Target, string(senderID))
 		if err != nil {
 			return count, warnings, fmt.Errorf("migrate: checking target ghost for reaction sender (mxid=%q, gc_msgid=%q, sender=%q): %w", r.MXID, msgID, senderStr, err)
@@ -136,23 +109,15 @@ func migrateReactions(ctx context.Context, deps *Deps, opts Options) (int, []str
 			continue
 		}
 
-		// sender_mxid: same FormatGhostMXID rule as message.sender_mxid
-		// (m7-migration-preflight.md item 2; schema map §3 recommends doing
-		// this "since it's cheap once the Message-side helper exists").
 		senderMXID := deps.FormatGhostMXID(senderID)
 
-		// Emoji split (schema map §3/Transformations #9): Python's stored
-		// emoji is always the bare, variation-selector-stripped form ->
-		// emoji_id (identity copy); emoji (display form) is computed via
-		// variationselector.Add.
+		// Python stores the bare emoji (emoji_id); emoji gets the variation selector added back.
 		emojiDisplay := variationselector.Add(bareEmoji)
 
 		tsMicros := NormalizeTimestampMicros(r.Timestamp, version, versionKnown)
 		ts := time.UnixMicro(tsMicros)
 
-		// ReactionMetadata.TopicID is deliberately left empty (schema map §3:
-		// "cheapest-correct choice; the fallback path exists precisely for
-		// this case").
+		// TopicID is deliberately left empty; the fallback path handles it.
 		metaJSON, err := json.Marshal(&connector.ReactionMetadata{})
 		if err != nil {
 			return count, warnings, fmt.Errorf("migrate: marshaling reaction metadata (gc_msgid=%q): %w", msgID, err)

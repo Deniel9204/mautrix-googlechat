@@ -1,7 +1,5 @@
 package connector
 
-// leave_test.go -- the leave command and HandleMatrixDeleteChat (#66).
-
 import (
 	"context"
 	"errors"
@@ -16,8 +14,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/gcid"
 )
 
-// leaveFixture is a connector whose user has the given logins in the chat,
-// recording every Google Chat call and whether the Matrix removal ran.
 type leaveFixture struct {
 	gc      *GChatConnector
 	user    *bridgev2.User
@@ -109,9 +105,7 @@ func TestLeaveCommandSkipConfirmationActsImmediately(t *testing.T) {
 	}
 }
 
-// One refusing login keeps the user in the room: removing them would make
-// the room vanish while a login is still a member, and the next sync would
-// bring it back anyway.
+// One refusing login keeps the user in the room.
 func TestLeaveCommandPartialFailureKeepsTheRoom(t *testing.T) {
 	f := newLeaveFixture(t, "akumul", "Abigél")
 	f.logins[1].removeMembershipsFn = func(context.Context, *pb.RemoveMembershipsRequest) (*pb.RemoveMembershipsResponse, error) {
@@ -176,8 +170,6 @@ func matrixDeleteChat(portal *bridgev2.Portal, forEveryone bool) *bridgev2.Matri
 	}
 }
 
-// delete-chat is an explicit request: it leaves without the confirmation
-// step, with every login, like `leave confirm`.
 func TestDeleteChatLeavesWithoutConfirmation(t *testing.T) {
 	f := newLeaveFixture(t, "akumul", "Abigél")
 	f.logins[0].UserLogin.User = f.user

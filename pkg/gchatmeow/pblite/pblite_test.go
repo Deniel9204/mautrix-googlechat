@@ -19,16 +19,8 @@ func ut(v pb.UserType) *pb.UserType {
 	return &v
 }
 
-// TestRoundTrip exercises the base field-number <-> array-index mapping and
-// recursion into a nested message, via a real oneof member (GroupId.Id).
-//
-// Note: the task brief's starter code wrote `&pb.GroupId{SpaceId: ...}` but
-// GroupId.SpaceId is not a direct struct field -- SpaceId is reachable only
-// through the oneof wrapper type GroupId_SpaceId, since GroupId's only
-// direct field is `Id isGroupId_Id`. Adjusted accordingly (verified against
-// pkg/gchatmeow/proto/googlechat.pb.go).
+// TestRoundTrip covers the field-number <-> index mapping and nested-message recursion.
 func TestRoundTrip(t *testing.T) {
-	// GroupId with nested SpaceId — field-number independent round-trip.
 	in := &pb.GroupId{Id: &pb.GroupId_SpaceId{SpaceId: &pb.SpaceId{SpaceId: s("AAAA-fixture-1")}}}
 	data, err := pblite.Marshal(in)
 	if err != nil {
@@ -46,11 +38,9 @@ func TestRoundTrip(t *testing.T) {
 func TestInt64AsString(t *testing.T) {
 	in := &pb.Message{CreateTime: i64(1700000000000000)}
 	data, _ := pblite.Marshal(in)
-	// Marshal must emit int64 as string (JS compat).
 	if !strings.Contains(string(data), `"1700000000000000"`) {
 		t.Fatalf("int64 not emitted as string: %s", data)
 	}
-	// Unmarshal must accept both string and number forms.
 	var out pb.Message
 	if err := pblite.Unmarshal(data, &out); err != nil {
 		t.Fatal(err)
@@ -68,14 +58,8 @@ func TestInt64AsString(t *testing.T) {
 	}
 }
 
-// TestTrailingSparseDict covers Message.reply_to. The brief's starter code
-// used `&pb.SendReplyTarget{...}` but Message.ReplyTo's Go type is actually
-// *ReplyToMessage (field 37; CreateTime is ReplyToMessage's field 2), so the
-// literal is adjusted below (verified against googlechat.pb.go: `ReplyTo
-// *ReplyToMessage` protobuf:"bytes,37,...").
+// TestTrailingSparseDict covers Message.reply_to (field 37) in the sparse trailing-dict form.
 func TestTrailingSparseDict(t *testing.T) {
-	// Build a message with a high-numbered field (Message.reply_to = 37),
-	// marshal densely, then convert the tail to the server's sparse-dict form.
 	in := &pb.Message{ReplyTo: &pb.ReplyToMessage{CreateTime: i64(42)}}
 	dense, _ := pblite.Marshal(in)
 	var out pb.Message
@@ -86,7 +70,6 @@ func TestTrailingSparseDict(t *testing.T) {
 		t.Fatal("dense high-field decode failed")
 	}
 
-	// Sparse form: array shorter than 37 entries, trailing object keyed by field number.
 	sparse := []byte(`[null, {"37": ` + string(mustMarshalField(t, in)) + `}]`)
 	var out2 pb.Message
 	if err := pblite.Unmarshal(sparse, &out2); err != nil {
@@ -97,7 +80,6 @@ func TestTrailingSparseDict(t *testing.T) {
 	}
 }
 
-// mustMarshalField marshals just the ReplyToMessage submessage as pblite.
 func mustMarshalField(t *testing.T, m *pb.Message) []byte {
 	data, err := pblite.Marshal(m.GetReplyTo())
 	if err != nil {
@@ -107,7 +89,6 @@ func mustMarshalField(t *testing.T, m *pb.Message) []byte {
 }
 
 func TestPermissiveness(t *testing.T) {
-	// Unknown trailing fields, nulls, and garbage values must not error.
 	for _, data := range []string{
 		`[null, null, null, null, null, null, null, null, null, null, null, null, "unknown-tail", ["extra"]]`,
 		`[]`,
@@ -118,14 +99,12 @@ func TestPermissiveness(t *testing.T) {
 			t.Fatalf("Unmarshal(%s) errored: %v — must skip, never fail", data, err)
 		}
 	}
-	// Structural garbage DOES error.
 	if err := pblite.Unmarshal([]byte(`{"not":"array"}`), &pb.GroupId{}); err == nil {
 		t.Fatal("non-array should error")
 	}
 }
 
-// TestBytesBase64 covers the bytes<->base64 mandatory behavior, using the
-// one real bytes field in the schema: MeetingSpace.CallInfo.CseInfo.wrapped_key.
+// TestBytesBase64 uses the only bytes field in the schema: MeetingSpace.CallInfo.CseInfo.wrapped_key.
 func TestBytesBase64(t *testing.T) {
 	raw := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01}
 	in := &pb.MeetingSpace_CallInfo_CseInfo{WrappedKey: raw}
@@ -146,9 +125,6 @@ func TestBytesBase64(t *testing.T) {
 	}
 }
 
-// TestRepeatedFields covers "repeated fields are nested arrays" for both a
-// repeated scalar (StreamEventsRequest.sample_ids, field 7) and a repeated
-// message (Message.annotations, field 11).
 func TestRepeatedFields(t *testing.T) {
 	inScalar := &pb.StreamEventsRequest{SampleIds: []string{"a", "b", "c"}}
 	data, err := pblite.Marshal(inScalar)
@@ -183,14 +159,12 @@ func TestRepeatedFields(t *testing.T) {
 	}
 }
 
-// TestEnumAsNumber covers "enums accept numbers" on both encode and decode.
 func TestEnumAsNumber(t *testing.T) {
 	in := &pb.UserId{Id: s("123"), Type: ut(pb.UserType_BOT)}
 	data, err := pblite.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// UserType_BOT == 1; must be a bare JSON number, not a string or name.
 	if !strings.Contains(string(data), `,1]`) && !strings.Contains(string(data), `,1,`) {
 		t.Fatalf("enum not emitted as number: %s", data)
 	}
@@ -203,12 +177,7 @@ func TestEnumAsNumber(t *testing.T) {
 	}
 }
 
-// TestOneofLastSetWins covers "oneof = last-set-wins": a raw array with both
-// oneof arms of GroupId.Id populated (space_id=field 1, dm_id=field 3) must
-// end up with only the higher-field-number (later-processed) arm set, since
-// pblite has no special oneof encoding and decode walks fields in ascending
-// field-number order (protobuf's normal last-write-wins field assignment
-// then leaves only the last arm set).
+// TestOneofLastSetWins: with both GroupId arms set, the higher field number wins.
 func TestOneofLastSetWins(t *testing.T) {
 	raw := `[["space-1"], null, ["dm-1"]]`
 	var out pb.GroupId
@@ -224,8 +193,6 @@ func TestOneofLastSetWins(t *testing.T) {
 	}
 }
 
-// TestNullSkipsField covers "null skips": an explicit null for a set field
-// must leave it unset rather than clearing/erroring.
 func TestNullSkipsField(t *testing.T) {
 	var out pb.UserId
 	if err := pblite.Unmarshal([]byte(`[null, 1]`), &out); err != nil {
@@ -239,11 +206,6 @@ func TestNullSkipsField(t *testing.T) {
 	}
 }
 
-// TestInt64NumberPrecision guards against decoding bare (non-string) JSON
-// numbers through float64, which only represents integers exactly up to
-// 2^53 (9007199254740992). Message.create_time (field 3) is a microsecond
-// int64 timestamp that routinely exceeds that boundary; json.Decoder must
-// be configured with UseNumber() so the exact decimal text is preserved.
 func TestInt64NumberPrecision(t *testing.T) {
 	const want int64 = 9007199254740993 // 2^53 + 1: the smallest int not exactly representable as float64.
 	raw := `[null, null, 9007199254740993]`
@@ -256,13 +218,8 @@ func TestInt64NumberPrecision(t *testing.T) {
 	}
 }
 
-// TestSparseDictFieldNumberOverflowIgnored covers the sparse-dict field
-// number parse path: a key that overflows int32 must be dropped (as an
-// unparseable/unknown field), not silently truncated/wrapped into a real,
-// unrelated field number.
 func TestSparseDictFieldNumberOverflowIgnored(t *testing.T) {
-	// 4294967298 == 2^32 + 2; naive truncation to int32 wraps this to 2,
-	// which is UserId.type. It must NOT be decoded as if the key were "2".
+	// 2^32 + 2 would wrap to field 2 (UserId.type) if truncated.
 	raw := `[null, {"4294967298": 1}]`
 	var out pb.UserId
 	if err := pblite.Unmarshal([]byte(raw), &out); err != nil {
@@ -273,11 +230,7 @@ func TestSparseDictFieldNumberOverflowIgnored(t *testing.T) {
 	}
 }
 
-// TestZeroValuePresence covers proto2 explicit field presence: an int32
-// field explicitly set to its zero value (0) must round-trip as *present*,
-// not as unset. This is exactly the defect class documents/research/08c
-// flags against megabridge's proto3 conversion (implicit presence can't
-// distinguish "set to 0" from "never set"); this codec must not regress it.
+// TestZeroValuePresence: proto2 presence means an explicit 0 must round-trip as set.
 func TestZeroValuePresence(t *testing.T) {
 	in := &pb.Annotation{StartIndex: i32(0)}
 	data, err := pblite.Marshal(in)
@@ -296,12 +249,7 @@ func TestZeroValuePresence(t *testing.T) {
 	}
 }
 
-// TestNullInsideRepeatedList covers a null embedded inside a repeated
-// field's array (not just the outer per-field null): it must be skipped
-// like any other undecodable single value, without discarding the
-// surrounding valid elements or aborting the whole list.
 func TestNullInsideRepeatedList(t *testing.T) {
-	// StreamEventsRequest.sample_ids is field 7 (repeated string).
 	scalarArr := make([]any, 7)
 	scalarArr[6] = []any{"a", nil, "b"}
 	scalarData, err := json.Marshal(scalarArr)
@@ -316,8 +264,7 @@ func TestNullInsideRepeatedList(t *testing.T) {
 		t.Fatalf("expected [a b] with the null element skipped, got %v", got)
 	}
 
-	// Message.annotations is field 11 (repeated message); each Annotation's
-	// start_index is its field 2, so a nested annotation array is [nil, N].
+	// Annotation.start_index is field 2, so each element is [nil, N].
 	msgArr := make([]any, 11)
 	msgArr[10] = []any{[]any{nil, 1}, nil, []any{nil, 2}}
 	msgData, err := json.Marshal(msgArr)
@@ -334,12 +281,7 @@ func TestNullInsideRepeatedList(t *testing.T) {
 	}
 }
 
-// TestDecodeDepthIsCapped: googlechat.proto's Message is self-referential
-// (last_reply, field 12), so a crafted payload can nest it arbitrarily deep.
-// Decoding recurses once per level with a protoreflect lookup and a message
-// allocation each time, and this package had no limit of its own -- it was
-// bounded only incidentally by encoding/json's own nesting ceiling. A cap
-// here means the cost is bounded by this package regardless.
+// TestDecodeDepthIsCapped: Message.last_reply is self-referential.
 func TestDecodeDepthIsCapped(t *testing.T) {
 	const nested = 300 // far beyond any legitimate reply chain
 

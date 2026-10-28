@@ -23,8 +23,6 @@ func worldItem(id string, sortTS int64) *pb.WorldItemLite {
 	}
 }
 
-// --- planChatSync: sort + cap --------------------------------------------
-
 func TestPlanChatSyncSortsBySortTimestampDescending(t *testing.T) {
 	items := []*pb.WorldItemLite{
 		worldItem("oldest", 100),
@@ -68,20 +66,14 @@ func TestPlanChatSyncCapsCreatePortalAtInitialChatSync(t *testing.T) {
 	}
 }
 
-// TestPlanChatSyncSkippedItemConsumesCapSlot pins the fix for the cap
-// arithmetic bug the gchat-port-auditor caught: the sync loop enumerates the
-// FULL sorted list and a skipped (blocked/hidden/not-joined) item still
-// advances the index for everything after it -- `continue` doesn't
-// "collapse" the index. Filtering before indexing (an earlier version of
-// planChatSync did this) shifts the cap boundary earlier by one slot per
-// skipped item ahead of the boundary.
+// TestPlanChatSyncSkippedItemConsumesCapSlot: skipped items still count toward the cap position.
 func TestPlanChatSyncSkippedItemConsumesCapSlot(t *testing.T) {
-	blocked := worldItem("blocked", 500) // newest -> absolute sorted position 0
+	blocked := worldItem("blocked", 500)
 	blocked.ReadState.Blocked = proto.Bool(true)
 	items := []*pb.WorldItemLite{
 		blocked,
-		worldItem("a", 400), // absolute sorted position 1
-		worldItem("b", 300), // absolute sorted position 2
+		worldItem("a", 400),
+		worldItem("b", 300),
 	}
 
 	plan := planChatSync(items, 2)
@@ -110,8 +102,6 @@ func TestPlanChatSyncZeroCapMarksEverythingNoCreate(t *testing.T) {
 		}
 	}
 }
-
-// --- planChatSync: skip conditions ----------------------------------------
 
 func TestPlanChatSyncSkipsBlockedHiddenAndNotJoined(t *testing.T) {
 	blocked := worldItem("blocked", 100)
@@ -149,9 +139,6 @@ func TestPlanChatSyncEmptyInput(t *testing.T) {
 	}
 }
 
-// groupIDPlain is a tiny local wrapper around gchatmeow.GroupIDToParts kept
-// private to this test file so the sort/cap/skip tests above can assert on
-// which item ended up where without reaching into proto internals directly.
 func groupIDPlain(gid *pb.GroupId) (id string, isDM bool, ok bool) {
 	if sp := gid.GetSpaceId(); sp != nil {
 		return sp.GetSpaceId(), false, true
@@ -162,32 +149,14 @@ func groupIDPlain(gid *pb.GroupId) (id string, isDM bool, ok bool) {
 	return "", false, false
 }
 
-// --- syncChats: no-conn no-op (RPC path itself covered at Task 13) -------
-
 func TestSyncChatsNoConnIsNoop(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	gc := &GChatClient{UserLogin: login, Main: &GChatConnector{Config: *newTestConfig(t)}}
 
-	// Must not panic despite UserLogin.Bridge being nil (no full bridgev2
-	// harness in this test) -- syncChats should return before ever reaching
-	// UserLogin.QueueRemoteEvent.
 	gc.syncChats(context.Background())
 }
 
-// --- syncChats: retry + latch reset on paginated_world failure ------------
-//
-// These pin the M1 whole-branch review fix: shouldSyncOnConnect
-// (client.go) latches initialSyncDone=true BEFORE syncChats runs, so if the
-// paginated_world RPC fails, the one-time chat-list sync used to never
-// retry -- a single transient blip at first connect left the bridge
-// CONNECTED with zero portals until a restart. syncChats must now (a) retry
-// a bounded number of times before giving up, and (b) reset the latch on
-// final failure so the next Connected transition (e.g. a webchannel
-// reconnect) tries again.
-
-// TestSyncChatsResetsLatchOnFailure RED-verifies the latch-reset half of the
-// fix: without it, shouldSyncOnConnect stays permanently consumed after a
-// failed sync and this test fails.
+// TestSyncChatsResetsLatchOnFailure: a failed sync must reset the latch so a later Connected retries.
 func TestSyncChatsResetsLatchOnFailure(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var calls int
@@ -215,10 +184,6 @@ func TestSyncChatsResetsLatchOnFailure(t *testing.T) {
 	}
 }
 
-// TestSyncChatsRetriesThenSucceeds covers the common case the bug report
-// calls out: the webchannel stays up (so no new Connected transition ever
-// fires) but a single paginated_world RPC blips. A bounded in-process retry
-// must absorb that without needing a whole new conn.
 func TestSyncChatsRetriesThenSucceeds(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var queued []*simplevent.ChatResync
@@ -257,12 +222,6 @@ func TestSyncChatsRetriesThenSucceeds(t *testing.T) {
 	}
 }
 
-// TestSyncChatsRequestIncludesWorldSection guards the fix for the empty
-// world-sync bug: Google's paginated_world returns world_items only when the
-// request carries at least one world_section_requests entry with a page_size
-// (verified live 2026-07-22 -- without one the server returns a ~2-byte stub
-// and syncChats sees zero chats, so new conversations never auto-create
-// portals). fetchWorldWithRetry must always send one.
 func TestSyncChatsRequestIncludesWorldSection(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.PaginatedWorldRequest
@@ -292,9 +251,6 @@ func TestSyncChatsRequestIncludesWorldSection(t *testing.T) {
 	}
 }
 
-// TestSyncChatsSuccessKeepsLatch is the control case: an immediately
-// successful sync must not retry, must queue every planned entry, and must
-// leave the one-time latch consumed (unlike the two failure tests above).
 func TestSyncChatsSuccessKeepsLatch(t *testing.T) {
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var queued []*simplevent.ChatResync

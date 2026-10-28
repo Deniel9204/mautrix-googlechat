@@ -1,50 +1,5 @@
 package migrate
 
-// e2e_test.go is the end-to-end migration test: ONE representative
-// fixture Python SQLite database -- a cross-section of a real installation,
-// not a narrow per-entity case -- migrated via the FULL Run (against the
-// REAL bridgev2 target schema, opened with the FK-enforcing "sqlite3-fk-wal"
-// driver, see newFixtureTargetDB in migrate_test.go), asserting every target
-// table's rows are correct and that the whole migration committed under FK
-// enforcement in one transaction.
-//
-// This complements, rather than replaces, the white-box per-entity tests in
-// portal_test.go/ghost_test.go/message_test.go/reaction_test.go/user_test.go/
-// userportal_test.go, which already exercise NULL-coalescing and
-// warn-and-skip edge cases per entity in isolation, mostly by calling
-// migrateX directly rather than through Run. This file's job is different:
-// prove that every migrator, wired together by Run against a single
-// consistent fixture, produces a fully FK-consistent target. Two distinct
-// failure modes both make this test fail, and both matter: a genuine
-// migrator-ordering regression that skips straight past every per-row
-// existence guard (portalExistsInTarget/ghostExistsInTarget/
-// userLoginExistsInTarget in message.go/userportal.go) would surface as a
-// literal SQLite "FOREIGN KEY constraint failed" error from Run's
-// transaction (opened against "sqlite3-fk-wal", which enforces FKs, unlike
-// the plain "sqlite3" driver the read-only source uses); a regression that
-// instead trips one of those guards first would surface as a wrong
-// (warned-and-skipped) row count against the assertions below instead of a
-// raw FK error. Either way, Run returning a non-nil error, or the Summary
-// counts/table contents not matching this file's expectations, is what
-// every assertion below depends on NOT happening -- confirmed by
-// deliberately breaking the migrateUsers/migrateUserLogins step order while
-// writing this test and observing both failure modes, then reverting.
-//
-// Fixture shape:
-//   - one user WITH cookies+user_agent+revision (e2eUser1MXID), one WITHOUT
-//     (e2eUser2MXID, never logged in -- the "skip" case);
-//   - one puppet giving e2eUser1MXID double-puppet (custom_mxid+access_token),
-//     plus two more puppets/ghosts (the DM peer and a space member) that are
-//     message senders;
-//   - a DM portal (owned by e2eUser1MXID) and a space portal
-//     (threads_enabled=true);
-//   - a text-only message, a text+2-attachment multi-part message, and a
-//     multi-row attachment-only message (the index->part_id rule, all three
-//     shapes);
-//   - a reaction on the text-part message (resolves to part_id "") and a
-//     reaction on the attachment-only message (resolves to part_id "att_0",
-//     proving the reaction's message_part_id lookup isn't hardcoded).
-
 import (
 	"context"
 	"database/sql"
@@ -77,15 +32,11 @@ const (
 
 	e2eDoublePuppetToken = "dp_token_e2e_abc123"
 
-	// SHA256 of the empty string -- reused here (same value source_test.go's
-	// "Alice" fixture and ghost_test.go both use) purely as a valid,
-	// 64-hex-char avatar_hash stand-in.
+	// Any valid 64-hex-char hash.
 	e2eValidAvatarHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 )
 
-// seedE2EFixtureRows inserts one representative cross-section of a real
-// Python mautrix-googlechat installation -- see this file's package doc
-// comment for the full shape.
+// seedE2EFixtureRows inserts a representative cross-section of a Python installation.
 func seedE2EFixtureRows(t *testing.T, db *sql.DB) {
 	t.Helper()
 	exec := func(query string, args ...any) {
@@ -95,7 +46,6 @@ func seedE2EFixtureRows(t *testing.T, db *sql.DB) {
 		}
 	}
 
-	// --- users ---------------------------------------------------------
 	exec(`INSERT INTO "user" (mxid, gcid, cookies, user_agent, notice_room, revision) VALUES (?, ?, ?, ?, ?, ?)`,
 		e2eUser1MXID, e2eUser1Gaia,
 		`{"compass":"c1","ssid":"s1","sid":"si1","osid":"o1","hsid":"h1"}`,
@@ -103,22 +53,20 @@ func seedE2EFixtureRows(t *testing.T, db *sql.DB) {
 	exec(`INSERT INTO "user" (mxid, gcid, cookies, user_agent, notice_room, revision) VALUES (?, ?, ?, ?, ?, ?)`,
 		e2eUser2MXID, nil, nil, nil, nil, nil)
 
-	// --- puppets (ghosts) ------------------------------------------------
 	const insertPuppetSQ = `INSERT INTO puppet (gcid, name, photo_id, photo_mxc, photo_hash, name_set, avatar_set, contact_info_set, is_registered, custom_mxid, access_token, next_batch, base_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	// Self puppet: gives e2eUser1MXID double-puppet.
+
 	exec(insertPuppetSQ,
 		e2eUser1Gaia, "E2E User One", "https://example.com/e2euser1.jpg", "mxc://example.com/e2euser1", e2eValidAvatarHash,
 		true, true, true, true, e2eUser1MXID, e2eDoublePuppetToken, "s1_2", "https://matrix.example.com")
-	// DM peer.
+
 	exec(insertPuppetSQ,
 		e2eOtherGaia, "E2E Other Person", nil, nil, nil,
 		true, false, false, false, nil, nil, nil, nil)
-	// Space member.
+
 	exec(insertPuppetSQ,
 		e2eSpaceGaia, "E2E Space Member", nil, nil, nil,
 		true, false, false, false, nil, nil, nil, nil)
 
-	// --- portals ---------------------------------------------------------
 	const insertPortalSQ = `INSERT INTO portal (gcid, gc_receiver, other_user_id, mxid, name, avatar_mxc, description, name_set, avatar_set, description_set, encrypted, revision, threads_only, threads_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	exec(insertPortalSQ,
 		e2eDMPortalGCID, e2eUser1Gaia, e2eOtherGaia, e2eDMRoomMXID, nil, nil, nil,
@@ -127,7 +75,6 @@ func seedE2EFixtureRows(t *testing.T, db *sql.DB) {
 		e2eSpacePortalGCID, "", nil, e2eSpaceRoomMXID, "E2E Team Space", "mxc://example.com/e2espace", "Our e2e team's space",
 		true, true, true, false, int64(9), false, true)
 
-	// --- messages ----------------------------------------------------------
 	// DM: single text-only message -> part_id "".
 	exec(msgFixtureInsertMessageSQ,
 		"$e2edmtext:example.com", e2eDMRoomMXID, "e2eMsgTextOnly", e2eDMPortalGCID, e2eUser1Gaia, nil, e2eOtherGaia,
@@ -152,14 +99,12 @@ func seedE2EFixtureRows(t *testing.T, db *sql.DB) {
 		"$e2esp5:example.com", e2eSpaceRoomMXID, "e2eMsgAttOnly", e2eSpacePortalGCID, "", nil, e2eSpaceGaia,
 		1, int64(1720000002100000), "m.file")
 
-	// --- reactions -----------------------------------------------------
 	const insertReactionSQ = `INSERT INTO reaction (mxid, mx_room, emoji, gc_sender, gc_msgid, gc_chat, gc_receiver, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	// Reacts to the DM text-only message -> resolves to part_id "" (single-row group).
 	exec(insertReactionSQ,
 		"$e2er1:example.com", e2eDMRoomMXID, "\U0001F44D", e2eUser1Gaia, "e2eMsgTextOnly", e2eDMPortalGCID, e2eUser1Gaia,
 		int64(1720000000500000))
-	// Reacts to the attachment-only message -> resolves to part_id "att_0"
-	// (index=0 row of a 2-row, no-text group -- NOT hardcoded "").
+	// -> "att_0" (index=0 of a no-text group), not hardcoded "".
 	exec(insertReactionSQ,
 		"$e2er2:example.com", e2eSpaceRoomMXID, "❤", e2eSpaceGaia, "e2eMsgAttOnly", e2eSpacePortalGCID, "",
 		int64(1720000002500000))
@@ -189,10 +134,7 @@ func newE2EFixtureSourceDB(t *testing.T) *dbutil.Database {
 	return db
 }
 
-// assertE2ESummaryCounts checks every Summary bucket against the fixture's
-// known-correct shape -- shared between the real-run and dry-run tests,
-// since they must be IDENTICAL (a dry run must report the same counts it
-// would have committed).
+// assertE2ESummaryCounts is shared by the real and dry-run tests; their counts must match.
 func assertE2ESummaryCounts(t *testing.T, summary *Summary) {
 	t.Helper()
 	cases := []struct {
@@ -213,9 +155,7 @@ func assertE2ESummaryCounts(t *testing.T, summary *Summary) {
 			t.Errorf("summary.%s.Migrated = %d, want %d", c.name, c.ec.Migrated, c.want)
 		}
 	}
-	// Only UserPortals is expected to warn (the space portal's
-	// unreconstructable membership gap) -- every other entity in this
-	// fixture is clean, well-formed data.
+	// Only UserPortals warns (space portal gap).
 	for _, c := range []struct {
 		name string
 		ec   EntityCount
@@ -234,8 +174,6 @@ func assertE2ESummaryCounts(t *testing.T, summary *Summary) {
 		t.Errorf("summary.UserPortals.Warnings[0] = %q, want it to document the space-portal self-heal gap", got)
 	}
 
-	// Migration-wide Warnings must document the zero-backfill_task decision
-	// (userportal.go's backfillTaskSeedingNote), regardless of dry-run.
 	foundBackfillNote := false
 	for _, w := range summary.Warnings {
 		if strings.Contains(w, "backfill_task") && strings.Contains(w, "0 rows seeded by design") {
@@ -247,10 +185,7 @@ func assertE2ESummaryCounts(t *testing.T, summary *Summary) {
 	}
 }
 
-// TestEndToEndMigration_FullRun runs the COMPLETE Run pipeline (every
-// migrator, real bridgev2 target schema, FK-enforcing "sqlite3-fk-wal")
-// against the e2e fixture and asserts every populated target table has the
-// expected rows -- the "prove the whole thing end-to-end" deliverable.
+// TestEndToEndMigration_FullRun runs the whole pipeline against an FK-enforcing target.
 func TestEndToEndMigration_FullRun(t *testing.T) {
 	deps := &Deps{
 		Source:          newE2EFixtureSourceDB(t),
@@ -260,12 +195,7 @@ func TestEndToEndMigration_FullRun(t *testing.T) {
 	ctx := context.Background()
 
 	summary, err := Run(ctx, deps, Options{SourceDSN: "e2e-test-dsn"})
-	// FK consistency: Run opens its transaction against "sqlite3-fk-wal"
-	// (FK-enforcing). If ANY insert above violated a foreign key (wrong
-	// migrator ordering, a bad identity copy, ...), this Run call would
-	// return a non-nil error and the whole transaction would have rolled
-	// back -- so a nil error here IS the FK-consistency proof, not just a
-	// happy-path check.
+	// A nil error proves FK consistency: the target enforces foreign keys.
 	if err != nil {
 		t.Fatalf("Run: %v (a non-nil error here means an FK was violated and the whole migration rolled back)", err)
 	}
@@ -458,12 +388,7 @@ func TestEndToEndMigration_FullRun(t *testing.T) {
 	})
 }
 
-// TestEndToEndMigration_DryRun runs the SAME fixture through Run with
-// DryRun: true and asserts it reports the identical, non-zero Summary counts
-// TestEndToEndMigration_FullRun does, but writes NOTHING: every table Run
-// touches (including user_portal and backfill_task, which
-// assertTargetEmpty -- migrate_test.go's helper -- doesn't cover) must be
-// empty afterward.
+// TestEndToEndMigration_DryRun asserts a dry run reports the same counts but writes nothing.
 func TestEndToEndMigration_DryRun(t *testing.T) {
 	deps := &Deps{
 		Source:          newE2EFixtureSourceDB(t),

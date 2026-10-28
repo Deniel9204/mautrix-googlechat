@@ -16,12 +16,6 @@ import (
 	pb "github.com/Deniel9204/mautrix-googlechat/pkg/gchatmeow/proto"
 )
 
-// TestLoginStartStepShape pins the cookies LoginStep Start() returns: exactly
-// the 5 RequiredCookies fields (COMPASS/SSID/SID/OSID/HSID, in that order),
-// each scoped to chat.google.com via a single "cookie" source, with COMPASS
-// alone carrying the dynamite-ui= pattern hint. Ported from
-// googlechat-megabridge/pkg/connector/login.go's Start; all 5 -- not a
-// subset -- are domain-specific to chat.google.com.
 func TestLoginStartStepShape(t *testing.T) {
 	gl := &GChatLogin{}
 	step, err := gl.Start(context.Background())
@@ -40,16 +34,11 @@ func TestLoginStartStepShape(t *testing.T) {
 	if step.CookiesParams.URL != "https://chat.google.com/" {
 		t.Errorf("CookiesParams.URL = %q, want https://chat.google.com/", step.CookiesParams.URL)
 	}
-	// CookiesParams.UserAgent must be EMPTY: setting it forces a foreign UA
-	// onto a webview client's own engine during Google sign-in, a fingerprint
-	// mismatch that trips Google's browser-security block. The session is
-	// minted under the client's real UA and that UA is captured for replay via
-	// the user_agent request-header field instead.
+	// UserAgent must be empty: a forced UA trips Google's browser-security block.
 	if step.CookiesParams.UserAgent != "" {
 		t.Errorf("CookiesParams.UserAgent = %q, want empty (a forced UA breaks webview sign-in)", step.CookiesParams.UserAgent)
 	}
-	// The auto-close pattern must match where auth LANDS and not where it
-	// happens: closing on accounts.google.com would cut the login short.
+	// Must match where auth lands, not accounts.google.com.
 	re, err := regexp.Compile(step.CookiesParams.WaitForURLPattern)
 	if err != nil {
 		t.Fatalf("WaitForURLPattern %q does not compile: %v", step.CookiesParams.WaitForURLPattern, err)
@@ -62,7 +51,7 @@ func TestLoginStartStepShape(t *testing.T) {
 	}
 
 	fields := step.CookiesParams.Fields
-	// The 5 required cookies plus the optional User-Agent pseudo-field.
+
 	if len(fields) != len(gchatmeow.RequiredCookies)+1 {
 		t.Fatalf("got %d fields, want %d", len(fields), len(gchatmeow.RequiredCookies)+1)
 	}
@@ -84,11 +73,7 @@ func TestLoginStartStepShape(t *testing.T) {
 		if src.Name != f.ID {
 			t.Errorf("field[%d] source.Name = %q, want %q", i, src.Name, f.ID)
 		}
-		// COMPASS and OSID collide across Google subdomains and carry the
-		// chat.google.com hint; SSID/SID/HSID live on the PARENT domain and
-		// are pinned to .google.com -- the same trio-pinning gmessages ships
-		// in production. An empty domain is ambiguous: a client reading it as
-		// "the URL's host only" would silently miss all three.
+		// COMPASS/OSID carry the chat.google.com hint; SSID/SID/HSID use .google.com.
 		wantDomain := ".google.com"
 		if f.ID == "COMPASS" || f.ID == "OSID" {
 			wantDomain = "chat.google.com"
@@ -96,19 +81,12 @@ func TestLoginStartStepShape(t *testing.T) {
 		if src.CookieDomain != wantDomain {
 			t.Errorf("field[%d] (%s) source.CookieDomain = %q, want %q", i, f.ID, src.CookieDomain, wantDomain)
 		}
-		// NO field carries a Pattern. bridgev2's bot command runs the Pattern
-		// check BEFORE its missing-keys check and echoes the submitted value
-		// into the room unredacted on mismatch -- so COMPASS's old
-		// "dynamite-ui=" hint turned a merely-missing cookie into a
-		// misleading regex error, and a wrong one into a credential leak.
+		// No Pattern: bridgev2 checks it first and echoes the value unredacted.
 		if f.Pattern != "" {
 			t.Errorf("field[%d] (%s).Pattern = %q, want empty (a pattern mismatch echoes the value unredacted)", i, f.ID, f.Pattern)
 		}
 	}
 
-	// The last field is the optional User-Agent pseudo-field, extracted from
-	// a cURL paste's request headers so the session replays under the UA
-	// family that minted the cookies.
 	ua := fields[len(fields)-1]
 	if ua.ID != loginFieldUserAgent {
 		t.Fatalf("last field ID = %q, want %q", ua.ID, loginFieldUserAgent)
@@ -121,13 +99,7 @@ func TestLoginStartStepShape(t *testing.T) {
 	}
 }
 
-// TestClassifyXSRFError pins the mapping from a client.FetchXSRFToken failure
-// to the user-facing error returned by SubmitCookies: gchatmeow.ErrNotLoggedIn
-// (Google rejected the cookies, /mole/world's AccountsSignInUi check) must
-// produce the specific ErrLoginCookiesInvalid message "Those cookies don't
-// seem to be valid" -- while every other error
-// (network failure, malformed response, ...) collapses to the generic
-// ErrLoginFailed rather than leaking a raw transport error to the user.
+// TestClassifyXSRFError: ErrNotLoggedIn maps to ErrLoginCookiesInvalid; anything else to ErrLoginFailed.
 func TestClassifyXSRFError(t *testing.T) {
 	if got := classifyXSRFError(gchatmeow.ErrNotLoggedIn); !errors.Is(got, ErrLoginCookiesInvalid) {
 		t.Errorf("classifyXSRFError(ErrNotLoggedIn) = %v, want ErrLoginCookiesInvalid", got)
@@ -142,10 +114,6 @@ func TestClassifyXSRFError(t *testing.T) {
 	}
 }
 
-// TestExtractGaiaID pins gaia-ID extraction out of a GetSelfUserStatus
-// response: the happy path, and an explicit error --
-// never a silently-empty string -- when the ID is missing at any level,
-// including a nil response.
 func TestExtractGaiaID(t *testing.T) {
 	resp := &pb.GetSelfUserStatusResponse{
 		UserStatus: &pb.UserStatus{
@@ -171,26 +139,8 @@ func TestExtractGaiaID(t *testing.T) {
 	}
 }
 
-// TestSubmitCookiesUnreachableFailsCleanly exercises the real SubmitCookies
-// method's error path with a pre-cancelled context, which makes
-// client.FetchXSRFToken fail before any network I/O is attempted (Session's
-// retry loop checks ctx.Err() before the first request). This is used
-// instead of pointing at an httptest server because gchatmeow deliberately
-// keeps its /mole/world base-URL override package-private (session.go's
-// moleWorldBaseURL doc comment: "so only this package's own tests can point
-// it at an httptest server") -- there is no public seam to do that from this
-// package, and adding one for a single connector test isn't warranted.
-//
-// This still proves the two properties that matter: (1) the returned error
-// is the friendly ErrLoginFailed, never the raw context/network error, and
-// (2) User.NewLogin is never reached -- gl.User and gl.Main are non-nil
-// zero-value stubs whose nested Bridge field is nil, so any accidental call
-// into NewLogin (which immediately dereferences user.Bridge.cacheLock) would
-// nil-pointer-panic the test instead of silently creating a login row. The
-// full happy-path flow (real cookies, real GetSelfUserStatus, a real
-// database-backed User) is integration-tested live, not here -- no
-// in-memory bridgev2 test harness exists yet in $REF/mautrix-go or
-// $REF/meta to drive it standalone.
+// TestSubmitCookiesUnreachableFailsCleanly uses a pre-cancelled ctx (no public
+// base-URL seam). A nil Bridge makes any NewLogin call panic.
 func TestSubmitCookiesUnreachableFailsCleanly(t *testing.T) {
 	gl := &GChatLogin{
 		User: &bridgev2.User{},
@@ -214,22 +164,8 @@ func TestSubmitCookiesUnreachableFailsCleanly(t *testing.T) {
 	}
 }
 
-// TestAttachAndConnectUsesWarmClient is a regression guard for exactly this
-// bug: it is easy to accidentally write "go gc.Connect(ctx)" (the
-// *GChatClient's own bridgev2.NetworkAPI method, which now BUILDS A NEW
-// gchatmeow.Client from persisted metadata) instead of
-// "gc.wireAndStart(ctx, client)" (which installs and starts the given warm,
-// already-validated client) -- both compile, since *GChatClient happens to
-// have its own Connect method too.
-//
-// gc.UserLogin is deliberately left nil: the WRONG wiring (gc.Connect's real
-// body, client.go) unconditionally dereferences c.UserLogin.Metadata and
-// would nil-pointer-panic this test; the CORRECT wiring (wireAndStart ->
-// gchatmeow.Client.Connect) never touches GChatClient.UserLogin at all before
-// a connection-state transition actually occurs, which the pre-cancelled
-// context below prevents (gchatmeow.Client.Connect's loop returns almost
-// immediately -- its first check is ctx.Err() != nil -- instead of attempting
-// a real network call or ever invoking OnConnectionState/OnStreamEvent).
+// TestAttachAndConnectUsesWarmClient guards against calling gc.Connect instead
+// of wireAndStart; nil UserLogin makes the wrong wiring panic.
 func TestAttachAndConnectUsesWarmClient(t *testing.T) {
 	client, err := gchatmeow.NewClient(gchatmeow.ClientOpts{Cookies: map[string]string{}})
 	if err != nil {
@@ -245,12 +181,10 @@ func TestAttachAndConnectUsesWarmClient(t *testing.T) {
 	if gc.conn != client {
 		t.Fatalf("gc.conn = %p, want the warm client %p", gc.conn, client)
 	}
-	// Give the background goroutine a moment to run (and, if the wiring
-	// regresses to the stub, to panic) before the test process exits.
+
 	time.Sleep(50 * time.Millisecond)
 }
 
-// TestCreateLoginReturnsGChatLogin wires CreateLogin to the "cookies" flow.
 func TestCreateLoginReturnsGChatLogin(t *testing.T) {
 	gc := &GChatConnector{}
 	user := &bridgev2.User{}
@@ -278,10 +212,6 @@ func TestCreateLoginUnknownFlow(t *testing.T) {
 	}
 }
 
-// TestLoginInstructionsPointAtTheCookieDocs: the login step is the one place
-// in this bridge where a link renders, and the one moment the user needs the
-// cookie-extraction guide. Without this nothing connects the login flow to the
-// document that explains it.
 func TestLoginInstructionsPointAtTheCookieDocs(t *testing.T) {
 	step, err := (&GChatLogin{}).Start(context.Background())
 	if err != nil {
@@ -292,11 +222,6 @@ func TestLoginInstructionsPointAtTheCookieDocs(t *testing.T) {
 	}
 }
 
-// --- sanitizeLoginCookies ---------------------------------------------------
-
-// TestSanitizeLoginCookies pins the local pre-checks that keep a
-// nameably-wrong paste from costing a round trip to Google and coming back as
-// the generic "cookies don't seem to be valid".
 func TestSanitizeLoginCookies(t *testing.T) {
 	full := func(overrides map[string]string) map[string]string {
 		m := map[string]string{
@@ -368,9 +293,7 @@ func TestSanitizeLoginCookies(t *testing.T) {
 	})
 }
 
-// TestSubmitCookiesNamesMissingCookiesWithoutARoundTrip: the pre-check must
-// answer BEFORE any client is built, so a short paste cannot cost a network
-// round trip -- which is also what lets this test run without one.
+// TestSubmitCookiesNamesMissingCookiesWithoutARoundTrip: the pre-check runs before any client is built.
 func TestSubmitCookiesNamesMissingCookiesWithoutARoundTrip(t *testing.T) {
 	gl := &GChatLogin{}
 	_, err := gl.SubmitCookies(context.Background(), map[string]string{
@@ -389,11 +312,7 @@ func TestSubmitCookiesNamesMissingCookiesWithoutARoundTrip(t *testing.T) {
 	}
 }
 
-// TestSubmitCookiesPassesSanitizedValuesToTheClient pins the wiring between
-// the sanitize step and the client build: trimmed cookie values and the popped
-// User-Agent must be what actually reaches ClientOpts. Without this seam test,
-// dropping the UserAgent field from the ClientOpts literal -- reverting to the
-// hardcoded default for every session -- would pass the whole suite.
+// TestSubmitCookiesPassesSanitizedValuesToTheClient: trimmed cookies and the UA must reach ClientOpts.
 func TestSubmitCookiesPassesSanitizedValuesToTheClient(t *testing.T) {
 	var got gchatmeow.ClientOpts
 	abort := errors.New("stop before any network")

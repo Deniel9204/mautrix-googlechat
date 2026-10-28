@@ -9,11 +9,6 @@ import (
 	"testing"
 )
 
-// Minimal WIZ blobs using the exact keys the token fetch reads: "qwAQke"
-// (login-state key) and "SMqcke" (xsrf token key), embedded in the same
-// `>window.WIZ_global_data = {...};</script>` shape wizGlobalDataPattern
-// expects, inside a plausible surrounding HTML page.
-
 const loggedInWizHTML = `<!doctype html><html><head><script>
 window._wizdata = {};
 </script><script>window.WIZ_global_data = {"qwAQke":"SomeOtherUi","SMqcke":"the-xsrf-token-value","cfb2h":"boot"};</script>
@@ -29,9 +24,7 @@ const garbageMalformedWizHTML = `<!doctype html><html><head>
 <script>window.WIZ_global_data = {not valid json};</script>
 </head><body>broken</body></html>`
 
-// newXSRFTestSession builds a Session pointed at an httptest server via the
-// unexported moleWorldBaseURL override (auth.go / session.go), mirroring
-// how session_test.go overrides allowedHostSuffixes for the same purpose.
+// newXSRFTestSession points a Session at srv via moleWorldBaseURL.
 func newXSRFTestSession(t *testing.T, srv *httptest.Server) *Session {
 	t.Helper()
 	sess, err := NewSession(nil, "")
@@ -69,7 +62,6 @@ func TestFetchXSRFToken_Success(t *testing.T) {
 	if gotPath != "/mole/world" {
 		t.Errorf("request path = %q, want %q", gotPath, "/mole/world")
 	}
-	// Query params required by the /mole/world endpoint.
 	for _, want := range []string{
 		"origin=https%3A%2F%2Fmail.google.com",
 		"shell=9",
@@ -81,7 +73,6 @@ func TestFetchXSRFToken_Success(t *testing.T) {
 			t.Errorf("request query = %q, want it to contain %q", gotQuery, want)
 		}
 	}
-	// Headers for the request, including the misspelled "refer".
 	if gotAuthority != "chat.google.com" {
 		t.Errorf("authority header = %q, want %q", gotAuthority, "chat.google.com")
 	}
@@ -145,9 +136,6 @@ func TestFetchXSRFToken_GarbageMalformedJSON(t *testing.T) {
 }
 
 func TestFetchXSRFToken_MissingSMqckeKey(t *testing.T) {
-	// qwAQke present and not the sign-in sentinel, but SMqcke absent entirely
-	// -- a missing SMqcke is a descriptive error rather than silently
-	// yielding an empty token.
 	const html = `<!doctype html><html><head>
 <script>window.WIZ_global_data = {"qwAQke":"SomeOtherUi"};</script>
 </head><body>ok</body></html>`
@@ -175,10 +163,6 @@ func TestFetchXSRFToken_NonOKStatus(t *testing.T) {
 	defer srv.Close()
 
 	sess := newXSRFTestSession(t, srv)
-	// A single 500 well within Session.Fetch's retry budget still ends up a
-	// NetworkError once retries are exhausted; assert we surface *an* error
-	// rather than a token, proving FetchXSRFToken propagates Session.Fetch's
-	// failure instead of swallowing it.
 	_, err := sess.FetchXSRFToken(context.Background())
 	if err == nil {
 		t.Fatal("FetchXSRFToken() error = nil, want an error for a non-200 /mole/world response")

@@ -11,9 +11,6 @@ import (
 	"github.com/Deniel9204/mautrix-googlechat/pkg/msgconv/gchatfmt"
 )
 
-// TestParse is the table-driven core of the behavior inventory: one case
-// per mandatory behavior. See convert.go's package doc comment for the
-// behavior each case covers.
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -48,9 +45,7 @@ func TestParse(t *testing.T) {
 			wantHTML: "<strong>a</strong><em>b</em>",
 		},
 		{
-			// bold [0,4) and italic [2,6) partially overlap; normalization
-			// must split italic into [2,4) (nested inside bold) and [4,6)
-			// (after bold).
+			// italic must split into [2,4) nested in bold and [4,6) after it.
 			name: "two overlapping spans (bold+italic) get split at the boundary",
 			text: "abcdef",
 			annotations: []*pb.Annotation{
@@ -61,8 +56,7 @@ func TestParse(t *testing.T) {
 			wantHTML: "<strong>ab<em>cd</em></strong><em>ef</em>",
 		},
 		{
-			// italic [2,4) is fully nested inside bold [0,6) -- no split
-			// needed, just nested tags.
+			// italic is fully nested inside bold: no split needed.
 			name: "nested spans (italic fully inside bold)",
 			text: "abcdef",
 			annotations: []*pb.Annotation{
@@ -73,10 +67,7 @@ func TestParse(t *testing.T) {
 			wantHTML: "<strong>ab<em>cd</em>ef</strong>",
 		},
 		{
-			// U+1F386 (🎆) is astral-plane -- 2 UTF-16 code units. The bold
-			// span starts at UTF-16 offset 5, which is only correct if the
-			// emoji before it was counted as 2 units, not 1 rune: "🎆"(0,1)
-			// " "(2) "a"(3) " "(4) "b"(5) " "(6) "z"(7).
+			// 🎆 is 2 UTF-16 code units, so "b" is at offset 5.
 			name: "astral char before a span -- offset must be UTF-16 code units",
 			text: "🎆 a b z",
 			annotations: []*pb.Annotation{
@@ -86,9 +77,7 @@ func TestParse(t *testing.T) {
 			wantHTML: "🎆 a <strong>b</strong> z",
 		},
 		{
-			// (rgb + 2^31) & 0xFFFFFF transform: int32(-65536) is
-			// 0xFFFF0000 in two's complement; +2^31 wraps the top bit off,
-			// leaving 0x7FFF0000, masked to the low 24 bits -> 0xFF0000.
+			// int32(-65536) = 0xFFFF0000; +2^31 then masked to 24 bits -> 0xFF0000.
 			name: "font color transform",
 			text: "red",
 			annotations: []*pb.Annotation{
@@ -139,12 +128,7 @@ func TestParse(t *testing.T) {
 			wantHTML: "hey @room check this out",
 		},
 		{
-			// Non-url_metadata annotations carrying a RENDER /
-			// RENDER_IF_POSSIBLE chip are preview chips (upload previews and
-			// the like), rendered separately from inline formatting, so the
-			// underlying text stays plain and unwrapped. url_metadata is
-			// exempt from this rule -- see
-			// TestParse_InboundURLLinkifiedRegardlessOfChipRenderType.
+			// Non-url preview chips stay plain text; url_metadata is exempt.
 			name: "non-DO_NOT_RENDER chip on a non-URL annotation is skipped, text stays plain",
 			text: "see bold here",
 			annotations: []*pb.Annotation{
@@ -190,9 +174,6 @@ func TestParse(t *testing.T) {
 	}
 }
 
-// TestParse_HyperlinkEscaping is the B1 regression test: a Google
-// Chat-controlled URL crafted to break out of the href attribute must never
-// produce an unescaped "><script> in the output.
 func TestParse_HyperlinkEscaping(t *testing.T) {
 	const maliciousURL = `https://x.com/"><script>alert(1)</script>`
 	annotations := []*pb.Annotation{
@@ -217,8 +198,6 @@ func TestParse_HyperlinkEscaping(t *testing.T) {
 	}
 }
 
-// TestParse_HyperlinkPlain is a control case proving well-formed URLs still
-// render normally after the B1 fix.
 func TestParse_HyperlinkPlain(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeURLAnnotation(0, 8, "https://example.com/path?a=1&b=2", pb.Annotation_DO_NOT_RENDER),
@@ -234,15 +213,7 @@ func TestParse_HyperlinkPlain(t *testing.T) {
 	}
 }
 
-// TestParse_DangerousURLSchemeNeutralized is the security regression test
-// for the javascript:/data: link-scheme fix (mirroring the B1 href-escape
-// fix above): a url_metadata annotation whose href is a
-// javascript: URI must never become a clickable <a href="javascript:...">
-// pill -- escaping alone (B1) makes the attribute syntactically safe but
-// does nothing to stop a well-formed javascript:/data: URL from executing
-// when clicked. The annotation must be neutralized to plain, unwrapped text
-// instead (the same "skip_entity" fallback already used for HIDDEN/
-// unrecognized format types), never an <a> tag of any kind.
+// A javascript: href must become plain text, never an <a> tag.
 func TestParse_DangerousURLSchemeNeutralized(t *testing.T) {
 	tests := []struct {
 		name string
@@ -253,10 +224,7 @@ func TestParse_DangerousURLSchemeNeutralized(t *testing.T) {
 		{"javascript scheme, leading whitespace/control chars", "\n\t javascript:alert(1)"},
 		{"data scheme", "data:text/html,<script>alert(1)</script>"},
 		{"data scheme, mixed case", "DATA:text/html,<script>alert(1)</script>"},
-		// The WHATWG URL parser strips ASCII tab/CR/LF from ANYWHERE in the
-		// URL (not just the ends) before it recognizes the scheme, so a
-		// browser still executes these as javascript: -- the classic
-		// embedded-tab/newline filter bypass. See isDangerousURLScheme.
+		// Browsers strip tab/CR/LF anywhere before parsing the scheme.
 		{"javascript scheme, embedded tab", "java\tscript:alert(1)"},
 		{"javascript scheme, embedded CR", "java\rscript:alert(1)"},
 		{"javascript scheme, embedded LF", "java\nscript:alert(1)"},
@@ -280,10 +248,6 @@ func TestParse_DangerousURLSchemeNeutralized(t *testing.T) {
 	}
 }
 
-// TestParse_SafeURLSchemesStillRenderAsLinks is a control case proving the
-// dangerous-scheme filter (above) doesn't over-broadly reject ordinary safe
-// schemes (http/https/mailto and a scheme-less relative-looking string all
-// still become clickable pills).
 func TestParse_SafeURLSchemesStillRenderAsLinks(t *testing.T) {
 	tests := []string{
 		"https://example.com",
@@ -303,10 +267,6 @@ func TestParse_SafeURLSchemesStillRenderAsLinks(t *testing.T) {
 	}
 }
 
-// TestParse_Mention_ResolvedPill covers the MentionResolver seam (fix for
-// B2): when the resolver knows the gaiaID, a real user pill is rendered
-// with the resolver's display name, not a DM-portal room pill and not
-// unescaped displayname interpolation.
 func TestParse_Mention_ResolvedPill(t *testing.T) {
 	resolve := func(gaiaID string) (id.UserID, string, bool) {
 		if gaiaID == "123" {
@@ -325,9 +285,6 @@ func TestParse_Mention_ResolvedPill(t *testing.T) {
 	}
 }
 
-// TestParse_Mention_NilResolver: with no resolver at all, a mention
-// annotation must fall back to the original message text, unpilled, with
-// nothing dropped.
 func TestParse_Mention_NilResolver(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeMentionAnnotation(0, 8, "123"),
@@ -345,9 +302,6 @@ func TestParse_Mention_NilResolver(t *testing.T) {
 	}
 }
 
-// TestParse_Mention_UnresolvedWithName: the resolver knows a display name
-// but not an MXID (ok=false, name != "") -- render the name as plain text,
-// still no pill.
 func TestParse_Mention_UnresolvedWithName(t *testing.T) {
 	resolve := func(gaiaID string) (id.UserID, string, bool) {
 		return "", "Dana", false
@@ -365,11 +319,6 @@ func TestParse_Mention_UnresolvedWithName(t *testing.T) {
 	}
 }
 
-// TestParse_MalformedAnnotationFallsBackGracefully: an annotation whose
-// span overruns the actual text must not panic (Go must not trust
-// server-controlled offsets); Parse should log-and-fall-back to plain text
-// for the whole message, matching the graceful-degradation contract in the
-// package doc comment.
 func TestParse_MalformedAnnotationFallsBackGracefully(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeFormatAnnotation(1, 5, pb.FormatMetadata_BOLD), // text is only 2 units long
@@ -384,13 +333,7 @@ func TestParse_MalformedAnnotationFallsBackGracefully(t *testing.T) {
 	}
 }
 
-// TestParse_HugeLengthAnnotationFallsBackGracefully is the P0 regression
-// test: a Length near int32 max, added to a small StartIndex, overflows a
-// naive int32 sum (these are wire-controlled int32
-// fields) and can wrap to a value that passes an unpromoted ">" bounds
-// check, which then panics as an out-of-range slice bound instead of
-// degrading to the plain-text fallback. Must not panic; must fall back
-// exactly like any other malformed annotation.
+// Length near int32 max must not overflow the bounds check and panic.
 func TestParse_HugeLengthAnnotationFallsBackGracefully(t *testing.T) {
 	const text = "hello world this is a test message of some length"
 	annotations := []*pb.Annotation{
@@ -407,9 +350,7 @@ func TestParse_HugeLengthAnnotationFallsBackGracefully(t *testing.T) {
 	}
 }
 
-// --- ParsedMentions: the 3rd return value drives content.Mentions ----------
-// (phantom-ping fix -- the mentions gchatfmt reports it rendered must equal
-// the pills it actually emitted, and exclude any malformed/unresolved one.)
+// ParsedMentions must match the pills actually rendered.
 
 func mustResolve(gaiaID string) (id.UserID, string, bool) {
 	if gaiaID == "200" {
@@ -418,9 +359,6 @@ func mustResolve(gaiaID string) (id.UserID, string, bool) {
 	return "", "", false
 }
 
-// TestParse_MentionsMatchRenderedPills: for a normally-rendering message the
-// returned ParsedMentions.UserIDs are exactly the users whose pills appear
-// in the HTML.
 func TestParse_MentionsMatchRenderedPills(t *testing.T) {
 	annotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")}
 	_, html, mentions := gchatfmt.Parse(context.Background(), "@Bob hi", annotations, mustResolve)
@@ -437,7 +375,6 @@ func TestParse_MentionsMatchRenderedPills(t *testing.T) {
 	}
 }
 
-// TestParse_MentionAllSetsRoom: a valid MENTION_ALL sets ParsedMentions.Room.
 func TestParse_MentionAllSetsRoom(t *testing.T) {
 	annotations := []*pb.Annotation{gchatfmt.MakeMentionAllAnnotation(0, 4)}
 	_, _, mentions := gchatfmt.Parse(context.Background(), "@all hi", annotations, nil)
@@ -449,8 +386,6 @@ func TestParse_MentionAllSetsRoom(t *testing.T) {
 	}
 }
 
-// TestParse_UnresolvedMentionNotCollected: a mention the resolver can't
-// resolve renders as plain text and is NOT in ParsedMentions.
 func TestParse_UnresolvedMentionNotCollected(t *testing.T) {
 	annotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "999")}
 	_, _, mentions := gchatfmt.Parse(context.Background(), "@Eve hi", annotations, mustResolve)
@@ -459,9 +394,6 @@ func TestParse_UnresolvedMentionNotCollected(t *testing.T) {
 	}
 }
 
-// TestParse_NilResolverCollectsNoUsers: with no resolver, no user mention can
-// resolve, so ParsedMentions carries no UserIDs (a MENTION_ALL would still
-// set Room, but there's none here).
 func TestParse_NilResolverCollectsNoUsers(t *testing.T) {
 	annotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "200")}
 	_, _, mentions := gchatfmt.Parse(context.Background(), "@Bob hi", annotations, nil)
@@ -470,11 +402,7 @@ func TestParse_NilResolverCollectsNoUsers(t *testing.T) {
 	}
 }
 
-// TestParse_MalformedMentionExcludedFromMentions is the core phantom-ping
-// unit test: an out-of-bounds mention annotation (no corresponding body
-// text) forces the plain-text fallback AND must NOT appear in the returned
-// ParsedMentions -- even though its gaia id resolves fine, its span is
-// invalid so no pill is (or could be) rendered for it.
+// An out-of-bounds mention must not be collected, even if it resolves.
 func TestParse_MalformedMentionExcludedFromMentions(t *testing.T) {
 	// "hi" is 2 UTF-16 units; the mention claims [0,50).
 	annotations := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 50, "200")}
@@ -488,11 +416,7 @@ func TestParse_MalformedMentionExcludedFromMentions(t *testing.T) {
 	}
 }
 
-// TestParse_ValidMentionCollectedDespiteUnrelatedMalformedAnnotation: a valid
-// mention alongside an unrelated malformed FORMAT annotation. The malformed
-// annotation forces the whole HTML render to fall back to plain text, but the
-// plain body still contains the mention's "@Bob" text -- so the valid mention
-// IS collected (keyed on its own validity, not the overall render result).
+// A valid mention is collected even when another annotation forces the plain fallback.
 func TestParse_ValidMentionCollectedDespiteUnrelatedMalformedAnnotation(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeFormatAnnotation(0, 2147483647, pb.FormatMetadata_BOLD),
@@ -508,9 +432,6 @@ func TestParse_ValidMentionCollectedDespiteUnrelatedMalformedAnnotation(t *testi
 	}
 }
 
-// TestParse_MentionChipRenderTypeFilteredOut: a mention annotation whose chip
-// type isn't DO_NOT_RENDER is a preview chip, not an inline mention --
-// gchatfmt renders no pill for it, so it must not be collected either.
 func TestParse_MentionChipRenderTypeFilteredOut(t *testing.T) {
 	chip := gchatfmt.MakeMentionAnnotation(0, 4, "200")
 	chip.ChipRenderType = pb.Annotation_RENDER.Enum()
@@ -520,8 +441,6 @@ func TestParse_MentionChipRenderTypeFilteredOut(t *testing.T) {
 	}
 }
 
-// TestParse_MentionsDeduped: the same gaia id mentioned twice yields exactly
-// one entry in ParsedMentions.UserIDs.
 func TestParse_MentionsDeduped(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeMentionAnnotation(0, 4, "200"),
@@ -533,8 +452,6 @@ func TestParse_MentionsDeduped(t *testing.T) {
 	}
 }
 
-// TestParse_NoAnnotationsEmptyMentions: the empty-annotations fast path
-// returns an empty ParsedMentions.
 func TestParse_NoAnnotationsEmptyMentions(t *testing.T) {
 	_, _, mentions := gchatfmt.Parse(context.Background(), "plain text", nil, mustResolve)
 	if len(mentions.UserIDs) != 0 || mentions.Room {
@@ -542,19 +459,7 @@ func TestParse_NoAnnotationsEmptyMentions(t *testing.T) {
 	}
 }
 
-// TestParse_InboundURLLinkifiedRegardlessOfChipRenderType is the regression
-// test for the "inbound links are not links in Matrix" bug.
-//
-// Real Google Chat sets chip_render_type=RENDER_IF_POSSIBLE on the URL
-// annotation of a plainly-pasted link (captured live: text "https://index.hu",
-// one URL annotation, start=0 len=16, chip_render_type=RENDER_IF_POSSIBLE).
-// Only DO_NOT_RENDER used to be rendered inline, so every received link
-// arrived as unlinkified plain text. Outbound was unaffected because
-// matrixfmt always sets DO_NOT_RENDER itself.
-//
-// A url_metadata annotation must therefore produce an <a href> for EVERY
-// chip_render_type, including the proto2 zero value (UNKNOWN) that an unset
-// field decodes to.
+// Google Chat sets RENDER_IF_POSSIBLE on pasted links; url_metadata must linkify for any chip type.
 func TestParse_InboundURLLinkifiedRegardlessOfChipRenderType(t *testing.T) {
 	for _, chip := range []pb.Annotation_ChipRenderType{
 		pb.Annotation_UNKNOWN,
@@ -581,19 +486,13 @@ func TestParse_InboundURLLinkifiedRegardlessOfChipRenderType(t *testing.T) {
 	}
 }
 
-// renderChip flips an annotation's chip_render_type to RENDER, so a test can
-// build the "preview chip" shape (which inline rendering skips) out of the
-// ordinary Make*Annotation helpers, all of which default to DO_NOT_RENDER.
+// renderChip sets an annotation's chip_render_type to RENDER.
 func renderChip(a *pb.Annotation) *pb.Annotation {
 	a.ChipRenderType = pb.Annotation_RENDER.Enum()
 	return a
 }
 
-// TestParse_ZeroLengthPreviewChipURLNotLinkified guards the edge case opened
-// up by linkifying non-DO_NOT_RENDER url_metadata: a RENDER /
-// RENDER_IF_POSSIBLE chip need not cover any text at all (a preview card
-// attached to the message rather than to a span). Wrapping an empty span
-// would emit a stray, empty <a href></a>, so a zero-length chip stays skipped.
+// A zero-length chip must not emit an empty <a href></a>.
 func TestParse_ZeroLengthPreviewChipURLNotLinkified(t *testing.T) {
 	annotations := []*pb.Annotation{
 		gchatfmt.MakeURLAnnotation(0, 0, "https://x.test", pb.Annotation_RENDER_IF_POSSIBLE),
@@ -606,12 +505,6 @@ func TestParse_ZeroLengthPreviewChipURLNotLinkified(t *testing.T) {
 	}
 }
 
-// TestParse_NewlinesInsideCodeBlockArePreserved: the newline -> <br/> pass is
-// a post-hoc string replace over the rendered HTML, so it used to rewrite
-// newlines that had landed INSIDE a <pre><code> block too. A <pre> block
-// already renders its own whitespace, so the injected tags show up as literal
-// markup or doubled breaks depending on the client. Newlines outside the
-// block must still become <br/>.
 func TestParse_NewlinesInsideCodeBlockArePreserved(t *testing.T) {
 	// indices: "intro"=0..4, \n=5, "x"=6, \n=7, "y"=8, \n=9, "end"=10..12
 	const text = "intro\nx\ny\nend"
@@ -627,9 +520,6 @@ func TestParse_NewlinesInsideCodeBlockArePreserved(t *testing.T) {
 	}
 }
 
-// TestParse_NewlinesInsideInlineCodeArePreserved covers the same rule for an
-// inline <code> span nested inside a block, which the <pre> skip must also
-// cover since it is emitted inside the same region.
 func TestParse_MultipleCodeBlocksEachPreserveNewlines(t *testing.T) {
 	// "a\nb" = 0..2, "|" = 3, "c\nd" = 4..6
 	const text = "a\nb|c\nd"
