@@ -71,9 +71,7 @@ func migratePortals(ctx context.Context, deps *Deps, opts Options) (int, []strin
 		_, err = deps.Target.Exec(ctx, insertMigratedPortalQuery,
 			// gcid/gc_receiver are already in Go id/receiver format.
 			p.GCID, p.GCReceiver,
-			// mxid: nullable.
 			p.MXID,
-			// other_user_id: nullable.
 			p.OtherUserID,
 			// Go columns are NOT NULL.
 			nullStr(p.Name), nullStr(p.Description), nullStr(p.AvatarMXC),

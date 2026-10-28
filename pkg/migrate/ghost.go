@@ -49,7 +49,6 @@ func migrateGhosts(ctx context.Context, deps *Deps, opts Options) (int, []string
 
 		_, err := deps.Target.Exec(ctx, insertMigratedGhostQuery,
 			string(id),
-			// Go columns are NOT NULL.
 			nullStr(p.Name), nullStr(p.PhotoID), avatarHash, nullStr(p.PhotoMXC),
 			p.NameSet, p.AvatarSet, p.ContactInfoSet,
 			string(metaJSON),

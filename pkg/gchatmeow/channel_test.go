@@ -64,7 +64,6 @@ func newFakeChannel(t *testing.T) *fakeChannel {
 		pingCh:       make(chan struct{}, 8),
 		reRegistered: make(chan struct{}),
 	}
-	// Default init: hand out SID, then hold the body open.
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
 		writeInitialSID(w, f.sid)
 		<-r.Context().Done()
@@ -241,7 +240,6 @@ func TestRegisterExtractsSID(t *testing.T) {
 	if ch.sid != "sid-XYZ-123" {
 		t.Fatalf("ch.sid = %q, want %q", ch.sid, "sid-XYZ-123")
 	}
-	// The ack must carry the freshly extracted SID.
 	var ack *fakeReq
 	for _, r := range f.snapshot() {
 		if r.kind == "ack" {
@@ -311,7 +309,6 @@ func TestAckAndPingSentAfterRegister(t *testing.T) {
 	if ack.method != http.MethodGet || ack.rid != "rpc" || ack.aid != "0" {
 		t.Fatalf("ack request = %+v, want GET RID=rpc AID=0", ack)
 	}
-	// Ping must be a POST.
 	if reqs[idxPing].method != http.MethodPost {
 		t.Fatalf("ping method = %q, want POST", reqs[idxPing].method)
 	}
@@ -420,7 +417,6 @@ func TestCleanEOFRepolls(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// Re-poll must use the same SID.
 	var repoll *fakeReq
 	for _, r := range f.snapshot() {
 		if r.kind == "longpoll" {
@@ -549,7 +545,7 @@ func TestSIDExpiringReRegisters(t *testing.T) {
 				t.Errorf("hijack: %v", err)
 				return
 			}
-			frame := "11\n" + `[[1,["x"]]]` // one complete frame, then truncate
+			frame := "11\n" + `[[1,["x"]]]`
 			raw := "HTTP/1.1 200 OK\r\n" +
 				"X-HTTP-Initial-Response: [[0,[\"c\",\"" + f.sid + "\",\"\",8,12]]]\r\n" +
 				"Content-Length: 1000000\r\n" +
@@ -596,15 +592,15 @@ func TestReadIdleTriggersDisconnectAndReconnect(t *testing.T) {
 	f := newFakeChannel(t)
 	f.handleInit = func(w http.ResponseWriter, r *http.Request, f *fakeChannel) {
 		writeInitialSID(w, f.sid)
-		writeFrame(w, `[[1,["x"]]]`) // connect
-		<-r.Context().Done()         // then go silent -> read-idle fires
+		writeFrame(w, `[[1,["x"]]]`)
+		<-r.Context().Done()
 	}
 	f.handleLongpoll = func(w http.ResponseWriter, r *http.Request, f *fakeChannel, n int) {
-		writeFrame(w, `[[2,["y"]]]`) // reconnect
+		writeFrame(w, `[[2,["y"]]]`)
 		<-r.Context().Done()
 	}
 	ch := newTestChannel(t, f)
-	ch.readIdleTimeout = 50 * time.Millisecond // inject a short idle watchdog
+	ch.readIdleTimeout = 50 * time.Millisecond
 
 	var (
 		mu          sync.Mutex
@@ -766,7 +762,7 @@ func TestChunkedTruncationReRegisters(t *testing.T) {
 				"\r\n" +
 				fmt.Sprintf("%x\r\n%s\r\n", len(frame), frame)
 			_, _ = conn.Write([]byte(raw))
-			time.Sleep(30 * time.Millisecond) // let the client read the frame
+			time.Sleep(30 * time.Millisecond)
 			conn.Close()
 			return
 		}
@@ -1082,7 +1078,6 @@ func TestInitialPingOwnsOfsZero(t *testing.T) {
 
 // TestDebugDumpUsesPrivatePermissions: dumps hold real messages, so files and directory must be private.
 func TestDebugDumpUsesPrivatePermissions(t *testing.T) {
-	// A missing directory must be created.
 	dir := filepath.Join(t.TempDir(), "dumps")
 	t.Setenv("GCHAT_DEBUG_DUMP", dir)
 

@@ -107,7 +107,7 @@ func ghostPortal() *bridgev2.Portal {
 // mention must leave content.Mentions unset.
 func TestConvertMessageToMatrix_MalformedMentionNoPhantomPing(t *testing.T) {
 	msg := &pb.Message{
-		TextBody:   proto.String("hi"), // 2 UTF-16 units
+		TextBody:   proto.String("hi"),
 		CreateTime: proto.Int64(1),
 		// Out of bounds: resolves, but renders no pill.
 		Annotations: []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 50, "200")},
@@ -147,7 +147,7 @@ func TestConvertMessageToMatrix_MentionAllSetsRoom(t *testing.T) {
 // the body falls back to plain text but still contains "@Bob", so Bob is pinged.
 func TestConvertMessageToMatrix_ValidMentionPingsDespiteMalformedFormatAnnotation(t *testing.T) {
 	msg := &pb.Message{
-		TextBody:   proto.String("hi @Bob"), // "@Bob" is [3,7)
+		TextBody:   proto.String("hi @Bob"),
 		CreateTime: proto.Int64(1),
 		Annotations: []*pb.Annotation{
 			gchatfmt.MakeFormatAnnotation(0, 2147483647, pb.FormatMetadata_BOLD),
@@ -491,7 +491,7 @@ func TestConvertEditToMatrix_EmptyTextBodyIgnored(t *testing.T) {
 // TestConvertEditToMatrix_NoExistingMetadataStillWorks: nil metadata counts as
 // LastEditTime 0 and must not panic.
 func TestConvertEditToMatrix_NoExistingMetadataStillWorks(t *testing.T) {
-	existing := []*database.Message{{ID: gcid.MakeMessageID("msg1")}} // Metadata is nil
+	existing := []*database.Message{{ID: gcid.MakeMessageID("msg1")}}
 	msg := editMsg("msg1", "msg1", "first edit", 5000, 0)
 
 	convert := convertEditToMatrix(msgconv.New())

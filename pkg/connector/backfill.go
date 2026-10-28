@@ -369,7 +369,6 @@ func (c *GChatClient) fetchThreadMessages(ctx context.Context, params bridgev2.F
 		return nil, fmt.Errorf("googlechat: list_messages failed: %w", err)
 	}
 
-	// Sort chronologically by CreateTime, tie-broken by message id.
 	msgs := slices.Clone(resp.GetMessages())
 	slices.SortStableFunc(msgs, func(a, b *pb.Message) int {
 		if byTime := cmp.Compare(a.GetCreateTime(), b.GetCreateTime()); byTime != 0 {

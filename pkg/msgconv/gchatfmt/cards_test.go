@@ -107,7 +107,7 @@ func TestRenderCards_SkipsUnsupportedWidgets(t *testing.T) {
 			Widgets: []*pb.JAddOnsWidget{
 				textParagraph("before"),
 				{Data: &pb.JAddOnsWidget_DateTimePicker_{DateTimePicker: &pb.JAddOnsWidget_DateTimePicker{}}},
-				{}, // no arm set at all
+				{},
 				textParagraph("after"),
 			},
 		}},

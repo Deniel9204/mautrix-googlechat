@@ -24,7 +24,6 @@ func (p *ChunkParser) Feed(data []byte) []string {
 		lengthStr, rest, res := cutFirstLine(decoded)
 		switch res {
 		case lineIncomplete:
-			// Wait for more data.
 			return chunks
 		case linePoisoned:
 			// Unrecoverable byte: drop it and resync so the parser always makes progress.
@@ -34,19 +33,17 @@ func (p *ChunkParser) Feed(data []byte) []string {
 
 		length, err := strconv.Atoi(lengthStr)
 		if err != nil {
-			// Not a valid integer: wait for more data.
 			break
 		}
 
 		payload, payloadByteLen, complete := takeUTF16Units(rest, length)
 		if !complete {
-			// Wait for more data.
 			break
 		}
 
 		chunks = append(chunks, payload)
 
-		lengthPrefixByteLen := len(lengthStr) + 1 // + "\n"
+		lengthPrefixByteLen := len(lengthStr) + 1
 		drop := lengthPrefixByteLen + payloadByteLen
 		p.buf = p.buf[drop:]
 	}
@@ -95,7 +92,6 @@ func cutFirstLine(decoded string) (lengthStr string, rest string, res lineResult
 		i++
 	}
 	if i >= len(decoded) {
-		// Includes the empty buffer.
 		return "", "", lineIncomplete
 	}
 	if i == 0 || decoded[i] != '\n' {

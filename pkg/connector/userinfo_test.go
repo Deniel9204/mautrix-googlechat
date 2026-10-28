@@ -33,7 +33,7 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 	cases := []struct {
 		name  string
 		user  *pb.User
-		want  string // the .Name field FormatDisplayname's template sees
+		want  string
 		first string
 	}{
 		{
@@ -46,7 +46,7 @@ func TestDisplaynameParamsFallbackChain(t *testing.T) {
 			name:  "first+last joined when no full name",
 			user:  &pb.User{FirstName: proto.String("Grace"), LastName: proto.String("Hopper"), Email: proto.String("grace@example.com")},
 			want:  "Grace Hopper",
-			first: "Grace", // FirstName passes through unchanged; only Name is derived here
+			first: "Grace",
 		},
 		{
 			name:  "first only, no last",
@@ -251,7 +251,6 @@ func TestUserInfoFromUserExtraUpdatesStoresEmail(t *testing.T) {
 		t.Errorf("GhostMetadata.Email = %q, want \"ada@example.com\"", meta.Email)
 	}
 
-	// Second call with the same email should report no change.
 	if changed := info.ExtraUpdates(context.Background(), ghost); changed {
 		t.Error("ExtraUpdates() = true on second call with the same email, want false")
 	}
@@ -269,7 +268,7 @@ func TestGetUserInfoNoConnIsError(t *testing.T) {
 
 // TestUpdateOwnLoginProfile_SetsRemoteName: the login's own raw name is saved as RemoteName.
 func TestUpdateOwnLoginProfile_SetsRemoteName(t *testing.T) {
-	login := newTestUserLogin(&UserLoginMetadata{}) // ID "112233", RemoteName ""
+	login := newTestUserLogin(&UserLoginMetadata{})
 	var saved bool
 	var gotMemberID string
 	c := &GChatClient{
@@ -380,7 +379,7 @@ func TestUpdateOwnLoginProfileLearnsEmailForAnAlreadyNamedLogin(t *testing.T) {
 		UserLogin: login,
 		getMembersFn: func(context.Context, *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
 			return &pb.GetMembersResponse{Members: []*pb.Member{{Profile: &pb.Member_User{User: &pb.User{
-				Name:  proto.String("Ada Lovelace"), // unchanged
+				Name:  proto.String("Ada Lovelace"),
 				Email: proto.String("ada@example.com"),
 			}}}}}, nil
 		},

@@ -93,7 +93,6 @@ func isDisallowedIP(ip net.IP) bool {
 // Callers must reject non-global-unicast (::1, ::) first, or they would match the IPv4-compatible form.
 func embeddedIPv4(ip net.IP) net.IP {
 	if ip.To4() != nil {
-		// Already IPv4; terminates the recursion.
 		return nil
 	}
 	ip16 := ip.To16()

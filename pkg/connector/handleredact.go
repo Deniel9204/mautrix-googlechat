@@ -27,7 +27,6 @@ func (c *GChatClient) HandleMatrixMessageRemove(ctx context.Context, msg *bridge
 	}
 
 	messageID := gcid.ParseMessageID(msg.TargetMessage.ID)
-	// bridgev2 guarantees TargetMessage is non-nil here.
 	topicID, _ := threadRootTopicID(msg.TargetMessage)
 
 	req := &pb.DeleteMessageRequest{

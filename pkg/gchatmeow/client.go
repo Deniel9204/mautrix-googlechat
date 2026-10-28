@@ -140,7 +140,7 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	for {
 		if ctx.Err() != nil {
-			return nil // clean stop (Disconnect or parent cancel)
+			return nil
 		}
 
 		if err := c.ensureToken(ctx); err != nil {
@@ -166,7 +166,7 @@ func (c *Client) Connect(ctx context.Context) error {
 		err := ch.Listen(ctx, c.maxRetries, c.retryBackoffBase)
 
 		if ctx.Err() != nil {
-			return nil // ctx cancelled mid-Listen -> clean return
+			return nil
 		}
 		switch {
 		case errors.Is(err, ErrChannelLifetimeExpired):
@@ -177,7 +177,6 @@ func (c *Client) Connect(ctx context.Context) error {
 			fatalBackoff = c.fatalRetryFloor()
 			continue
 		case errors.Is(err, ErrSIDExpiring):
-			// Reconnect immediately.
 			resyncCount = 0
 			backoff = c.reconnectBackoffMin
 			continue
@@ -208,7 +207,6 @@ func (c *Client) Connect(ctx context.Context) error {
 			c.emitState(ConnStateBadCredentials, err)
 			return err
 		case isNetworkError(err):
-			// Transient transport failure.
 			resyncCount = 0
 			c.emitState(ConnStateTransient, err)
 			if c.sleep(ctx, backoff) != nil {
@@ -217,7 +215,6 @@ func (c *Client) Connect(ctx context.Context) error {
 			backoff = c.nextBackoff(backoff)
 			continue
 		case err == nil:
-			// Finished unexpectedly: back off.
 			resyncCount = 0
 			c.emitState(ConnStateTransient, nil)
 			if c.sleep(ctx, backoff) != nil {
@@ -226,7 +223,6 @@ func (c *Client) Connect(ctx context.Context) error {
 			backoff = c.nextBackoff(backoff)
 			continue
 		default:
-			// Any other error: treat as transient.
 			resyncCount = 0
 			c.emitState(ConnStateTransient, err)
 			if c.sleep(ctx, backoff) != nil {
@@ -292,7 +288,7 @@ func (c *Client) onReceiveArray(ctx context.Context, arr []byte) error {
 
 	for _, ev := range splitEventBodies(resp.GetEvent()) {
 		if c.OnStreamEvent != nil {
-			c.OnStreamEvent(ctx, ev) // synchronous, in order
+			c.OnStreamEvent(ctx, ev)
 		}
 	}
 	return nil

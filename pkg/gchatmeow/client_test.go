@@ -489,7 +489,7 @@ func TestSIDInvalidResyncPaced(t *testing.T) {
 		mu.Lock()
 		slept = append(slept, d)
 		mu.Unlock()
-		return nil // don't actually sleep
+		return nil
 	}
 
 	c.Connect(context.Background())
@@ -554,7 +554,6 @@ func TestXSRFRefreshOn401(t *testing.T) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			// Fresh token accepted.
 			body, _ := proto.Marshal(&pb.GetSelfUserStatusResponse{})
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(body)
@@ -714,10 +713,10 @@ func TestXSRFRefreshLoopToleratesOneAuthFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if atomic.AddInt32(&calls, 1) == 1 {
-			_, _ = w.Write([]byte(signInWizHTML)) // one bad answer...
+			_, _ = w.Write([]byte(signInWizHTML))
 			return
 		}
-		_, _ = w.Write([]byte(loggedInWizHTML)) // ...then healthy again
+		_, _ = w.Write([]byte(loggedInWizHTML))
 	}))
 	defer srv.Close()
 

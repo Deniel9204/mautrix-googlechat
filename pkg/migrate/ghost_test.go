@@ -168,7 +168,6 @@ func TestMigrateGhosts_InvalidAvatarHash_WarnsAndCoalesces(t *testing.T) {
 	if row.AvatarHash != "" {
 		t.Errorf("avatar_hash = %q, want \"\" (invalid length, coalesced away)", row.AvatarHash)
 	}
-	// Only the bad field is dropped.
 	if row.Name != "Bob" {
 		t.Errorf("name = %q, want \"Bob\" (rest of row still migrated)", row.Name)
 	}

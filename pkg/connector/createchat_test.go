@@ -108,7 +108,7 @@ func TestResolveIdentifierEmailWithoutCreatingIsRefused(t *testing.T) {
 
 // TestResolveIdentifierEmailWithCreateUsesInviteesAndLearnsGaia: members only takes gaia ids.
 func TestResolveIdentifierEmailWithCreateUsesInviteesAndLearnsGaia(t *testing.T) {
-	const selfGaia = "112233" // matches newTestUserLogin's id
+	const selfGaia = "112233"
 	var gotReq *pb.CreateDmRequest
 	gc := &GChatClient{
 		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
@@ -179,7 +179,7 @@ func ghostWithID(gaia string) *bridgev2.Ghost {
 // TestResolveIdentifierRejectsWhitespaceIdentifier: bridgev2 folds an unrecognised login ID into the identifier.
 func TestResolveIdentifierRejectsWhitespaceIdentifier(t *testing.T) {
 	for _, identifier := range []string{
-		"alice@example.com bob@example.com", // the real-world case: two emails
+		"alice@example.com bob@example.com",
 		"445566778899 bob@example.com",
 		"me@example.com\tthem@example.com",
 	} {
@@ -556,7 +556,7 @@ func TestResolveIdentifierOtherEmailIsNotSelf(t *testing.T) {
 
 func TestResolveIdentifierUnknownOwnEmailChangesNothing(t *testing.T) {
 	gc := &GChatClient{
-		UserLogin: newTestUserLogin(&UserLoginMetadata{}), // RemoteProfile.Email == ""
+		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
 		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
 			return nil, &gchatmeow.UnexpectedStatusError{Status: 400}
 		},
@@ -583,7 +583,7 @@ func TestIsOwnEmailDoesNotNormaliseAliases(t *testing.T) {
 }
 
 func TestOtherMemberPicksThePeer(t *testing.T) {
-	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})} // own id 112233
+	gc := &GChatClient{UserLogin: newTestUserLogin(&UserLoginMetadata{})}
 	membership := func(gaia string) *pb.Membership {
 		return &pb.Membership{Id: &pb.MembershipId{MemberId: &pb.MemberId{
 			Id: &pb.MemberId_UserId{UserId: &pb.UserId{Id: proto.String(gaia)}},
@@ -597,7 +597,6 @@ func TestOtherMemberPicksThePeer(t *testing.T) {
 		{"no memberships", nil, ""},
 		{"only this login", []*pb.Membership{membership("112233")}, ""},
 		{
-			// The skip itself is pinned by the sibling case below.
 			name:        "a lone unresolvable entry yields no peer",
 			memberships: []*pb.Membership{{Id: &pb.MembershipId{MemberId: &pb.MemberId{}}}},
 			want:        "",
@@ -623,7 +622,7 @@ func TestResolveIdentifierKeepsADMWhoseMembersAreUnknown(t *testing.T) {
 	gc := &GChatClient{
 		UserLogin: newTestUserLogin(&UserLoginMetadata{}),
 		createDmFn: func(context.Context, *pb.CreateDmRequest) (*pb.CreateDmResponse, error) {
-			return dmResponse("dm5"), nil // no memberships at all
+			return dmResponse("dm5"), nil
 		},
 	}
 	resp, err := gc.ResolveIdentifier(context.Background(), "someone@example.com", true)

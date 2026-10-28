@@ -91,7 +91,6 @@ func TestHandleMatrixMembershipKickSendsRemoveMemberships(t *testing.T) {
 }
 
 func TestHandleMatrixMembershipLeaveRemovesOwnID(t *testing.T) {
-	// newTestUserLogin's own gaia id is 112233.
 	login := newTestUserLogin(&UserLoginMetadata{})
 	var gotReq *pb.RemoveMembershipsRequest
 	gc := &GChatClient{
@@ -197,7 +196,6 @@ func TestHandleMatrixMembershipSelfChangesAreNoOps(t *testing.T) {
 		"Join":          bridgev2.Join,
 		"ProfileChange": bridgev2.ProfileChange,
 	}
-	// A DM portal's own join is a no-op too.
 	portals := map[string]*bridgev2.Portal{
 		"space": spacePortal("space1"),
 		"dm":    dmPortal("dm1"),

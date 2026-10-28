@@ -70,7 +70,6 @@ func TestMigratePortals_DMAndSpace(t *testing.T) {
 		if !row.MXID.Valid || row.MXID.String != "!dmroom:example.com" {
 			t.Errorf("mxid = %+v, want valid \"!dmroom:example.com\"", row.MXID)
 		}
-		// NULL Python fields coalesce to "".
 		if row.Name != "" {
 			t.Errorf("name = %q, want \"\" (coalesced from NULL)", row.Name)
 		}

@@ -201,7 +201,6 @@ func (gl *GChatLogin) SubmitCookies(ctx context.Context, cookies map[string]stri
 		return nil, ErrLoginFailed
 	}
 
-	// Persist the post-rotation cookie snapshot and UA.
 	ul, err := gl.User.NewLogin(ctx, &database.UserLogin{
 		ID: gcid.MakeUserLoginID(gaiaID),
 		Metadata: &UserLoginMetadata{

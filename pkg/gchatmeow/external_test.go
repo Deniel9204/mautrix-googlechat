@@ -77,7 +77,7 @@ func TestDownloadExternalMediaRejectsNonHTTPSURL(t *testing.T) {
 	defer srv.Close()
 	useExternalClient(t, srv.Client())
 
-	_, _, _, err := DownloadExternalMedia(context.Background(), srv.URL, 1<<20) // http://
+	_, _, _, err := DownloadExternalMedia(context.Background(), srv.URL, 1<<20)
 	if err == nil {
 		t.Fatal("http URL accepted, want a scheme rejection")
 	}
@@ -137,7 +137,7 @@ func TestDownloadExternalMediaFollowsHTTPSRedirect(t *testing.T) {
 func TestDownloadExternalMediaCapsRedirects(t *testing.T) {
 	var srv *httptest.Server
 	srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, srv.URL, http.StatusFound) // loops forever
+		http.Redirect(w, r, srv.URL, http.StatusFound)
 	}))
 	defer srv.Close()
 	useExternalClient(t, externalTLSClient(t, srv))

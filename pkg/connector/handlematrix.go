@@ -148,7 +148,6 @@ func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMess
 
 	resp, err := send(ctx, req)
 	if err != nil {
-		// Without this, outgoingMessages grows on every failed send.
 		c.removePending(msg, txnID)
 		return nil, fmt.Errorf("googlechat: create_topic failed: %w", err)
 	}
@@ -165,7 +164,6 @@ func (c *GChatClient) sendNewTopic(ctx context.Context, msg *bridgev2.MatrixMess
 			Timestamp: gchatmeow.MicrosToTime(createTimeUsec),
 			Metadata:  &MessageMetadata{TimestampMicro: createTimeUsec, TopicID: topicID},
 		},
-		// Success: the pending entry is no longer needed.
 		RemovePending: txnID,
 	}, nil
 }
@@ -195,8 +193,7 @@ func (c *GChatClient) sendThreadedMessage(ctx context.Context, msg *bridgev2.Mat
 		Annotations: annotations,
 		MessageInfo: &pb.MessageInfo{
 			AcceptFormatAnnotations: proto.Bool(true),
-			// A reply can also be posted into a thread (both set at once).
-			ReplyTo: buildReplyTarget(ctx, group, msg.ReplyTo, topicID),
+			ReplyTo:                 buildReplyTarget(ctx, group, msg.ReplyTo, topicID),
 		},
 	}
 
@@ -204,7 +201,6 @@ func (c *GChatClient) sendThreadedMessage(ctx context.Context, msg *bridgev2.Mat
 
 	resp, err := send(ctx, req)
 	if err != nil {
-		// Undo the pending registration on failure.
 		c.removePending(msg, txnID)
 		return nil, fmt.Errorf("googlechat: create_message failed: %w", err)
 	}

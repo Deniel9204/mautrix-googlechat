@@ -75,7 +75,6 @@ func TestGetCapabilitiesNeitherFlagSetIsFlat(t *testing.T) {
 }
 
 func TestGetCapabilitiesDMPerItsFlags(t *testing.T) {
-	// A DM never sets ThreadsOnly, so it is flat.
 	portal := portalWithMeta(&PortalMetadata{})
 
 	caps := (&GChatClient{}).GetCapabilities(context.Background(), portal)
@@ -328,7 +327,6 @@ func TestGetCapabilitiesSpaceAdvertisesMemberActions(t *testing.T) {
 			t.Errorf("MemberActions[%s] = %v, want fully supported", action, caps.MemberActions[action])
 		}
 	}
-	// Ban has no Google Chat equivalent.
 	if _, present := caps.MemberActions[event.MemberActionBan]; present {
 		t.Error("MemberActions advertises ban, which HandleMatrixMembership rejects")
 	}
@@ -362,7 +360,6 @@ func TestGetCapabilitiesDMOmitsSpaceOnlyActions(t *testing.T) {
 	if len(caps.State) != 0 {
 		t.Errorf("State = %v for a DM, want none (a DM has no name or description to change)", caps.State)
 	}
-	// The rest of the DM's capabilities must be unchanged.
 	if !caps.Reply.Full() {
 		t.Error("Reply = not full for a DM, want fully supported")
 	}

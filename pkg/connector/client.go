@@ -172,7 +172,6 @@ func (c *GChatClient) wireAndStart(ctx context.Context, conn *gchatmeow.Client) 
 	c.initialSyncDone = false
 	c.mu.Unlock()
 	conn.OnStreamEvent = func(ctx context.Context, ev *pb.Event) {
-		// The result only matters to catchUp's drain.
 		c.handleGChatEvent(ctx, ev)
 	}
 	conn.OnConnectionState = c.connStateCallback(ctx, conn)

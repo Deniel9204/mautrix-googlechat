@@ -71,7 +71,6 @@ func (c *GChatClient) HandleMatrixMembership(ctx context.Context, msg *bridgev2.
 			return nil, err
 		}
 	case bridgev2.Leave:
-		// A leave is a self-removal; the target is the logged-in user.
 		if err := c.removeMember(ctx, groupID, string(c.UserLogin.ID)); err != nil {
 			return nil, err
 		}

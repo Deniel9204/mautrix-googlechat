@@ -597,7 +597,7 @@ func TestHandleMatrixMessageThreadRootFallsBackToRootIDWhenTopicIDMissing(t *tes
 	}
 
 	msg := textMatrixMessage(spacePortal("space1"), "a reply")
-	msg.ThreadRoot = &database.Message{ID: gcid.MakeMessageID("headmsg1")} // no Metadata at all
+	msg.ThreadRoot = &database.Message{ID: gcid.MakeMessageID("headmsg1")}
 
 	if _, err := gc.HandleMatrixMessage(context.Background(), msg); err != nil {
 		t.Fatalf("HandleMatrixMessage() error = %v, want nil", err)
@@ -1126,7 +1126,6 @@ func TestHandleMatrixMessageMediaReplyKeepsBothUploadAndReplyTarget(t *testing.T
 	if got := anns[0].GetUploadMetadata(); got != wantMeta {
 		t.Errorf("Annotations[0].UploadMetadata = %v, want the uploaded metadata", got)
 	}
-	// The reply target must also be present.
 	replyTarget := gotReq.GetMessageInfo().GetReplyTo()
 	if replyTarget == nil {
 		t.Fatal("MessageInfo.ReplyTo is nil, want a SendReplyTarget alongside the upload annotation")

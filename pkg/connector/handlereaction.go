@@ -39,7 +39,6 @@ func (c *GChatClient) HandleMatrixReaction(ctx context.Context, msg *bridgev2.Ma
 	}
 
 	messageID := gcid.ParseMessageID(msg.TargetMessage.ID)
-	// TargetMessage is never nil here; bridgev2 resolved it.
 	topicID, _ := threadRootTopicID(msg.TargetMessage)
 
 	req := &pb.UpdateReactionRequest{

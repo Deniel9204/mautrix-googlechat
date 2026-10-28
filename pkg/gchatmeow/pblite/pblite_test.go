@@ -165,7 +165,6 @@ func TestEnumAsNumber(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Must be a bare JSON number.
 	if !strings.Contains(string(data), `,1]`) && !strings.Contains(string(data), `,1,`) {
 		t.Fatalf("enum not emitted as number: %s", data)
 	}

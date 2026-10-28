@@ -105,7 +105,6 @@ func convertAttachmentsToMatrix(ctx context.Context, portal *bridgev2.Portal, in
 	// The index is consumed before any skip, so numbering never depends on a runtime outcome.
 	externalFetches := 0
 	externalSeen := make(map[string]bool)
-	// One shared deadline for all external fetches of this message.
 	mediaCtx := ctx
 	if media.inlineURLMediaEnabled() && hasInlineableURLMedia(msg) {
 		var cancel context.CancelFunc
@@ -128,7 +127,6 @@ func convertAttachmentsToMatrix(ctx context.Context, portal *bridgev2.Portal, in
 			index++
 
 			src := externalMediaSrc(ann.GetUrlMetadata())
-			// Deduplicate on the URL actually requested.
 			if src == "" || externalSeen[src] {
 				continue
 			}
@@ -184,15 +182,12 @@ func inlineableURLMedia(a *pb.Annotation) bool {
 	if m.GetImageUrl() == "" {
 		return false
 	}
-	// The server said so outright.
 	if a.GetType() == pb.AnnotationType_IMAGE {
 		return true
 	}
-	// The server declared a media type.
 	if t := m.GetMimeType(); strings.HasPrefix(t, "image/") || strings.HasPrefix(t, "video/") {
 		return true
 	}
-	// A chip attached to the message rather than decorating pasted text.
 	return a.GetLength() == 0
 }
 
@@ -243,11 +238,9 @@ func convertOneAttachment(ctx context.Context, portal *bridgev2.Portal, intent b
 
 	data, mimeType, filename, err := media.downloadAttachment(ctx, urlStr, media.maxFileSize())
 	if err != nil {
-		// Too large: warn and skip.
 		if errors.Is(err, gchatmeow.ErrFileTooLarge) {
 			log.Warn().Err(err).Msg("googlechat: attachment too large to bridge, skipping")
 		} else {
-			// Any other download error is treated the same way.
 			log.Warn().Err(err).Msg("googlechat: failed to download attachment, skipping")
 		}
 		return nil, false

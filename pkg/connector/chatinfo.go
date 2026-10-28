@@ -83,8 +83,7 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 	}
 
 	info := &bridgev2.ChatInfo{
-		Type: &roomType,
-		// FetchMessages is supported for every portal.
+		Type:        &roomType,
 		CanBackfill: true,
 		Members:     chatMemberList(memberIDs, ownUserID, group.IsDM),
 	}
@@ -95,7 +94,6 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 	if !group.IsDM && g.Name != nil {
 		info.Name = g.Name
 	}
-	// Topic is unconditional; unset yields "".
 	desc := g.GetGroupDetails().GetDescription()
 	info.Topic = &desc
 	threadsOnly := g.GetThreadedGroup() != nil
@@ -109,20 +107,17 @@ func chatInfoFromGetGroupResponse(group gcid.GroupID, resp *pb.GetGroupResponse,
 func chatInfoFromWorldItem(item *pb.WorldItemLite, ownUserID networkid.UserID) *bridgev2.ChatInfo {
 	_, isDM, _ := gchatmeow.GroupIDToParts(item.GetGroupId())
 
-	// RoomTypeDefault, as in chatInfoFromGetGroupResponse.
 	roomType := database.RoomTypeDefault
 	if isDM {
 		roomType = database.RoomTypeDM
 	}
 
 	info := &bridgev2.ChatInfo{Type: &roomType, CanBackfill: true}
-	// Per-chat mute (handlemute.go).
 	info.UserLocal = mutedUntilFromReadState(item.GetReadState())
 
 	if isDM {
 		info.Members = dmMemberListFromWorldItem(item, ownUserID)
 	} else if item.RoomName != nil {
-		// Presence-gated, as in chatInfoFromGetGroupResponse.
 		info.Name = item.RoomName
 	}
 

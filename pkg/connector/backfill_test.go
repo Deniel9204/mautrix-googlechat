@@ -389,7 +389,7 @@ func TestHandleConnStateFirstConnectSyncsThenReconnectCatchesUp(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil) // 1st Connected: chat-list sync
+	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil)
 
 	select {
 	case got := <-calls:
@@ -399,10 +399,9 @@ func TestHandleConnStateFirstConnectSyncsThenReconnectCatchesUp(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for the first Connected's sync")
 	}
-	// Wait for syncChats to fully return, not just be called.
 	waitUntilSyncNotInProgress(t, gc, 2*time.Second)
 
-	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil) // 2nd Connected: reconnect -> catch-up
+	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil)
 
 	select {
 	case got := <-calls:
@@ -489,7 +488,7 @@ func TestSyncChatsClearsSyncInProgressWhenDone(t *testing.T) {
 		},
 	}
 
-	gc.setSyncInProgress(true) // mirrors handleConnState setting it before the `go`
+	gc.setSyncInProgress(true)
 
 	gc.syncChats(context.Background())
 
@@ -510,7 +509,7 @@ func TestHandleConnStateSetsSyncInProgressSynchronously(t *testing.T) {
 		Main:      &GChatConnector{Config: *newTestConfig(t)},
 		saveFn:    func(context.Context) error { return nil },
 		paginatedWorldFn: func(context.Context, *pb.PaginatedWorldRequest) (*pb.PaginatedWorldResponse, error) {
-			<-release // park the sync goroutine so it cannot reach its deferred clear
+			<-release
 			return &pb.PaginatedWorldResponse{}, nil
 		},
 	}
@@ -605,7 +604,7 @@ func TestHandleGChatEventFailedQueueLeavesUserWatermarkUnchanged(t *testing.T) {
 	gc := &GChatClient{
 		UserLogin: login,
 		queueRemoteEventFn: func(bridgev2.RemoteEvent) bridgev2.EventHandlingResult {
-			return bridgev2.EventHandlingResultFailed // Success == false
+			return bridgev2.EventHandlingResultFailed
 		},
 		saveFn: func(context.Context) error { saveCount++; return nil },
 	}
@@ -654,7 +653,7 @@ func TestHandleGChatEventNoRevisionFieldDoesNotTouchMetadata(t *testing.T) {
 	meta := &UserLoginMetadata{Revision: 10}
 	login := newTestUserLogin(meta)
 	login.ID = gcid.MakeUserLoginID("112233")
-	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-1", "98765", "hi", 1) // no RevisionType set
+	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-1", "98765", "hi", 1)
 	var saveCount int
 	gc := &GChatClient{
 		UserLogin: login,
@@ -679,7 +678,7 @@ func TestHandleGChatEventRevisionNeverRegresses(t *testing.T) {
 	login := newTestUserLogin(meta)
 	login.ID = gcid.MakeUserLoginID("112233")
 	evt := messagePostedEvent(spaceGroupID("space-1"), "msg-1", "98765", "hi", 1)
-	evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(100)}} // older/out-of-order
+	evt.RevisionType = &pb.Event_UserRevision{UserRevision: &pb.WriteRevision{Timestamp: proto.Int64(100)}}
 	var saveCount int
 	gc := &GChatClient{
 		UserLogin: login,
@@ -807,7 +806,6 @@ func TestFetchMessagesFlatZeroCountFallsBackToDefault(t *testing.T) {
 // TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields: newest-first server order is returned oldest-first.
 func TestFetchMessagesFlatOrdersChronologicallyWithCorrectFields(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
-	// Server order: newest first.
 	serverOrder := []*pb.Topic{
 		flatTopic("t3", "m3", "u3", "three", 3_000_000),
 		flatTopic("t2", "m2", "u2", "two", 2_000_000),
@@ -945,7 +943,6 @@ func TestFetchMessagesFlatSortTimeTieBreaksByTopicID(t *testing.T) {
 
 func TestFetchMessagesFlatServerReturnsFewerThanRequestedSetsHasMoreFalse(t *testing.T) {
 	group := gcid.GroupID{ID: "space-1", IsDM: false}
-	// Only 2 topics exist; asked for 5.
 	gc := newBackfillTestClient("owner", func(context.Context, *pb.ListTopicsRequest) (*pb.ListTopicsResponse, error) {
 		return &pb.ListTopicsResponse{
 			Topics: []*pb.Topic{
@@ -1024,8 +1021,8 @@ func TestFetchMessagesFlatAnchorExcludesAlreadyBridgedMessages(t *testing.T) {
 		return &pb.ListTopicsResponse{
 			Topics: []*pb.Topic{
 				flatTopic("t3", "m3", "u", "three", 3_000_000), // at anchor: excluded
-				flatTopic("t2", "m2", "u", "two", 2_000_000),   // older: included
-				flatTopic("t1", "m1", "u", "one", 1_000_000),   // older: included
+				flatTopic("t2", "m2", "u", "two", 2_000_000),
+				flatTopic("t1", "m1", "u", "one", 1_000_000),
 			},
 			ContainsFirstTopic: proto.Bool(true),
 		}, nil
@@ -1166,8 +1163,7 @@ func TestFetchMessagesForwardNilAnchorSeedsInitialBackfill(t *testing.T) {
 	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
 		Portal:  flatBackfillPortal(group),
 		Forward: true,
-		// Nil AnchorMessage: the new-room bootstrap seed.
-		Count: 3,
+		Count:   3,
 	})
 	if err != nil {
 		t.Fatalf("FetchMessages returned error: %v", err)
@@ -1291,7 +1287,6 @@ func TestFetchMessagesThreadsOnlyForwardNilAnchorSeedsWithShouldBackfillThread(t
 		Portal:  portal,
 		Forward: true,
 		Count:   3,
-		// Nil AnchorMessage: the new-room bootstrap seed.
 	})
 	if err != nil {
 		t.Fatalf("FetchMessages returned error: %v", err)
@@ -1390,7 +1385,6 @@ func TestFetchMessagesThreadRootExcludesHeadAndOrdersChronologically(t *testing.
 	reply2 := threadReply("reply-2", "u2", "second", 3_000_000)
 	reply1 := threadReply("reply-1", "u3", "first", 2_000_000)
 	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
-		// Out of order and including the head.
 		return &pb.ListMessagesResponse{Messages: []*pb.Message{reply2, head, reply1}}, nil
 	})
 	anchor := threadRootAnchor("head-1", "topic-1", 1_000_000)
@@ -1429,7 +1423,6 @@ func TestFetchMessagesThreadRootKeepsDistinctSiblingAtSameMicrosecond(t *testing
 	older := threadReply("reply-older", "u3", "older text", 1_000_000)       // strictly older: excluded
 	newer := threadReply("reply-newer", "u4", "newer text", 5_000_000)       // strictly newer: kept
 	gc := newThreadBackfillTestClient("owner", func(context.Context, *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
-		// Deliberately out of order.
 		return &pb.ListMessagesResponse{Messages: []*pb.Message{newer, head, sibling, older}}, nil
 	})
 	anchor := threadRootAnchor("head-1", "topic-1", 3_000_000)
@@ -1503,7 +1496,7 @@ func TestFetchMessagesThreadRootAnchorMissingTopicIDReturnsEmptyResponse(t *test
 		calls++
 		return &pb.ListMessagesResponse{}, nil
 	})
-	anchor := &database.Message{ID: gcid.MakeMessageID("head-1"), Timestamp: gchatmeow.MicrosToTime(1000)} // no Metadata at all
+	anchor := &database.Message{ID: gcid.MakeMessageID("head-1"), Timestamp: gchatmeow.MicrosToTime(1000)}
 
 	resp, err := gc.FetchMessages(context.Background(), bridgev2.FetchMessagesParams{
 		Portal:        flatBackfillPortal(group),

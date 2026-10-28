@@ -203,7 +203,7 @@ func TestConvertAttachmentsToMatrix_VideoAndAudioMsgTypes(t *testing.T) {
 	}{
 		{"video/mp4", event.MsgVideo},
 		{"audio/ogg", event.MsgAudio},
-		{"text/plain", event.MsgFile}, // explicit TEXT->FILE override
+		{"text/plain", event.MsgFile},
 	}
 	for _, tc := range cases {
 		msg := &pb.Message{Annotations: []*pb.Annotation{makeUploadAnnotation("TOK", tc.mime, "f")}}
@@ -519,7 +519,7 @@ func TestConvertMessageToMatrix_AttachmentPartsDoNotGetTextMentions(t *testing.T
 		}},
 	}
 	msg := &pb.Message{
-		TextBody:   proto.String("hi @Bob"), // "@Bob" is [3,7)
+		TextBody:   proto.String("hi @Bob"),
 		CreateTime: proto.Int64(1),
 		Annotations: []*pb.Annotation{
 			gchatfmt.MakeMentionAnnotation(3, 4, "200"),
@@ -571,7 +571,6 @@ func TestInlineableURLMedia(t *testing.T) {
 		want bool
 	}{
 		{
-			// An ordinary in-sentence link: covers text, declares no media.
 			name: "ordinary pasted link is not fetched",
 			ann:  makeURLAnnotation("https://example.com/page", "", "", 24, false),
 			want: false,
@@ -1052,7 +1051,6 @@ func TestInlineableURLMedia_AcceptsTheCapturedGIFShape(t *testing.T) {
 	if ann.GetType() == pb.AnnotationType_IMAGE {
 		t.Fatal("fixture drifted: the captured annotation type was URL, not IMAGE")
 	}
-	// Google's own address is what gets fetched.
 	if got := externalMediaSrc(ann.GetUrlMetadata()); got != "https://lh3.googleusercontent.com/example-rehosted" {
 		t.Errorf("externalMediaSrc = %q, want Google's rehosted address", got)
 	}

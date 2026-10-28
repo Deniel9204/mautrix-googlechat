@@ -26,7 +26,7 @@ func TestSupersededConnStateCallbackIgnored(t *testing.T) {
 	gc.replaceConn(active)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // as the superseded conn's context would be
+	cancel()
 
 	gc.connStateCallback(ctx, superseded)(gchatmeow.ConnStateConnected, nil)
 
@@ -50,7 +50,6 @@ func TestActiveConnStateCallbackHandled(t *testing.T) {
 	}
 	gc.replaceConn(active)
 
-	// Pre-cancelled so the spawned syncChats returns immediately.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -59,5 +58,5 @@ func TestActiveConnStateCallbackHandled(t *testing.T) {
 	if gc.shouldSyncOnConnect() {
 		t.Error("the active conn's Connected callback did not consume the initial-sync latch")
 	}
-	time.Sleep(20 * time.Millisecond) // let the spawned syncChats goroutine return
+	time.Sleep(20 * time.Millisecond)
 }

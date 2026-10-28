@@ -76,7 +76,6 @@ func TestEmptyFeed(t *testing.T) {
 }
 
 func TestEmptyBuffer_NoNewlineYet(t *testing.T) {
-	// No newline yet: nothing yielded.
 	p := &ChunkParser{}
 	got := p.Feed([]byte("123"))
 	assertChunks(t, "Feed", got, nil)
@@ -90,7 +89,6 @@ func TestZeroLengthChunk(t *testing.T) {
 }
 
 func TestLengthNotYetTerminatedByNewline(t *testing.T) {
-	// The '\n' terminator is required.
 	p := &ChunkParser{}
 	got1 := p.Feed([]byte("5"))
 	assertChunks(t, "Feed 1", got1, nil)
@@ -100,7 +98,6 @@ func TestLengthNotYetTerminatedByNewline(t *testing.T) {
 }
 
 func TestPartialPayloadBuffered(t *testing.T) {
-	// Partial payloads accumulate until the declared length arrives.
 	p := &ChunkParser{}
 	got1 := p.Feed([]byte("11\nhello"))
 	assertChunks(t, "Feed 1", got1, nil)
@@ -113,7 +110,6 @@ func TestPartialPayloadBuffered(t *testing.T) {
 }
 
 func TestChunkFollowedByPartialLength(t *testing.T) {
-	// Remainder after a complete chunk resumes correctly.
 	p := &ChunkParser{}
 	got1 := p.Feed([]byte("2\nhi1"))
 	assertChunks(t, "Feed 1", got1, []string{"hi"})

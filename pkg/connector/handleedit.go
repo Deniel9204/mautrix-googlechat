@@ -34,7 +34,6 @@ func (c *GChatClient) HandleMatrixEdit(ctx context.Context, edit *bridgev2.Matri
 	}
 
 	messageID := gcid.ParseMessageID(edit.EditTarget.ID)
-	// bridgev2 guarantees EditTarget is non-nil here.
 	topicID, _ := threadRootTopicID(edit.EditTarget)
 
 	resolve := newOutboundMentionResolver(ctx, edit.Portal)

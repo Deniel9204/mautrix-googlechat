@@ -317,7 +317,7 @@ func isDangerousURLScheme(href string) bool {
 	cleaned := strings.Map(func(r rune) rune {
 		switch r {
 		case '\t', '\n', '\r':
-			return -1 // drop
+			return -1
 		default:
 			return r
 		}

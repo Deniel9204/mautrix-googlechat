@@ -159,7 +159,7 @@ func TestAppendLinkAnnotations_ShouldNotRenderStillAppends(t *testing.T) {
 // A url_metadata covering text renders inline, so appending would render it twice.
 func TestAppendLinkAnnotations_UrlMetadataNeverAppended(t *testing.T) {
 	text := "check out this link"
-	const covers = int32(4) // "this"
+	const covers = int32(4)
 	tests := []struct {
 		name       string
 		annotation *pb.Annotation

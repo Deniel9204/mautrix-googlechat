@@ -93,7 +93,7 @@ func TestConnectBuildsAndInstallsClient(t *testing.T) {
 	gc := &GChatClient{UserLogin: login}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // pre-cancelled: the spawned supervision goroutine returns immediately
+	cancel()
 
 	gc.Connect(ctx)
 
@@ -107,7 +107,7 @@ func TestConnectBuildsAndInstallsClient(t *testing.T) {
 	if conn.OnConnectionState == nil {
 		t.Error("Connect() did not wire OnConnectionState")
 	}
-	time.Sleep(20 * time.Millisecond) // let the background goroutine return
+	time.Sleep(20 * time.Millisecond)
 }
 
 func TestReplaceConnDisconnectsOldClient(t *testing.T) {
@@ -190,7 +190,7 @@ func TestConnectTearsDownPriorClientOnReconnect(t *testing.T) {
 func TestGChatClientDisconnectNilConnIsNoop(t *testing.T) {
 	gc := &GChatClient{}
 	gc.Disconnect()
-	gc.Disconnect() // must not panic
+	gc.Disconnect()
 }
 
 func TestGChatClientDisconnectIdempotentWithRealClient(t *testing.T) {
@@ -233,7 +233,6 @@ func TestHandleConnStatePersistsCookiesOnConnected(t *testing.T) {
 		saveFn:    func(context.Context) error { saveCount++; return nil },
 	}
 
-	// Pre-cancelled so the spawned syncChats returns immediately.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -255,7 +254,7 @@ func TestHandleConnStatePersistsCookiesOnConnected(t *testing.T) {
 	if !gc.IsLoggedIn() {
 		t.Error("IsLoggedIn() = false after a Connected transition, want true")
 	}
-	time.Sleep(20 * time.Millisecond) // let the spawned syncChats goroutine return
+	time.Sleep(20 * time.Millisecond)
 }
 
 func TestShouldSyncOnConnectTrueOnceThenFalse(t *testing.T) {
@@ -280,7 +279,7 @@ func TestWireAndStartResetsInitialSyncDone(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // pre-cancelled: the spawned goroutine returns immediately, no real I/O
+	cancel()
 
 	gc.wireAndStart(ctx, client)
 
@@ -314,8 +313,8 @@ func TestHandleConnStateDoesNotResyncOnSecondConnected(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil) // 1st: consumes the slot
-	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil) // 2nd: must not re-consume
+	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil)
+	gc.handleConnState(ctx, gchatmeow.ConnStateConnected, nil)
 
 	if gc.shouldSyncOnConnect() {
 		t.Error("shouldSyncOnConnect() = true after two Connected transitions on the same conn, want false (the slot was already consumed by the first)")

@@ -123,7 +123,7 @@ func TestUploadFileRoundTrip(t *testing.T) {
 	wantStartHeaders := map[string]string{
 		"X-Goog-Upload-Protocol":       "resumable",
 		"X-Goog-Upload-Command":        "start",
-		"X-Goog-Upload-Content-Length": "15", // len(data)
+		"X-Goog-Upload-Content-Length": "15",
 		"X-Goog-Upload-Content-Type":   mimeType,
 		"X-Goog-Upload-File-Name":      filename,
 	}

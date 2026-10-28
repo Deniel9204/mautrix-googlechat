@@ -170,7 +170,7 @@ func TestLiveSendReceive(t *testing.T) {
 
 	marker := "m2-live-" + os.Getenv("GCHAT_LIVE_MARKER")
 	if marker == "m2-live-" {
-		marker = "m2-live-probe" // caller can override via GCHAT_LIVE_MARKER for a fresh value
+		marker = "m2-live-probe"
 	}
 	localID := "mautrix-googlechat%42424242"
 
@@ -192,7 +192,6 @@ func TestLiveSendReceive(t *testing.T) {
 	defer connCancel()
 	connErr := make(chan error, 1)
 	go func() { connErr <- client.Connect(connCtx) }()
-	// Give the channel a moment to register before sending.
 	select {
 	case <-time.After(8 * time.Second):
 	case err := <-connErr:
@@ -237,7 +236,6 @@ func TestLiveUpload(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// Fast path: GCHAT_LIVE_GROUP_ID is a plain group id (no dm:/space: prefix).
 	if gid := os.Getenv("GCHAT_LIVE_GROUP_ID"); gid != "" {
 		runUploadProbe(t, ctx, client, gid)
 		return
@@ -465,7 +463,6 @@ func TestLiveRoomName(t *testing.T) {
 	}
 	t.Logf("PASS update_group renamed space to %q", probe)
 
-	// Restore; best-effort.
 	if err := rename(orig); err != nil {
 		t.Errorf("could not restore original name %q (space is currently %q, rename it back manually): %v", orig, probe, err)
 	} else {
@@ -606,7 +603,6 @@ func TestLiveDumpLinkAnnotations(t *testing.T) {
 		t.Fatalf("FetchXSRFToken (cookies invalid / logged out): %v", err)
 	}
 
-	// The id may be a DM or a space; try DM first.
 	var resp *pb.ListTopicsResponse
 	for _, isDM := range []bool{true, false} {
 		resp, err = client.ListTopics(ctx, &pb.ListTopicsRequest{

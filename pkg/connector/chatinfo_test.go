@@ -133,7 +133,7 @@ func TestChatInfoFromWorldItemSpaceSetsNameNoMembers(t *testing.T) {
 }
 
 func TestChatInfoFromWorldItemNoRoomNameFieldLeavesNameNil(t *testing.T) {
-	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")} // room_name entirely absent
+	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")}
 
 	info := chatInfoFromWorldItem(item, ownID)
 
@@ -153,7 +153,7 @@ func TestChatInfoFromWorldItemExplicitEmptyRoomNameClearsName(t *testing.T) {
 }
 
 func TestChatInfoFromWorldItemTopicAlwaysSetEvenWhenAbsent(t *testing.T) {
-	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")} // group_lite/group_details entirely absent
+	item := &pb.WorldItemLite{GroupId: spaceGroupID("space1")}
 
 	info := chatInfoFromWorldItem(item, ownID)
 
@@ -304,7 +304,7 @@ func TestChatInfoFromGetGroupResponseSpace(t *testing.T) {
 }
 
 func TestChatInfoFromGetGroupResponseNoNameFieldLeavesNameNil(t *testing.T) {
-	resp := &pb.GetGroupResponse{Group: &pb.Group{}} // name entirely absent
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}}
 
 	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
 
@@ -324,7 +324,7 @@ func TestChatInfoFromGetGroupResponseExplicitEmptyNameClears(t *testing.T) {
 }
 
 func TestChatInfoFromGetGroupResponseTopicAlwaysSetEvenWhenAbsent(t *testing.T) {
-	resp := &pb.GetGroupResponse{Group: &pb.Group{}} // group_details entirely absent
+	resp := &pb.GetGroupResponse{Group: &pb.Group{}}
 
 	info := chatInfoFromGetGroupResponse(gcid.GroupID{ID: "space1", IsDM: false}, resp, ownID)
 

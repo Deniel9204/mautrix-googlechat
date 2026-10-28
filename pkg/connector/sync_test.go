@@ -68,12 +68,12 @@ func TestPlanChatSyncCapsCreatePortalAtInitialChatSync(t *testing.T) {
 
 // TestPlanChatSyncSkippedItemConsumesCapSlot: skipped items still count toward the cap position.
 func TestPlanChatSyncSkippedItemConsumesCapSlot(t *testing.T) {
-	blocked := worldItem("blocked", 500) // newest -> absolute sorted position 0
+	blocked := worldItem("blocked", 500)
 	blocked.ReadState.Blocked = proto.Bool(true)
 	items := []*pb.WorldItemLite{
 		blocked,
-		worldItem("a", 400), // absolute sorted position 1
-		worldItem("b", 300), // absolute sorted position 2
+		worldItem("a", 400),
+		worldItem("b", 300),
 	}
 
 	plan := planChatSync(items, 2)

@@ -225,7 +225,7 @@ func TestHandleMatrixReactionFallsBackToOwnIDWhenTopicIDMissing(t *testing.T) {
 		},
 	}
 
-	target := &database.Message{ID: gcid.MakeMessageID("headmsg1")} // no Metadata at all
+	target := &database.Message{ID: gcid.MakeMessageID("headmsg1")}
 	react := matrixReactionWithPreResp(spacePortal("space1"), target, "❤")
 
 	dbReaction, err := gc.HandleMatrixReaction(context.Background(), react)
@@ -378,7 +378,6 @@ func TestHandleMatrixReactionRemoveFallsBackToMessageIDWhenNoTopicIDMetadata(t *
 	target := &database.Reaction{
 		MessageID: gcid.MakeMessageID("headmsg1"),
 		EmojiID:   networkid.EmojiID("❤"),
-		// Metadata is nil
 	}
 	remove := matrixReactionRemove(spacePortal("space1"), target)
 
@@ -447,7 +446,7 @@ func TestHandleMatrixReactionRemoveLookupFallsBackToMessagesOwnIDWhenHeadOfTopic
 			return &pb.UpdateReactionResponse{}, nil
 		},
 		getMessageFn: func(_ context.Context, _ networkid.UserLoginID, id networkid.MessageID) (*database.Message, error) {
-			return &database.Message{ID: id}, nil // no Metadata at all
+			return &database.Message{ID: id}, nil
 		},
 	}
 

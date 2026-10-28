@@ -90,7 +90,6 @@ func migrateUserLogins(ctx context.Context, deps *Deps, opts Options) (int, []st
 	count := 0
 
 	for _, u := range users {
-		// Never logged in.
 		if !u.GCID.Valid || u.GCID.String == "" {
 			continue
 		}

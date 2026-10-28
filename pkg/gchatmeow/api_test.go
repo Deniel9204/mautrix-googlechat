@@ -110,7 +110,6 @@ func TestGetSelfUserStatusRoundTrip(t *testing.T) {
 		t.Errorf("X-Goog-Encode-Response-If-Executable = %q, want base64", got)
 	}
 
-	// RequestHeader must be populated by the wrapper.
 	var gotReq pb.GetSelfUserStatusRequest
 	if err := proto.Unmarshal(gotBody, &gotReq); err != nil {
 		t.Fatalf("unmarshal request body sent to server: %v", err)
@@ -350,7 +349,6 @@ func TestAllRPCsSetEndpointAndRequestHeader(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotMethod = r.Method
 				gotPath = r.URL.Path
-				// An empty body is a valid empty proto message.
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer srv.Close()

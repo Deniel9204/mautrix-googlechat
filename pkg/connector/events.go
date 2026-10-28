@@ -118,8 +118,7 @@ func (c *GChatClient) queueMessagePosted(ctx context.Context, evt *pb.Event) bri
 				Sender:   senderUserID,
 				IsFromMe: c.IsThisUser(ctx, senderUserID),
 			},
-			Timestamp: gchatmeow.MicrosToTime(msg.GetCreateTime()),
-			// StreamOrder is the create time in µs, as in backfill.
+			Timestamp:   gchatmeow.MicrosToTime(msg.GetCreateTime()),
 			StreamOrder: msg.GetCreateTime(),
 		},
 		ID: gcid.MakeMessageID(gcMessageID),
@@ -159,8 +158,7 @@ func (c *GChatClient) queueMessageEdit(ctx context.Context, evt *pb.Event) bridg
 				Sender:   senderUserID,
 				IsFromMe: c.IsThisUser(ctx, senderUserID),
 			},
-			Timestamp: gchatmeow.MicrosToTime(editTS),
-			// StreamOrder: editTS, consistent with Timestamp.
+			Timestamp:   gchatmeow.MicrosToTime(editTS),
 			StreamOrder: editTS,
 		},
 		ID:              gcid.MakeMessageID(gcMessageID),

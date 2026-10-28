@@ -154,7 +154,6 @@ func TestParse(t *testing.T) {
 			},
 		},
 		{
-			// Nested tags: bold containing italic.
 			name:     "nested tags -- bold containing italic",
 			content:  htmlContent("<strong>bo<em>ld</em></strong>"),
 			wantText: "bold",

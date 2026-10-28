@@ -34,7 +34,7 @@ func TestGChatMentionResolver_GhostPill(t *testing.T) {
 			}
 			return ""
 		},
-		nil, // no double-puppet accounts known
+		nil,
 	)
 
 	mxid, name, ok := resolve("200")
@@ -215,7 +215,7 @@ func TestGChatMention_EndToEnd_RoomMention(t *testing.T) {
 }
 
 func TestGChatMention_EndToEnd_UnknownGaiaFallsBackToPlainText(t *testing.T) {
-	resolve := gchatMentionResolver(nil, nil) // resolves nothing
+	resolve := gchatMentionResolver(nil, nil)
 	anns := []*pb.Annotation{gchatfmt.MakeMentionAnnotation(0, 4, "999")}
 
 	_, html, parsed := gchatfmt.Parse(context.Background(), "@Eve hi", anns, resolve)
@@ -262,7 +262,6 @@ func TestGChatMention_EndToEnd_ValidMentionStillPingsDespiteUnrelatedMalformedAn
 	anns := []*pb.Annotation{
 		// Out of bounds: forces a plain-text fallback.
 		gchatfmt.MakeFormatAnnotation(0, 2147483647, pb.FormatMetadata_BOLD),
-		// A valid mention over "@Bob".
 		gchatfmt.MakeMentionAnnotation(3, 4, "200"),
 	}
 
@@ -302,7 +301,7 @@ func TestMatrixMentionResolver_OwnUserMXID(t *testing.T) {
 	wantUser := &bridgev2.User{User: &database.User{MXID: "@alice:example.com"}}
 	resolve := matrixMentionResolver(
 		context.Background(),
-		func(id.UserID) (networkid.UserID, bool) { return "", false }, // not a ghost
+		func(id.UserID) (networkid.UserID, bool) { return "", false },
 		func(_ context.Context, mxid id.UserID) (*bridgev2.User, error) {
 			if mxid == "@alice:example.com" {
 				return wantUser, nil

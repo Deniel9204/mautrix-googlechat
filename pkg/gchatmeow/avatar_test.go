@@ -203,7 +203,7 @@ func TestDownloadAvatarRejectsNonHTTPSURL(t *testing.T) {
 	defer srv.Close()
 	useAvatarClient(t, srv.Client())
 
-	_, err := DownloadAvatar(context.Background(), srv.URL) // http://...
+	_, err := DownloadAvatar(context.Background(), srv.URL)
 	if err == nil {
 		t.Fatal("DownloadAvatar(http url) = nil error, want a scheme rejection")
 	}

@@ -133,7 +133,7 @@ func (ch *Channel) SetOnDisconnect(f func(ctx context.Context)) { ch.OnDisconnec
 func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase time.Duration) error {
 	retries := 0
 	skipBackoff := false
-	var lastNetErr error // last NetworkError, returned wrapped on exhaustion
+	var lastNetErr error
 
 	csid, err := ch.register(ctx)
 	if err != nil {
@@ -159,7 +159,6 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 		}
 		skipBackoff = false
 
-		// Fresh parser per attempt.
 		ch.parser = &ChunkParser{}
 
 		err := ch.longpollRequest(ctx)
@@ -179,7 +178,6 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 			skipBackoff = true
 			continue
 		case isNetworkError(err):
-			// Count a retry and back off.
 			lastNetErr = err
 			retries++
 			ch.mu.Lock()
@@ -205,7 +203,6 @@ func (ch *Channel) Listen(ctx context.Context, maxRetries int, retryBackoffBase 
 
 // register does GET /register, which seeds the webchannel COMPASS cookie, resets SID/AID/OFS and returns the csessionid.
 func (ch *Channel) register(ctx context.Context) (string, error) {
-	// Reset session parameters.
 	ch.mu.Lock()
 	ch.sid = ""
 	ch.aid = 0
@@ -235,7 +232,6 @@ func (ch *Channel) register(ctx context.Context) (string, error) {
 			if strings.HasPrefix(c.Value, "dynamite-ui=") {
 				return strings.TrimPrefix(c.Value, "dynamite-ui="), nil
 			}
-			// Unexpected prefix: return "".
 		}
 	}
 	return "", nil
@@ -254,13 +250,11 @@ func (ch *Channel) longpollRequest(ctx context.Context) error {
 		"zx":  {uniqueID()},
 	}
 	if ch.sid == "" {
-		// First request, no SID yet.
 		params.Set("CVER", "22")
 		params.Set("$req", "count=1&ofs=0&req0_data=%5B%5D")
 		params.Set("SID", "null")
 		ch.rid++
 	} else {
-		// SID acquired.
 		params.Set("CI", "0")
 		params.Set("TYPE", "xmlhttp")
 		params.Set("RID", "rpc")
@@ -348,7 +342,6 @@ func (ch *Channel) readBody(ctx context.Context, resp *http.Response) error {
 	for {
 		select {
 		case <-ctx.Done():
-			// Caller cancelled: unblock the reader.
 			resp.Body.Close()
 			return ctx.Err()
 
@@ -453,7 +446,6 @@ func (ch *Channel) onPushData(ctx context.Context, data []byte) error {
 					return err
 				}
 			}
-			// Update last acknowledged id after processing.
 			ch.mu.Lock()
 			ch.aid = arrayID
 			ch.mu.Unlock()

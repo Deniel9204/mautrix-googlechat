@@ -135,7 +135,6 @@ func TestMigrateMessages_IndexToPartIDRule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrateMessages: %v", err)
 	}
-	// msgNoSender is skipped.
 	if count != 7 {
 		t.Fatalf("expected 7 messages migrated, got %d", count)
 	}
