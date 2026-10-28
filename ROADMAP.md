@@ -78,35 +78,16 @@
   * [x] Option to use own Matrix account for messages sent from other Google Chat clients (double puppeting)
   * [x] One-shot migration from the Python bridge's database (`--migrate-from-python`)
 
-† Outbound media upload is implemented and **verified working against Google's
-live endpoint (2026-07-22)**. Some clients have hit an HTTP 500 on upload
-since ~Feb 2026
-([mautrix/googlechat#114](https://github.com/mautrix/googlechat/issues/114)),
-but that is a client request-shape bug — the affected client appends
-`alt=`/`key=` params to the signed upload URL and omits the XSRF header. This
-bridge does neither (it sends the
-[purple-googlechat](https://github.com/EionRobb/purple-googlechat) shape), and
-a live upload confirmed it succeeds. `network.disable_outbound_media` remains
-available to turn upload attempts into clean errors if a future change breaks
-them for your account.
+† Outbound upload works. It can be turned off with
+`network.disable_outbound_media` if Google ever breaks it for your account.
 
-‡ Invites are picked up from the live event Google sends to the invitee, not
-from the chat list, which never contains them. So an invite sent while the
-bridge is down only appears if Google replays it on reconnect. Invite,
-accept and decline are live-verified (2026-09-29).
+‡ Invites come from the live event Google sends the invitee; the chat list
+never contains them. An invite sent while the bridge is down only shows up
+if Google replays it on reconnect.
 
-§ Sent with `update_group`'s space-details field; the space's guidelines are
-read first and sent back unchanged. Topic and rename from Matrix are
-live-verified (2026-09-29); both need the Matrix moderator level a Google
-Chat space manager gets.
+§ Needs the Matrix moderator level that a Google Chat space manager gets.
 
-¶ `leave` leaves a space with every one of your logins in it
-(`remove_memberships`, the same request as a room leave) and hides a DM
-(`hide_group`, as the purple-googlechat client does). Live-verified
-(2026-09-29), including a space's only manager leaving, which Google allows.
+¶ Leaves a space with every one of your logins in it; hides a DM, since a
+DM can't be left.
 
-◊ Sent with `update_group_notification_settings`, a request taken from
-captures of the Google Chat web client (no reference client uses it); read
-from each chat's notification settings in the chat list (field 3, the same
-mute sub-message the request writes). Live-verified both ways (2026-09-30);
-muting on Matrix needs double puppeting.
+◊ Muting from Google Chat reaches Matrix only with double puppeting.

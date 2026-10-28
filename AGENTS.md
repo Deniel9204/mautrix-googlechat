@@ -14,6 +14,11 @@ before making protocol changes; do not re-derive protocol facts from memory.
 - Never remove the `-tags goolm` build tag path.
 - pblite/stream decode errors must log-and-skip, never kill the channel.
 
+## Code comments
+
+One line, two at most. No history, dates, issue numbers or narration;
+longer protocol notes belong in `docs/ARCHITECTURE.md`.
+
 ## Commits
 
 Plain conventional-commit messages only (`feat:`/`fix:`/`build:`/`docs:`/`test:`).
