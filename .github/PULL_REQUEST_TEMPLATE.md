@@ -1,7 +1,7 @@
 <!--
 Thanks for contributing! Keep commits as plain conventional-commit messages
 (feat:/fix:/build:/docs:/test:/chore:) with no AI-attribution or session
-trailers, per CLAUDE.md.
+trailers, per AGENTS.md.
 -->
 
 ## Summary
